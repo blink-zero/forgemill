@@ -1,0 +1,9 @@
+.git
+.env
+.env.*
+bin/
+frontend/node_modules/
+*.db
+*.db-journal
+*.db-wal
+*.md

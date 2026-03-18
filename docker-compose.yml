@@ -1,0 +1,69 @@
+services:
+  forgemill:
+    build:
+      context: .
+      args:
+        VERSION: ${FORGEMILL_VERSION:-dev}
+        COMMIT: ${FORGEMILL_COMMIT:-unknown}
+        BUILD_DATE: ${FORGEMILL_BUILD_DATE:-unknown}
+    container_name: forgemill
+    ports:
+      - "0.0.0.0:8894:8080"
+      - "0.0.0.0:8100-8200:8100-8200"  # Packer HTTP server range
+    volumes:
+      - forgemill-data:/app/data
+    environment:
+      # HIGH-07: Secrets are now loaded from Docker secrets files (see below).
+      # The application reads from /run/secrets/* files at startup.
+      # Env vars below are kept as fallback for non-swarm/compose-v2 deployments.
+      FORGEMILL_JWT_SECRET_FILE: /run/secrets/jwt_secret
+      FORGEMILL_ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
+      FORGEMILL_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      FORGEMILL_ADMIN_USER: ${FORGEMILL_ADMIN_USER:-admin}
+      FORGEMILL_LOG_LEVEL: ${FORGEMILL_LOG_LEVEL:-info}
+      # V3-M8: TLS configuration — set both to enable native HTTPS
+      FORGEMILL_TLS_CERT: ${FORGEMILL_TLS_CERT:-}
+      FORGEMILL_TLS_KEY: ${FORGEMILL_TLS_KEY:-}
+      # V3-H1: Only trust X-Forwarded-For when behind a reverse proxy
+      FORGEMILL_TRUSTED_PROXIES: ${FORGEMILL_TRUSTED_PROXIES:-}
+    # HIGH-07: Mount Docker secrets instead of passing as environment variables
+    secrets:
+      - jwt_secret
+      - encryption_key
+      - admin_password
+    restart: unless-stopped
+    # MED-31: Container security hardening
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/forgemill/.cache:uid=1001,gid=1001
+      - /home/forgemill/.config:uid=1001,gid=1001
+    # 9.5: Resource limits to prevent runaway processes
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+    # 9.9: Logging configuration to prevent unbounded log growth
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+# HIGH-07: Define secrets — create these files with your production secrets
+# Example: echo "my-secret-value" > ./secrets/jwt_secret.txt
+secrets:
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  encryption_key:
+    file: ./secrets/encryption_key.txt
+  admin_password:
+    file: ./secrets/admin_password.txt
+
+volumes:
+  forgemill-data:

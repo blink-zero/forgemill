@@ -1,0 +1,74 @@
+# Production docker-compose for Forgemill
+# Uses pre-built image from GitHub Container Registry
+#
+# Quick start:
+#   1. Set the image (replace with your GHCR path):
+#      export FORGEMILL_IMAGE=ghcr.io/blink-zero/forgemill:latest
+#      (Or add FORGEMILL_IMAGE=... to a .env file alongside this compose file)
+#
+#   2. Create secrets:
+#      mkdir -p secrets
+#      echo "your-jwt-secret-here-min-32-chars!!" > secrets/jwt_secret.txt
+#      echo "your-encryption-key-here-min-32!!" > secrets/encryption_key.txt
+#      echo "your-admin-password-min-12-chars" > secrets/admin_password.txt
+#
+#   3. Start:
+#      docker compose -f docker-compose.prod.yml up -d
+#
+# To update to the latest image:
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#   (Data is preserved in the forgemill-data volume. Migrations run automatically.)
+
+services:
+  forgemill:
+    image: ${FORGEMILL_IMAGE:-ghcr.io/blink-zero/forgemill:latest}
+    container_name: forgemill
+    ports:
+      - "${FORGEMILL_PORT:-8080}:8080"
+    volumes:
+      - forgemill-data:/app/data
+    environment:
+      FORGEMILL_JWT_SECRET_FILE: /run/secrets/jwt_secret
+      FORGEMILL_ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
+      FORGEMILL_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      FORGEMILL_ADMIN_USER: ${FORGEMILL_ADMIN_USER:-admin}
+      FORGEMILL_LOG_LEVEL: ${FORGEMILL_LOG_LEVEL:-info}
+      FORGEMILL_TLS_CERT: ${FORGEMILL_TLS_CERT:-}
+      FORGEMILL_TLS_KEY: ${FORGEMILL_TLS_KEY:-}
+      FORGEMILL_TRUSTED_PROXIES: ${FORGEMILL_TRUSTED_PROXIES:-}
+    secrets:
+      - jwt_secret
+      - encryption_key
+      - admin_password
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/forgemill/.cache:uid=1001,gid=1001
+      - /home/forgemill/.config:uid=1001,gid=1001
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+secrets:
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  encryption_key:
+    file: ./secrets/encryption_key.txt
+  admin_password:
+    file: ./secrets/admin_password.txt
+
+volumes:
+  forgemill-data:

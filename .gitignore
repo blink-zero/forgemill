@@ -1,0 +1,84 @@
+# Binaries (root-anchored to avoid ignoring cmd/forgemill/ source directory)
+/forgemill
+/forgemill-cli
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/bin/
+/dist/
+
+# Test
+*.test
+*.out
+coverage.txt
+
+# Go
+vendor/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Generated / build artefacts
+frontend/tsconfig.tsbuildinfo
+
+# Screenshots (retake against a clean demo instance before publishing)
+docs/screenshots/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+secrets/
+.env
+
+# HIGH-01 + HIGH-04: Sensitive runtime files — keys, secrets, and data directory
+packer-build-key
+packer-build-key.pub
+data/
+scripts/
+
+# Dev review/validation docs (may contain AI tool references or internal IPs)
+*-REVIEW-*.md
+*-RESULTS.md
+*-E2E-*.md
+*-VALIDATION-REPORT.md
+REVIEW-FIXES-*.md
+SECURITY_AUDIT*.md
+SECURITY_FIX*.md
+CODE_REVIEW*.md
+PROVIDER_REVIEW.md
+PHASE*.md
+
+# AI/IDE tooling configs
+.claude/
+.serena/
+.cursor/
+.aider/
+.continue/
