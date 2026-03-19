@@ -112,6 +112,7 @@ type DeploySpec struct {
 	SSHPublicKey     string // Optional SSH public key to inject
 	UserDataOverride string // Pre-merged cloud-init userdata (when actions are selected)
 	DiskProvisioning string // "thin", "thick", "thick_eager_zero", or "" (inherit from template)
+	Host             string // Optional: specific ESXi host within a vCenter cluster for placement
 }
 
 type DeployResult struct {
@@ -143,6 +144,7 @@ type Resources struct {
 	Datacenters   []ResourceItem    `json:"datacenters"`
 	ISOStorages   []ResourceItem    `json:"iso_storages,omitempty"`
 	ResourcePools []ResourceItem    `json:"resource_pools"`          // PV-X6
+	Hosts         []ResourceItem    `json:"hosts,omitempty"`
 	Platform      string            `json:"platform"`
 	Defaults      map[string]string `json:"defaults,omitempty"`
 }

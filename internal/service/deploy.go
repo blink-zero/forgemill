@@ -67,6 +67,7 @@ type DeployRequest struct {
 	VMName           string   `json:"vm_name"`
 	Datacenter       string   `json:"datacenter"`
 	Cluster          string   `json:"cluster"`
+	Host             string   `json:"host,omitempty"`
 	Datastore        string   `json:"datastore"`
 	Folder           string   `json:"folder"`
 	Network          string   `json:"network"`
@@ -211,6 +212,7 @@ func (s *DeployService) Start(req *DeployRequest, userID int64) (*DeployResponse
 		VMName:       req.VMName,
 		Datacenter:   req.Datacenter,
 		Cluster:      req.Cluster,
+		Host:         req.Host,
 		Datastore:    req.Datastore,
 		Folder:       req.Folder,
 		Network:      req.Network,
