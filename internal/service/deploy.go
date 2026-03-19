@@ -167,9 +167,11 @@ func (s *DeployService) Start(req *DeployRequest, userID int64) (*DeployResponse
 	// Encrypt the deploy password for storage
 	var encPwd string
 	if s.encryptor != nil && plainPassword != "" {
-		if enc, err := s.encryptor.Encrypt(plainPassword); err == nil {
-			encPwd = enc
+		enc, err := s.encryptor.Encrypt(plainPassword)
+		if err != nil {
+			return nil, fmt.Errorf("encrypt deployment password: %w", err)
 		}
+		encPwd = enc
 	}
 
 	templateID := req.TemplateID
