@@ -504,4 +504,3 @@ Ensure your code passes `go build ./...` and `npm run build` (frontend) before s
 ## License
 
 [MIT](./LICENSE) - 2025-2026 Forgemill Contributors
-# branch protection test
