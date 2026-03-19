@@ -9,7 +9,6 @@ import (
 
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/session"
-	"github.com/vmware/govmomi/session/cache"
 	"github.com/vmware/govmomi/vim25/soap"
 
 	"github.com/forgemill/forgemill/internal/provider"
@@ -129,27 +128,13 @@ func (p *Provider) connectLocked(ctx context.Context) error {
 	}
 	u.User = url.UserPassword(p.username, p.password)
 
-	if p.esxiMode {
-		// ESXi direct connection — use NewClient (cache.Session panics with govmomi.Client on ESXi)
-		client, err := govmomi.NewClient(ctx, u, !p.validateCerts)
-		if err != nil {
+	client, err := govmomi.NewClient(ctx, u, !p.validateCerts)
+	if err != nil {
+		if p.esxiMode {
 			return fmt.Errorf("login to ESXi host: %w", err)
 		}
-		p.client = client
-		return nil
+		return fmt.Errorf("login to vCenter: %w", err)
 	}
-
-	// vCenter — use session cache for persistent sessions
-	s := &cache.Session{
-		URL:      u,
-		Insecure: !p.validateCerts,
-	}
-
-	client := new(govmomi.Client)
-	if err := s.Login(ctx, client, nil); err != nil {
-		return fmt.Errorf("login to host: %w", err)
-	}
-
 	p.client = client
 	return nil
 }
