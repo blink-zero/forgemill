@@ -144,6 +144,7 @@ export interface Resources {
   clusters: ResourceItem[];
   datacenters: ResourceItem[];
   resource_pools: ResourceItem[];
+  hosts?: ResourceItem[];
   iso_storages?: ResourceItem[];
   platform?: string;
   defaults?: Record<string, string>;

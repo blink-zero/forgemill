@@ -125,6 +125,7 @@ export default function Deploy() {
         vm_name: config.vm_name,
         datacenter: config.datacenter,
         cluster: config.cluster,
+        host: (config as Record<string, unknown>).host as string || undefined,
         datastore: config.datastore,
         folder: config.folder,
         network: config.network,

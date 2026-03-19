@@ -72,10 +72,22 @@ func (p *Provider) DeployVM(ctx context.Context, spec *provider.DeploySpec) (*pr
 		datastoreRef = &ref
 	}
 
+	// Resolve optional host placement (vCenter only).
+	var hostRef *types.ManagedObjectReference
+	if spec.Host != "" && !p.esxiMode {
+		host, err := finder.HostSystem(ctx, spec.Host)
+		if err != nil {
+			return nil, fmt.Errorf("find host %q: %w", spec.Host, err)
+		}
+		ref := host.Reference()
+		hostRef = &ref
+	}
+
 	cloneSpec := types.VirtualMachineCloneSpec{
 		Location: types.VirtualMachineRelocateSpec{
 			Pool:      poolRef(pool),
 			Datastore: datastoreRef,
+			Host:      hostRef,
 		},
 		PowerOn:  true,
 		Template: false,
@@ -442,6 +454,7 @@ func (p *Provider) GetResources(ctx context.Context) (*provider.Resources, error
 		Clusters:      []provider.ResourceItem{},
 		Datacenters:   []provider.ResourceItem{},
 		ResourcePools: []provider.ResourceItem{},
+		Hosts:         []provider.ResourceItem{},
 		Platform:      platform,
 		Defaults:      map[string]string{"disk_provisioning": "thin"},
 	}
@@ -504,6 +517,14 @@ func (p *Provider) GetResources(ctx context.Context) (*provider.Resources, error
 					resources.ResourcePools = append(resources.ResourcePools, provider.ResourceItem{
 						Name: prefix + rp.InventoryPath,
 						ID:   rp.Reference().Value,
+					})
+				}
+			}
+			if hosts, err := finder.HostSystemList(ctx, "*"); err == nil {
+				for _, h := range hosts {
+					resources.Hosts = append(resources.Hosts, provider.ResourceItem{
+						Name: prefix + h.Name(),
+						ID:   h.Reference().Value,
 					})
 				}
 			}

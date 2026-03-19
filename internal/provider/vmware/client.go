@@ -42,6 +42,7 @@ func init() {
 		DeployFields: []provider.DeployField{
 			{Key: "datacenter", Label: "Datacenter", Resource: "datacenters"},
 			{Key: "cluster", Label: "Cluster", Resource: "clusters"},
+			{Key: "host", Label: "Host", Resource: "hosts", Placeholder: "Auto (vCenter decides)"},
 			{Key: "datastore", Label: "Datastore", Resource: "datastores"},
 			{Key: "network", Label: "Network", Resource: "networks"},
 			{Key: "folder", Label: "Folder", Resource: "folders", Placeholder: "Default folder"},
