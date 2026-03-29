@@ -1,5 +1,5 @@
 import { useTimezone } from "@/hooks/useTimezone";
-import { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { templates as templateApi, factoryApi, templateHistory, targets as targetsApi } from "@/api/client";
 import type { Template, TemplateDetailInfo, Target, UpdateCheckResult, TemplateHistory as THistory, TemplateSchedule, TemplateFamily } from "@/types";
@@ -381,8 +381,10 @@ export default function Templates() {
             <tbody>
               {tableSorted.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE).map((t) => {
                 const targetObj = targetsList.find((tg) => tg.id === t.target_id);
+                const schedule = getScheduleForTemplate(t.id);
                 return (
-                  <tr key={t.id} className={`border-b last:border-0 hover:bg-muted/30 transition-colors ${t.lifecycle_status === "superseded" ? "opacity-60" : ""}`}>
+                  <React.Fragment key={t.id}>
+                  <tr className={`border-b last:border-0 hover:bg-muted/30 transition-colors ${t.lifecycle_status === "superseded" ? "opacity-60" : ""}`}>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2">
                         {targetObj && <ProviderIcon type={targetObj.type} size={18} />}
@@ -446,6 +448,89 @@ export default function Templates() {
                       </div>
                     </td>
                   </tr>
+
+                  {/* Expandable: Build History */}
+                  {historyOpen === t.id && (
+                    <tr className="border-b last:border-0">
+                      <td colSpan={5} className="px-4 py-3">
+                        <div className="border rounded-md p-3 space-y-2">
+                          <h4 className="text-sm font-medium">Build History</h4>
+                          {historyData.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">No history available</p>
+                          ) : (
+                            historyData.map((h, idx) => (
+                              <div key={`${h.template_id}-${h.version}-${idx}`} className="flex items-center justify-between text-xs">
+                                <span className="font-medium">{h.template_name}</span>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant={h.status === "active" ? "default" : "secondary"} className="text-xs">
+                                    {h.status === "active" ? "current" : h.status}
+                                  </Badge>
+                                  {h.built_at && <span className="text-muted-foreground">{formatDate(h.built_at)}</span>}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+
+                  {/* Expandable: Schedule */}
+                  {scheduleOpen === t.id && (
+                    <tr className="border-b last:border-0">
+                      <td colSpan={5} className="px-4 py-3">
+                        <div className="border rounded-md p-3 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-sm font-medium">{schedule ? "Manage Schedule" : "Schedule Auto-Rebuild"}</h4>
+                            {schedule && (
+                              <button
+                                className="text-xs flex items-center gap-1 cursor-pointer hover:opacity-80"
+                                onClick={() => toggleScheduleEnabled(schedule)}
+                              >
+                                <Power className="h-3 w-3" />
+                                {schedule.enabled ? "Enabled" : "Disabled"}
+                                <div className={`ml-1 w-7 h-4 rounded-full relative transition-colors ${schedule.enabled ? "bg-green-500" : "bg-muted-foreground/30"}`}>
+                                  <div className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${schedule.enabled ? "translate-x-3.5" : "translate-x-0.5"}`} />
+                                </div>
+                              </button>
+                            )}
+                          </div>
+                          {schedule && schedule.next_check_at && (
+                            <p className="text-xs text-muted-foreground">
+                              Next check: {formatDateTime(schedule.next_check_at)}
+                              {schedule.last_rebuilt_at && ` · Last rebuilt: ${formatDate(schedule.last_rebuilt_at)}`}
+                            </p>
+                          )}
+                          <div>
+                            <label className="text-xs text-muted-foreground">Strategy</label>
+                            <Select className="mt-1" value={scheduleStrategy} onChange={(e) => setScheduleStrategy(e.target.value)}>
+                              <option value="on_update">On Update (rebuild when ISO changes)</option>
+                              <option value="interval">Interval (rebuild every N days)</option>
+                              <option value="both">Both (whichever comes first)</option>
+                            </Select>
+                          </div>
+                          {(scheduleStrategy === "interval" || scheduleStrategy === "both") && (
+                            <div>
+                              <label className="text-xs text-muted-foreground">Interval (days)</label>
+                              <Input type="number" value={scheduleIntervalDays} onChange={(e) => setScheduleIntervalDays(parseInt(e.target.value) || 30)} className="mt-1" />
+                            </div>
+                          )}
+                          <div className="flex gap-2">
+                            <Button size="sm" className="flex-1" onClick={() => saveSchedule(t.id)}>
+                              {schedule ? "Update Schedule" : "Create Schedule"}
+                            </Button>
+                            {schedule && (
+                              <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => deleteSchedule(schedule.id)}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+
+                  </React.Fragment>
                 );
               })}
             </tbody>
