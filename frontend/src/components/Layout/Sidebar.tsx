@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { ShieldCheck, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { navItems } from "@/config/navigation";
@@ -7,16 +7,32 @@ import { Button } from "@/components/ui/button";
 import { ForgemillLogo } from "@/components/ForgemillLogo";
 
 export function Sidebar() {
+  const navigate = useNavigate();
   // Load collapsed state from localStorage
   const [collapsed, setCollapsed] = useState(() => {
     const stored = localStorage.getItem("forgemill_sidebar_collapsed");
     return stored === "true";
   });
+  const [appVersion, setAppVersion] = useState("");
 
   // Persist collapsed state
   useEffect(() => {
     localStorage.setItem("forgemill_sidebar_collapsed", String(collapsed));
   }, [collapsed]);
+
+  // Fetch version from public endpoint
+  useEffect(() => {
+    fetch("/api/version")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.version && data.version !== "dev") {
+          setAppVersion(data.version.startsWith("v") ? data.version : `v${data.version}`);
+        } else if (data.version === "dev") {
+          setAppVersion("dev");
+        }
+      })
+      .catch(() => { /* version fetch is non-critical */ });
+  }, []);
 
   return (
     <aside className={cn(
@@ -54,9 +70,20 @@ export function Sidebar() {
       </nav>
       <div className={cn("border-t border-border", collapsed ? "p-2" : "p-4")}>
         {!collapsed && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
-            <ShieldCheck className="h-3.5 w-3.5 text-green-500 shrink-0" />
-            <span>AES-256 encrypted credentials</span>
+          <div className="space-y-1.5 mb-2">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <ShieldCheck className="h-3.5 w-3.5 text-green-500 shrink-0" />
+              <span>AES-256 encrypted credentials</span>
+            </div>
+            {appVersion && (
+              <button
+                onClick={() => navigate("/settings")}
+                className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors font-mono pl-5.5"
+                title="View version details in Settings"
+              >
+                {appVersion}
+              </button>
+            )}
           </div>
         )}
         <Button
