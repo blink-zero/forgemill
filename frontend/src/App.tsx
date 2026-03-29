@@ -4,6 +4,7 @@ import { Layout } from "@/components/Layout/Layout";
 import { ToastProvider } from "@/components/ui/toast";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { ProviderProvider } from "@/context/ProviderContext";
+import { PreferencesProvider } from "@/context/PreferencesContext";
 import { Loader2 } from "lucide-react";
 import Login from "@/pages/Login";
 
@@ -35,6 +36,7 @@ function PageLoader() {
 export default function App() {
   return (
     <ProviderProvider>
+    <PreferencesProvider>
     <ToastProvider>
     <ConfirmProvider>
     <Suspense fallback={<PageLoader />}>
@@ -61,6 +63,7 @@ export default function App() {
     </Suspense>
     </ConfirmProvider>
     </ToastProvider>
+    </PreferencesProvider>
     </ProviderProvider>
   );
 }

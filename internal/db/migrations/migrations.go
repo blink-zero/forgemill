@@ -56,6 +56,7 @@ var migrations = []struct {
 	{30, migrationV30},
 	{31, migrationV31},
 	{32, migrationV32},
+	{33, migrationV33},
 }
 
 const migrationV1 = `
@@ -1220,5 +1221,17 @@ CREATE INDEX IF NOT EXISTS idx_action_executions_vm_id ON action_executions(vm_i
 CREATE INDEX IF NOT EXISTS idx_deployment_actions_deployment_id ON deployment_actions(deployment_id);
 CREATE INDEX IF NOT EXISTS idx_template_schedules_template_id ON template_schedules(template_id);
 INSERT INTO schema_version (version) VALUES (32);
+`
+
+// migrationV33: Per-user preferences table for UI settings (view mode, etc.)
+const migrationV33 = `
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, key)
+);
+INSERT INTO schema_version (version) VALUES (33);
 `
 

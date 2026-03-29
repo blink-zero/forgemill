@@ -151,6 +151,10 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 			// Dashboard (read-only)
 			r.Get("/dashboard", settingsH.GetDashboardStats)
 
+			// User preferences (viewer+ — users can only access their own)
+			r.Get("/preferences", settingsH.GetPreferences)
+			r.Put("/preferences", settingsH.UpdatePreference)
+
 			// Read-only endpoints (viewer+)
 			r.Get("/actions", actionH.List)
 			r.Get("/targets", targetH.List)

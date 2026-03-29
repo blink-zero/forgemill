@@ -284,4 +284,9 @@ export const auditLogs = {
     api.get<PaginatedAuditLogs>("/audit-logs", { params }),
 };
 
+export const preferences = {
+  get: () => api.get<Record<string, string>>("/preferences"),
+  set: (key: string, value: string) => api.put("/preferences", { key, value }),
+};
+
 export default api;

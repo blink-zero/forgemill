@@ -12,6 +12,10 @@ import { getErrorMessage } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
 import { Pagination } from "@/components/ui/pagination";
 import { SkeletonVMCard, Skeleton } from "@/components/ui/skeleton";
+import { ViewToggle } from "@/components/ui/view-toggle";
+import { usePreference } from "@/context/PreferencesContext";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { useTableSort } from "@/hooks/useTableSort";
 
 const ITEMS_PER_PAGE = 12;
 
@@ -81,6 +85,9 @@ export default function VMs() {
   }, [vmList, search, statusFilter, targetFilter]);
 
   // Sort
+  const viewMode = usePreference("view_mode", "cards");
+  const { sorted: vmTableSorted, sortField: vmSortField, sortDir: vmSortDir, toggleSort: vmToggleSort } = useTableSort(filtered, "vm_name");
+
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
       const aVal = (a[sortField] || "").toLowerCase();
@@ -168,7 +175,7 @@ export default function VMs() {
           <h1 className="text-2xl font-bold whitespace-nowrap">Virtual Machines</h1>
           {vmList.length > 0 && <Badge variant="outline">{vmList.length}</Badge>}
         </div>
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -178,11 +185,7 @@ export default function VMs() {
               className="pl-9"
             />
           </div>
-          {lastRefreshed && (
-            <span className="text-xs text-muted-foreground shrink-0">
-              Updated {lastRefreshed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-            </span>
-          )}
+          <ViewToggle />
           <Button variant="outline" size="sm" onClick={doSyncAll} disabled={syncing} className="shrink-0">
             <RefreshCw className={`h-4 w-4 mr-1 ${syncing ? "animate-spin" : ""}`} />
             {syncing ? "Syncing..." : "Sync All"}
@@ -223,26 +226,6 @@ export default function VMs() {
           ))}
         </Select>
 
-        {/* Sort buttons */}
-        <div className="flex items-center gap-1 ml-auto">
-          <span className="text-xs text-muted-foreground mr-1">Sort:</span>
-          {([["vm_name", "Name"], ["power_state", "Status"], ["target_name", "Target"]] as [SortField, string][]).map(
-            ([field, label]) => (
-              <button
-                key={field}
-                onClick={() => toggleSort(field)}
-                className={cn(
-                  "px-2 py-1 text-xs rounded-md transition-colors",
-                  sortField === field
-                    ? "bg-primary/10 text-primary font-medium"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                )}
-              >
-                {label} {sortField === field && (sortDir === "asc" ? "↑" : "↓")}
-              </button>
-            )
-          )}
-        </div>
       </div>
 
       {paginated.length === 0 ? (
@@ -255,6 +238,59 @@ export default function VMs() {
         </div>
       ) : (
         <>
+          {viewMode === "table" ? (
+          <div className="rounded-md border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <SortableTh label="ID" field="id" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} className="w-16" />
+                  <SortableTh label="Name" field="vm_name" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} />
+                  <SortableTh label="IP Address" field="ip_address" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} className="hidden sm:table-cell" />
+                  <th className="text-left px-4 py-2 font-medium hidden md:table-cell">Specs</th>
+                  <SortableTh label="Target" field="target_name" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} className="hidden lg:table-cell" />
+                  <SortableTh label="Status" field="power_state" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} />
+                  <th className="text-right px-4 py-2 font-medium">Power</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vmTableSorted.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE).map((vm) => (
+                  <tr key={vm.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                    <td className="px-4 py-2.5 text-muted-foreground font-mono text-xs">#{vm.id}</td>
+                    <td className="px-4 py-2.5">
+                      <Link to={`/vms/${vm.id}`} className="font-medium hover:text-primary transition-colors">
+                        {vm.vm_name}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground hidden sm:table-cell">
+                      {vm.ip_address || "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-muted-foreground hidden md:table-cell">
+                      {vm.cpu || "?"}C · {vm.memory_mb ? `${Math.round(vm.memory_mb / 1024)}G` : "?"} · {vm.disk_gb || "?"}G
+                    </td>
+                    <td className="px-4 py-2.5 text-muted-foreground hidden lg:table-cell">{vm.target_name}</td>
+                    <td className="px-4 py-2.5">
+                      <Badge variant={powerVariant(vm.power_state)}>
+                        <Power className="h-3 w-3 mr-1" />
+                        {powerLabel(vm.power_state)}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      {(vm.power_state === "poweredOn" || vm.power_state === "running") ? (
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => doQuickPower(e, vm.id, "stop")} disabled={actingOn === vm.id} title="Stop">
+                          <Square className="h-3.5 w-3.5" />
+                        </Button>
+                      ) : (vm.power_state === "poweredOff" || vm.power_state === "stopped") ? (
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => doQuickPower(e, vm.id, "start")} disabled={actingOn === vm.id} title="Start">
+                          <Play className="h-3.5 w-3.5" />
+                        </Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {paginated.map((vm) => (
               <Link key={vm.id} to={`/vms/${vm.id}`}>
@@ -321,6 +357,7 @@ export default function VMs() {
               </Link>
             ))}
           </div>
+          )}
 
           {/* Pagination */}
           <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
