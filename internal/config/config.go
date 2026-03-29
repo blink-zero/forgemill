@@ -30,7 +30,9 @@ type Config struct {
 const DefaultJWTSecret = "change-me-in-production"
 
 // DefaultEncryptionKey is the insecure default that must be replaced on first run.
-const DefaultEncryptionKey = "change-me-32-byte-key-for-prod!!"
+// Deliberately shorter than the 32-byte minimum enforced by NewEncryptor,
+// so the application fails fast if ensureSecret doesn't replace it.
+const DefaultEncryptionKey = "change-me-in-production!!"
 
 func Load() *Config {
 	dataDir := envOrDefault("FORGEMILL_DATA_DIR", "/app/data")

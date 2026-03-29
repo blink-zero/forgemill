@@ -2,10 +2,10 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -108,15 +108,19 @@ func (h *FactoryHandler) StartBuild(w http.ResponseWriter, r *http.Request) {
 
 	if err := factory.ValidateBuildConfig(&cfg); err != nil {
 		slog.Warn("invalid build configuration", "error", err)
-		writeError(w, fmt.Sprintf("Invalid build configuration: %s", err.Error()), http.StatusBadRequest)
+		writeError(w, "invalid build configuration — check template name and required fields", http.StatusBadRequest)
 		return
 	}
 
 	build, err := h.svc.StartBuild(req.OSDefinitionID, req.TargetID, cfg, user.ID)
 	if err != nil {
 		slog.Error("failed to start build", "error", err)
-		// Pass through the actual error — it contains user-actionable info (e.g. "another build in progress")
-		writeError(w, err.Error(), http.StatusConflict)
+		// Return controlled message — do not pass raw internal errors to client
+		msg := "failed to start build"
+		if strings.Contains(err.Error(), "in progress") || strings.Contains(err.Error(), "already") {
+			msg = "another build is already in progress for this target"
+		}
+		writeError(w, msg, http.StatusConflict)
 		return
 	}
 

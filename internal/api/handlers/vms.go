@@ -220,8 +220,8 @@ func (h *VMHandler) Resize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svc.Resize(r.Context(), id, req.CPU, req.MemoryMB); err != nil {
-		if strings.Contains(err.Error(), "must be powered off") {
-			writeError(w, err.Error(), http.StatusConflict)
+		if strings.Contains(err.Error(), "must be powered off") || strings.Contains(err.Error(), "hot-add") {
+			writeError(w, "VM must be powered off to change this resource (hot-add not enabled)", http.StatusConflict)
 			return
 		}
 		writeErrorLog(w, "failed to resize VM", http.StatusInternalServerError, err)
@@ -319,7 +319,7 @@ func (h *VMHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.svc.Create(vm); err != nil {
 		if strings.Contains(err.Error(), "already registered") {
-			writeError(w, err.Error(), http.StatusConflict)
+			writeError(w, "a VM with this reference is already registered", http.StatusConflict)
 			return
 		}
 		writeErrorLog(w, "failed to register VM", http.StatusInternalServerError, err)

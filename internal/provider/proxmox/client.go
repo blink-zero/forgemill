@@ -677,7 +677,7 @@ applyConfig:
 
 	if len(configData) > 0 {
 		configPath := fmt.Sprintf("/nodes/%s/qemu/%s/config", url.PathEscape(vmNode), newIDStr)
-		slog.Info("configuring VM after clone", "vmid", newID, "node", vmNode, "config_keys", configData.Encode())
+		slog.Info("configuring VM after clone", "vmid", newID, "node", vmNode, "config_keys", redactConfigKeys(configData))
 		// Retry up to 5 times with 3s delay — Proxmox may still hold a lock after clone completes
 		var configErr error
 		for attempt := 0; attempt < 5; attempt++ {
@@ -1809,6 +1809,20 @@ func sanitiseSnippetFilename(name string) string {
 		return ""
 	}
 	return safe
+}
+
+// redactConfigKeys returns a URL-encoded config string with sensitive values redacted.
+func redactConfigKeys(data url.Values) string {
+	redacted := make(url.Values)
+	for k, v := range data {
+		switch k {
+		case "cipassword", "sshkeys":
+			redacted[k] = []string{"[REDACTED]"}
+		default:
+			redacted[k] = v
+		}
+	}
+	return redacted.Encode()
 }
 
 // netmaskToCIDR converts a dotted-decimal netmask to CIDR prefix length.

@@ -260,6 +260,10 @@ func (h *TargetHandler) TestConnection(w http.ResponseWriter, r *http.Request) {
 			msg = "Authentication failed — check username and password"
 		} else if strings.Contains(msg, "403") {
 			msg = "Access denied — user may lack required permissions"
+		} else {
+			// Catch-all: do not expose raw internal errors to the client
+			slog.Warn("target connection test failed with unmatched error", "target_id", id, "error", err)
+			msg = "Connection failed — check target configuration and network connectivity"
 		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{"success": false, "message": msg})
 		return

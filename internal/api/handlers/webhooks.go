@@ -246,7 +246,7 @@ func (h *WebhookHandler) Test(w http.ResponseWriter, r *http.Request) {
 	statusCode, err := h.svc.SendTest(wh)
 	if err != nil {
 		slog.Warn("webhook test failed", "webhook", wh.Name, "error", err)
-		writeError(w, fmt.Sprintf("test failed: %s", err.Error()), http.StatusBadGateway)
+		writeError(w, "webhook test failed — check the URL is reachable and returns a 2xx status", http.StatusBadGateway)
 		return
 	}
 
