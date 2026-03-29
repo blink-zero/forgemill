@@ -306,10 +306,10 @@ export default function Targets() {
           {targets.length > 0 && <Badge variant="outline">{targets.length}</Badge>}
         </div>
         <div className="flex items-center gap-2">
-        <ViewToggle />
-        <Button onClick={() => { setShowForm(!showForm); setEditTarget(null); }}>
-          {showForm ? <><X className="h-4 w-4 mr-2" />Cancel</> : <><Plus className="h-4 w-4 mr-2" />Add Target</>}
-        </Button>
+          <ViewToggle />
+          <Button onClick={() => { setShowForm(!showForm); setEditTarget(null); }}>
+            {showForm ? <><X className="h-4 w-4 mr-2" />Cancel</> : <><Plus className="h-4 w-4 mr-2" />Add Target</>}
+          </Button>
         </div>
       </div>
 
