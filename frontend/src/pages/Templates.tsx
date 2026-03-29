@@ -416,11 +416,11 @@ export default function Templates() {
                           </Button>
                         )}
                         <div className="relative">
-                          <Button size="sm" variant="ghost" onClick={() => setMenuOpen(menuOpen === t.id ? null : t.id)} title="More actions">
+                          <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === t.id ? null : t.id); }} title="More actions">
                             <MoreHorizontal className="h-3.5 w-3.5" />
                           </Button>
                           {menuOpen === t.id && (
-                            <div className="absolute right-0 top-full mt-1 z-20 bg-popover border rounded-md shadow-lg py-1 min-w-[160px]">
+                            <div className="absolute right-0 top-full mt-1 z-20 bg-popover border rounded-md shadow-lg py-1 min-w-[160px]" onClick={(e) => e.stopPropagation()}>
                               <button className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-muted text-left" onClick={() => { setMenuOpen(null); handleDetailClick(t); }}>
                                 <Info className="h-3.5 w-3.5" /> Details
                               </button>
