@@ -373,7 +373,7 @@ export default function Templates() {
               <tr className="border-b bg-muted/50">
                 <SortableTh label="Name" field="name" currentField={tSortField} currentDir={tSortDir} onSort={tToggleSort} />
                 <SortableTh label="Target" field="target_name" currentField={tSortField} currentDir={tSortDir} onSort={tToggleSort} className="hidden sm:table-cell" />
-                <SortableTh label="CPU" field="cpu" currentField={tSortField} currentDir={tSortDir} onSort={tToggleSort} className="hidden md:table-cell" />
+                <th className="text-left px-4 py-2 font-medium hidden md:table-cell">Specs</th>
                 <th className="text-left px-4 py-2 font-medium hidden lg:table-cell">Status</th>
                 <th className="text-right px-4 py-2 font-medium">Actions</th>
               </tr>
