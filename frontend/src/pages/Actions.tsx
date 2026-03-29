@@ -167,16 +167,15 @@ export default function ActionsPage() {
           <h1 className="text-2xl font-bold">Actions</h1>
           {actionList.length > 0 && <Badge variant="outline">{actionList.length}</Badge>}
         </div>
-        <div className="flex items-center gap-3">
-          <ViewToggle />
+        <div className="flex items-center gap-2">
           {actionList.length > 0 && (
-            <div className="relative sm:max-w-sm">
+            <div className="relative w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search actions..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 w-64"
+                className="pl-9"
               />
               {search && (
                 <button className="absolute right-3 top-1/2 -translate-y-1/2" onClick={() => setSearch("")}>
@@ -185,6 +184,7 @@ export default function ActionsPage() {
               )}
             </div>
           )}
+          <ViewToggle />
           {isAdmin && (
             <Button onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ name: "", description: "", category: "custom" as Action["category"], script: "", parameters: [] }); setConfigError(""); }}>
               <Plus className="h-4 w-4 mr-2" /> Create Action
