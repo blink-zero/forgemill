@@ -41,7 +41,7 @@ func (h *ExecutionHandler) Execute(w http.ResponseWriter, r *http.Request) {
 
 	exec, err := h.executor.Execute(r.Context(), vmID, req, user.ID)
 	if err != nil {
-		writeErrorLog(w, err.Error(), http.StatusBadRequest, err)
+		writeErrorLog(w, "failed to start execution", http.StatusBadRequest, err)
 		return
 	}
 
@@ -79,7 +79,7 @@ func (h *ExecutionHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.executor.Cancel(execID); err != nil {
-		writeErrorLog(w, err.Error(), http.StatusBadRequest, err)
+		writeErrorLog(w, "failed to cancel execution", http.StatusBadRequest, err)
 		return
 	}
 
