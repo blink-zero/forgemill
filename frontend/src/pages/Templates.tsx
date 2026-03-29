@@ -260,6 +260,10 @@ export default function Templates() {
     }
   };
 
+  // Hooks must be before any early returns to satisfy React's rules of hooks
+  const viewMode = usePreference("view_mode", "cards");
+  const { sorted: tableSorted, sortField: tSortField, sortDir: tSortDir, toggleSort: tToggleSort } = useTableSort(filtered, "name");
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -281,8 +285,6 @@ export default function Templates() {
   }
 
   const hasManagedTemplates = templates.some((t) => t.managed_by_forgemill);
-  const viewMode = usePreference("view_mode", "cards");
-  const { sorted: tableSorted, sortField: tSortField, sortDir: tSortDir, toggleSort: tToggleSort } = useTableSort(filtered, "name");
 
   return (
     <div className="space-y-6">
