@@ -1670,8 +1670,17 @@ func (p *Provider) uploadSnippet(ctx context.Context, node, storage, filename, c
 
 	// Resolve storage path. Default Proxmox dir storage path is /var/lib/vz.
 	storagePath := "/var/lib/vz"
-	// Ensure snippets directory exists and write the file
-	cmd := fmt.Sprintf("mkdir -p %s/snippets && cat > %s/snippets/%s", storagePath, storagePath, filename)
+
+	// Sanitise filename to prevent shell injection. Only allow safe characters
+	// even though VMName is validated upstream — defense in depth.
+	safeFilename := sanitiseSnippetFilename(filename)
+	if safeFilename == "" {
+		return fmt.Errorf("invalid snippet filename after sanitisation: %q", filename)
+	}
+
+	// Ensure snippets directory exists and write the file.
+	// Use shell-quoted filename to prevent injection via any remaining edge cases.
+	cmd := fmt.Sprintf("mkdir -p %s/snippets && cat > %s/snippets/'%s'", storagePath, storagePath, safeFilename)
 	session.Stdin = strings.NewReader(content)
 	output, err := session.CombinedOutput(cmd)
 	if err != nil {
@@ -1785,6 +1794,21 @@ func nodeFromUPID(upid string) string {
 		return parts[1]
 	}
 	return ""
+}
+
+// sanitiseSnippetFilename strips any characters that are not alphanumeric,
+// hyphens, underscores, or dots. Prevents shell injection when the filename
+// is used in SSH commands, even though VMName is validated upstream.
+var safeFilenameRe = regexp.MustCompile(`[^a-zA-Z0-9._-]`)
+
+func sanitiseSnippetFilename(name string) string {
+	safe := safeFilenameRe.ReplaceAllString(name, "")
+	// Prevent path traversal
+	safe = strings.ReplaceAll(safe, "..", "")
+	if safe == "" || safe == "." {
+		return ""
+	}
+	return safe
 }
 
 // netmaskToCIDR converts a dotted-decimal netmask to CIDR prefix length.
