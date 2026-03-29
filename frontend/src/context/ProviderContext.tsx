@@ -49,16 +49,47 @@ export function ProviderProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    targetApi.getTypes()
-      .then((res) => {
-        setProviders(res.data.types || []);
+    // Only fetch when authenticated — the token must exist in localStorage.
+    // Listen for storage events so we refetch after login (including cross-tab).
+    const fetchTypes = () => {
+      const token = localStorage.getItem("forgemill_token");
+      if (!token) {
         setLoading(false);
-      })
-      .catch((err) => {
-        console.error("[Forgemill] Failed to load provider metadata:", err);
-        setError("Failed to load provider configuration");
-        setLoading(false);
-      });
+        return;
+      }
+      targetApi.getTypes()
+        .then((res) => {
+          setProviders(res.data.types || []);
+          setError(null);
+        })
+        .catch(() => {
+          // Token may be expired — don't set error, will retry on next storage event
+        })
+        .finally(() => setLoading(false));
+    };
+
+    fetchTypes();
+
+    // Re-fetch when token changes (login/logout from any tab)
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "forgemill_token") {
+        setLoading(true);
+        fetchTypes();
+      }
+    };
+    window.addEventListener("storage", onStorage);
+
+    // Also listen for same-tab token changes via a custom event
+    const onTokenChange = () => {
+      setLoading(true);
+      fetchTypes();
+    };
+    window.addEventListener("forgemill:auth", onTokenChange);
+
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("forgemill:auth", onTokenChange);
+    };
   }, []);
 
   const getProvider = (id: string): ProviderMetadata | undefined => {
