@@ -385,3 +385,57 @@ func (h *SettingsHandler) ClearDeploymentHistory(w http.ResponseWriter, r *http.
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": count})
 }
+
+// --- User Preferences ---
+
+var allowedPreferenceKeys = map[string]bool{
+	"view_mode": true,
+}
+
+func (h *SettingsHandler) GetPreferences(w http.ResponseWriter, r *http.Request) {
+	user := middleware.UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	prefs, err := h.db.GetUserPreferences(user.ID)
+	if err != nil {
+		writeErrorLog(w, "failed to load preferences", http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, prefs)
+}
+
+func (h *SettingsHandler) UpdatePreference(w http.ResponseWriter, r *http.Request) {
+	user := middleware.UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		Key   string `json:"key"`
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Key == "" || req.Value == "" {
+		writeError(w, "key and value are required", http.StatusBadRequest)
+		return
+	}
+	if !allowedPreferenceKeys[req.Key] {
+		writeError(w, "unknown preference key", http.StatusBadRequest)
+		return
+	}
+	if req.Key == "view_mode" && req.Value != "cards" && req.Value != "table" {
+		writeError(w, "view_mode must be 'cards' or 'table'", http.StatusBadRequest)
+		return
+	}
+	if err := h.db.SetUserPreference(user.ID, req.Key, req.Value); err != nil {
+		writeErrorLog(w, "failed to save preference", http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
+}

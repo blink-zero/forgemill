@@ -14,6 +14,8 @@ import { Pagination } from "@/components/ui/pagination";
 import ProviderIcon from "@/components/ProviderIcon";
 import { getErrorMessage } from "@/lib/utils";
 import { SkeletonTemplateCard, Skeleton } from "@/components/ui/skeleton";
+import { ViewToggle } from "@/components/ui/view-toggle";
+import { usePreference } from "@/context/PreferencesContext";
 
 const ITEMS_PER_PAGE = 12;
 
@@ -277,6 +279,7 @@ export default function Templates() {
   }
 
   const hasManagedTemplates = templates.some((t) => t.managed_by_forgemill);
+  const viewMode = usePreference("view_mode", "cards");
 
   return (
     <div className="space-y-6">
@@ -303,6 +306,7 @@ export default function Templates() {
               Deploy VM
             </Button>
           )}
+          <ViewToggle />
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -357,6 +361,67 @@ export default function Templates() {
         )
       ) : (
         <>
+        {viewMode === "table" ? (
+        <div className="rounded-md border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                <th className="text-left px-4 py-2 font-medium">Name</th>
+                <th className="text-left px-4 py-2 font-medium hidden sm:table-cell">Target</th>
+                <th className="text-left px-4 py-2 font-medium hidden md:table-cell">Specs</th>
+                <th className="text-left px-4 py-2 font-medium hidden lg:table-cell">Status</th>
+                <th className="text-right px-4 py-2 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE).map((t) => {
+                const targetObj = targetsList.find((tg) => tg.id === t.target_id);
+                return (
+                  <tr key={t.id} className={`border-b last:border-0 hover:bg-muted/30 transition-colors ${t.lifecycle_status === "superseded" ? "opacity-60" : ""}`}>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        {targetObj && <ProviderIcon type={targetObj.type} size={18} />}
+                        <div>
+                          <span className="font-medium">{t.name}</span>
+                          {t.managed_by_forgemill && t.version ? <span className="ml-1.5 text-xs text-muted-foreground">v{t.version}</span> : null}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 text-muted-foreground hidden sm:table-cell">{t.target_name}</td>
+                    <td className="px-4 py-2.5 text-muted-foreground hidden md:table-cell">
+                      {t.cpu || "?"}C · {t.memory_mb ? (t.memory_mb >= 1024 ? `${(t.memory_mb / 1024).toFixed(0)}G` : `${t.memory_mb}M`) : "?"} · {t.disk_gb || "?"}G
+                    </td>
+                    <td className="px-4 py-2.5 hidden lg:table-cell">
+                      {t.managed_by_forgemill ? (
+                        <Badge variant={t.lifecycle_status === "superseded" ? "warning" : "success"} className="text-xs">
+                          {t.lifecycle_status === "superseded" ? "superseded" : "managed"}
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="text-xs">synced</Badge>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button size="sm" variant="ghost" onClick={() => navigate(`/deploy?template=${t.id}`)} title="Deploy">
+                          <Rocket className="h-3.5 w-3.5" />
+                        </Button>
+                        {t.managed_by_forgemill && t.lifecycle_status === "active" && (
+                          <Button size="sm" variant="ghost" onClick={() => handleRebuildClick(t)} disabled={rebuilding === t.id} title="Rebuild">
+                            <RefreshCw className={`h-3.5 w-3.5 ${rebuilding === t.id ? "animate-spin" : ""}`} />
+                          </Button>
+                        )}
+                        <Button size="sm" variant="ghost" onClick={() => handleDetailClick(t)} disabled={detailLoading === t.id} title="Details">
+                          <Info className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE).map((t) => {
             const updateInfo = updateChecks[t.id];
@@ -647,6 +712,7 @@ export default function Templates() {
             );
           })}
         </div>
+        )}
         {/* Pagination */}
         <Pagination page={page} totalPages={Math.ceil(filtered.length / ITEMS_PER_PAGE)} onPageChange={setPage} />
         </>
