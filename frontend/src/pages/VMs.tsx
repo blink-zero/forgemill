@@ -246,7 +246,7 @@ export default function VMs() {
                   <SortableTh label="ID" field="id" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} className="w-16" />
                   <SortableTh label="Name" field="vm_name" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} />
                   <SortableTh label="IP Address" field="ip_address" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} className="hidden sm:table-cell" />
-                  <SortableTh label="CPU" field="cpu" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} className="hidden md:table-cell" />
+                  <th className="text-left px-4 py-2 font-medium hidden md:table-cell">Specs</th>
                   <SortableTh label="Target" field="target_name" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} className="hidden lg:table-cell" />
                   <SortableTh label="Status" field="power_state" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} />
                   <th className="text-right px-4 py-2 font-medium">Power</th>
