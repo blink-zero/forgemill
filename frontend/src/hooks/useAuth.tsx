@@ -57,6 +57,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await auth.login(username, password);
     localStorage.setItem("forgemill_token", res.data.token);
     setUser(res.data.user);
+    // Notify ProviderContext to fetch metadata now that we're authenticated
+    window.dispatchEvent(new Event("forgemill:auth"));
   }, []);
 
   const logout = useCallback(() => {
