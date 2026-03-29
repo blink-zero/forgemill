@@ -12,6 +12,8 @@ import { Select } from "@/components/ui/select";
 import ProviderIcon, { providerLabel } from "@/components/ProviderIcon";
 import { getErrorMessage } from "@/lib/utils";
 import { useProviders, useProvider } from "@/context/ProviderContext";
+import { ViewToggle } from "@/components/ui/view-toggle";
+import { usePreference } from "@/context/PreferencesContext";
 
 // Extracted form component using provider metadata from context
 interface TargetFormProps {
@@ -298,9 +300,12 @@ export default function Targets() {
           <h1 className="text-2xl font-bold">Targets</h1>
           {targets.length > 0 && <Badge variant="outline">{targets.length}</Badge>}
         </div>
+        <div className="flex items-center gap-2">
+        <ViewToggle />
         <Button onClick={() => { setShowForm(!showForm); setEditTarget(null); }}>
           {showForm ? <><X className="h-4 w-4 mr-2" />Cancel</> : <><Plus className="h-4 w-4 mr-2" />Add Target</>}
         </Button>
+        </div>
       </div>
 
       <div className="rounded-lg border bg-blue-500/5 border-blue-500/20 px-4 py-3 flex items-start gap-3">

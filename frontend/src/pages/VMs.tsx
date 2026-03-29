@@ -12,6 +12,8 @@ import { getErrorMessage } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
 import { Pagination } from "@/components/ui/pagination";
 import { SkeletonVMCard, Skeleton } from "@/components/ui/skeleton";
+import { ViewToggle } from "@/components/ui/view-toggle";
+import { usePreference } from "@/context/PreferencesContext";
 
 const ITEMS_PER_PAGE = 12;
 
@@ -81,6 +83,8 @@ export default function VMs() {
   }, [vmList, search, statusFilter, targetFilter]);
 
   // Sort
+  const viewMode = usePreference("view_mode", "cards");
+
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
       const aVal = (a[sortField] || "").toLowerCase();
@@ -187,6 +191,7 @@ export default function VMs() {
             <RefreshCw className={`h-4 w-4 mr-1 ${syncing ? "animate-spin" : ""}`} />
             {syncing ? "Syncing..." : "Sync All"}
           </Button>
+          <ViewToggle />
         </div>
       </div>
 
@@ -255,6 +260,57 @@ export default function VMs() {
         </div>
       ) : (
         <>
+          {viewMode === "table" ? (
+          <div className="rounded-md border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="text-left px-4 py-2 font-medium">Name</th>
+                  <th className="text-left px-4 py-2 font-medium hidden sm:table-cell">IP Address</th>
+                  <th className="text-left px-4 py-2 font-medium hidden md:table-cell">Specs</th>
+                  <th className="text-left px-4 py-2 font-medium hidden lg:table-cell">Target</th>
+                  <th className="text-left px-4 py-2 font-medium">Status</th>
+                  <th className="text-right px-4 py-2 font-medium">Power</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginated.map((vm) => (
+                  <tr key={vm.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                    <td className="px-4 py-2.5">
+                      <Link to={`/vms/${vm.id}`} className="font-medium hover:text-primary transition-colors">
+                        {vm.vm_name}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground hidden sm:table-cell">
+                      {vm.ip_address || "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-muted-foreground hidden md:table-cell">
+                      {vm.cpu || "?"}C · {vm.memory_mb ? `${Math.round(vm.memory_mb / 1024)}G` : "?"} · {vm.disk_gb || "?"}G
+                    </td>
+                    <td className="px-4 py-2.5 text-muted-foreground hidden lg:table-cell">{vm.target_name}</td>
+                    <td className="px-4 py-2.5">
+                      <Badge variant={powerVariant(vm.power_state)}>
+                        <Power className="h-3 w-3 mr-1" />
+                        {powerLabel(vm.power_state)}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      {(vm.power_state === "poweredOn" || vm.power_state === "running") ? (
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => doQuickPower(e, vm.id, "stop")} disabled={actingOn === vm.id} title="Stop">
+                          <Square className="h-3.5 w-3.5" />
+                        </Button>
+                      ) : (vm.power_state === "poweredOff" || vm.power_state === "stopped") ? (
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => doQuickPower(e, vm.id, "start")} disabled={actingOn === vm.id} title="Start">
+                          <Play className="h-3.5 w-3.5" />
+                        </Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {paginated.map((vm) => (
               <Link key={vm.id} to={`/vms/${vm.id}`}>
@@ -321,6 +377,7 @@ export default function VMs() {
               </Link>
             ))}
           </div>
+          )}
 
           {/* Pagination */}
           <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
