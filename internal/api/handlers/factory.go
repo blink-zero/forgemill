@@ -34,6 +34,7 @@ type startBuildRequest struct {
 	DiskGB         int    `json:"disk_gb"`
 	Datacenter     string `json:"datacenter"`
 	Cluster        string `json:"cluster"`
+	Host           string `json:"host"`
 	Datastore      string `json:"datastore"`
 	Folder         string `json:"folder"`
 	Network        string `json:"network"`
@@ -94,6 +95,7 @@ func (h *FactoryHandler) StartBuild(w http.ResponseWriter, r *http.Request) {
 		DiskGB:       req.DiskGB,
 		Datacenter:   req.Datacenter,
 		Cluster:      req.Cluster,
+		Host:         req.Host,
 		Datastore:    req.Datastore,
 		Folder:       req.Folder,
 		Network:      req.Network,
@@ -108,7 +110,8 @@ func (h *FactoryHandler) StartBuild(w http.ResponseWriter, r *http.Request) {
 
 	if err := factory.ValidateBuildConfig(&cfg); err != nil {
 		slog.Warn("invalid build configuration", "error", err)
-		writeError(w, "invalid build configuration — check template name and required fields", http.StatusBadRequest)
+		// Validation errors describe user input issues and are safe to show
+		writeError(w, "invalid build configuration: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
