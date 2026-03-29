@@ -34,6 +34,7 @@ export default function FactoryBuild() {
   // VMware fields
   const [datacenter, setDatacenter] = useState("");
   const [cluster, setCluster] = useState("");
+  const [host, setHost] = useState("");
   const [datastore, setDatastore] = useState("");
   const [folder, setFolder] = useState("");
   const [network, setNetwork] = useState("");
@@ -148,6 +149,7 @@ export default function FactoryBuild() {
       if (isVMware) {
         data.datacenter = datacenter;
         data.cluster = cluster;
+        if (host) data.host = host;
         data.datastore = datastore;
         data.folder = folder;
         data.network = network;
@@ -374,6 +376,30 @@ export default function FactoryBuild() {
                       />
                     )}
                   </div>
+                  {selectedTargetObj?.type === "vcenter" && (
+                  <div>
+                    <Label>Host <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                    {resources?.hosts && resources.hosts.length > 0 ? (
+                      <Select
+                        value={host}
+                        onChange={(e) => setHost(e.target.value)}
+                      >
+                        <option value="">Auto (vCenter decides)</option>
+                        {resources.hosts.map((h) => (
+                          <option key={h.id} value={h.name}>
+                            {h.name}
+                          </option>
+                        ))}
+                      </Select>
+                    ) : (
+                      <Input
+                        value={host}
+                        onChange={(e) => setHost(e.target.value)}
+                        placeholder="ESXi host (optional)"
+                      />
+                    )}
+                  </div>
+                  )}
                   <div>
                     <Label>Datastore</Label>
                     {resources?.datastores && resources.datastores.length > 0 ? (
@@ -563,6 +589,12 @@ export default function FactoryBuild() {
                   <span>{datacenter || "-"}</span>
                   <span className="text-muted-foreground">Cluster</span>
                   <span>{cluster || "-"}</span>
+                  {selectedTargetObj?.type === "vcenter" && host && (
+                    <>
+                      <span className="text-muted-foreground">Host</span>
+                      <span>{host}</span>
+                    </>
+                  )}
                   <span className="text-muted-foreground">Datastore</span>
                   <span>{datastore || "-"}</span>
                   <span className="text-muted-foreground">Folder</span>
