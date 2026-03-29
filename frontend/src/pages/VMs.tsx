@@ -175,7 +175,7 @@ export default function VMs() {
           <h1 className="text-2xl font-bold whitespace-nowrap">Virtual Machines</h1>
           {vmList.length > 0 && <Badge variant="outline">{vmList.length}</Badge>}
         </div>
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -185,16 +185,11 @@ export default function VMs() {
               className="pl-9"
             />
           </div>
-          {lastRefreshed && (
-            <span className="text-xs text-muted-foreground shrink-0">
-              Updated {lastRefreshed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-            </span>
-          )}
+          <ViewToggle />
           <Button variant="outline" size="sm" onClick={doSyncAll} disabled={syncing} className="shrink-0">
             <RefreshCw className={`h-4 w-4 mr-1 ${syncing ? "animate-spin" : ""}`} />
             {syncing ? "Syncing..." : "Sync All"}
           </Button>
-          <ViewToggle />
         </div>
       </div>
 
@@ -231,26 +226,6 @@ export default function VMs() {
           ))}
         </Select>
 
-        {/* Sort buttons */}
-        <div className="flex items-center gap-1 ml-auto">
-          <span className="text-xs text-muted-foreground mr-1">Sort:</span>
-          {([["vm_name", "Name"], ["power_state", "Status"], ["target_name", "Target"]] as [SortField, string][]).map(
-            ([field, label]) => (
-              <button
-                key={field}
-                onClick={() => toggleSort(field)}
-                className={cn(
-                  "px-2 py-1 text-xs rounded-md transition-colors",
-                  sortField === field
-                    ? "bg-primary/10 text-primary font-medium"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                )}
-              >
-                {label} {sortField === field && (sortDir === "asc" ? "↑" : "↓")}
-              </button>
-            )
-          )}
-        </div>
       </div>
 
       {paginated.length === 0 ? (

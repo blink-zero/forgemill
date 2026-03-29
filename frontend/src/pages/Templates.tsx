@@ -293,7 +293,17 @@ export default function Templates() {
           <h1 className="text-2xl font-bold">Templates</h1>
           {templates.length > 0 && <Badge variant="outline">{templates.length}</Badge>}
         </div>
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search templates..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <ViewToggle />
           {hasManagedTemplates && (
             <Button variant="outline" size="sm" onClick={checkAllUpdates} disabled={checking}>
               <RefreshCw className={`h-4 w-4 mr-1 ${checking ? "animate-spin" : ""}`} />
@@ -311,16 +321,6 @@ export default function Templates() {
               Deploy VM
             </Button>
           )}
-          <ViewToggle />
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search templates..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
-          </div>
         </div>
       </div>
 
