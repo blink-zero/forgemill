@@ -2228,3 +2228,32 @@ func (db *DB) ListAuditLogs(f AuditLogFilter) (*PaginatedAuditLogs, error) {
 
 	return &PaginatedAuditLogs{Logs: logs, Total: total, Page: f.Page, PageSize: f.PageSize, TotalPages: totalPages}, nil
 }
+
+// --- User Preferences ---
+
+func (db *DB) GetUserPreferences(userID int64) (map[string]string, error) {
+	rows, err := db.conn.Query(`SELECT key, value FROM user_preferences WHERE user_id = ?`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	prefs := make(map[string]string)
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		prefs[k] = v
+	}
+	return prefs, rows.Err()
+}
+
+func (db *DB) SetUserPreference(userID int64, key, value string) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO user_preferences (user_id, key, value, updated_at)
+		 VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+		userID, key, value,
+	)
+	return err
+}

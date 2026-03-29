@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { actions as actionsApi } from "@/api/client";
 import type { Action, ActionParameter } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -13,6 +13,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { getErrorMessage } from "@/lib/utils";
+import { ViewToggle } from "@/components/ui/view-toggle";
+import { usePreference } from "@/context/PreferencesContext";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { useTableSort } from "@/hooks/useTableSort";
 
 const categoryIcons: Record<string, typeof Package> = {
   packages: Package,
@@ -132,6 +136,8 @@ export default function ActionsPage() {
     const matchCategory = categoryFilter === "all" || a.category === categoryFilter;
     return matchSearch && matchCategory;
   });
+  const viewMode = usePreference("view_mode", "cards");
+  const { sorted: actionsSorted, sortField: actSortField, sortDir: actSortDir, toggleSort: actToggleSort } = useTableSort(filtered, "name");
 
   const categories = Array.from(new Set(actionList.map((a) => a.category)));
 
@@ -161,15 +167,15 @@ export default function ActionsPage() {
           <h1 className="text-2xl font-bold">Actions</h1>
           {actionList.length > 0 && <Badge variant="outline">{actionList.length}</Badge>}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {actionList.length > 0 && (
-            <div className="relative sm:max-w-sm">
+            <div className="relative w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search actions..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 w-64"
+                className="pl-9"
               />
               {search && (
                 <button className="absolute right-3 top-1/2 -translate-y-1/2" onClick={() => setSearch("")}>
@@ -178,6 +184,7 @@ export default function ActionsPage() {
               )}
             </div>
           )}
+          <ViewToggle />
           {isAdmin && (
             <Button onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ name: "", description: "", category: "custom" as Action["category"], script: "", parameters: [] }); setConfigError(""); }}>
               <Plus className="h-4 w-4 mr-2" /> Create Action
@@ -459,6 +466,62 @@ export default function ActionsPage() {
         <div className="text-center py-12">
           <p className="text-muted-foreground">No actions match your search</p>
           <Button variant="link" onClick={() => { setSearch(""); setCategoryFilter("all"); }}>Clear filters</Button>
+        </div>
+      ) : viewMode === "table" ? (
+        <div className="rounded-md border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                <SortableTh label="Name" field="name" currentField={actSortField} currentDir={actSortDir} onSort={actToggleSort} />
+                <SortableTh label="Category" field="category" currentField={actSortField} currentDir={actSortDir} onSort={actToggleSort} className="hidden sm:table-cell" />
+                <th className="text-left px-4 py-2 font-medium hidden md:table-cell">Description</th>
+                <th className="text-left px-4 py-2 font-medium hidden lg:table-cell">Type</th>
+                <th className="text-right px-4 py-2 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {actionsSorted.map((action) => (
+                <React.Fragment key={action.id}>
+                <tr className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                  <td className="px-4 py-2.5 font-medium">{action.name}</td>
+                  <td className="px-4 py-2.5 hidden sm:table-cell">
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${categoryColors[action.category] || categoryColors.custom}`}>
+                      {action.category}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-muted-foreground text-xs hidden md:table-cell max-w-xs truncate">{action.description || "—"}</td>
+                  <td className="px-4 py-2.5 hidden lg:table-cell">
+                    {action.builtin ? <Badge variant="outline" className="text-xs">Built-in</Badge> : <Badge variant="secondary" className="text-xs">Custom</Badge>}
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => setExpandedId(expandedId === action.id ? null : action.id)} title="View script">
+                        <Code2 className="h-3.5 w-3.5" />
+                      </Button>
+                      {isAdmin && !action.builtin && (
+                        <>
+                          <Button variant="ghost" size="sm" onClick={() => handleEdit(action)} title="Edit">
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => handleDelete(action.id)} title="Delete" className="text-destructive">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+                {expandedId === action.id && (
+                  <tr className="border-b last:border-0">
+                    <td colSpan={5} className="px-4 py-3">
+                      <pre className="text-xs bg-gray-950 text-green-400 p-3 rounded-md overflow-x-auto max-h-64 whitespace-pre-wrap">{action.script}</pre>
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : (
         Object.entries(grouped).map(([category, categoryActions]) => {

@@ -6,10 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Plus, Rocket, Trash2, Edit2, Info, Loader2 } from "lucide-react";
+import { ViewToggle } from "@/components/ui/view-toggle";
+import { usePreference } from "@/context/PreferencesContext";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { useTableSort } from "@/hooks/useTableSort";
 import { Select } from "@/components/ui/select";
 
 export default function BlueprintsPage() {
   const [bpList, setBpList] = useState<Blueprint[]>([]);
+  const viewMode = usePreference("view_mode", "cards");
+  const { sorted: bpSorted, sortField: bpSortField, sortDir: bpSortDir, toggleSort: bpToggleSort } = useTableSort(bpList, "name");
   const [templatesList, setTemplatesList] = useState<Template[]>([]);
   const [targetsList, setTargetsList] = useState<Target[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,7 +77,10 @@ export default function BlueprintsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Blueprints</h1>
-        <Button onClick={() => setShowForm(!showForm)}><Plus className="h-4 w-4 mr-1" /> New Blueprint</Button>
+        <div className="flex items-center gap-2">
+          <ViewToggle />
+          <Button onClick={() => setShowForm(!showForm)}><Plus className="h-4 w-4 mr-1" /> New Blueprint</Button>
+        </div>
       </div>
 
       {/* Info card explaining blueprints */}
@@ -137,6 +146,40 @@ export default function BlueprintsPage() {
             No blueprints yet. Create one to save reusable deployment configurations.
           </CardContent>
         </Card>
+      ) : viewMode === "table" ? (
+        <div className="rounded-md border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                <SortableTh label="Name" field="name" currentField={bpSortField} currentDir={bpSortDir} onSort={bpToggleSort} />
+                <th className="text-left px-4 py-2 font-medium hidden sm:table-cell">Description</th>
+                <SortableTh label="Template" field="template_name" currentField={bpSortField} currentDir={bpSortDir} onSort={bpToggleSort} className="hidden md:table-cell" />
+                <SortableTh label="Target" field="target_name" currentField={bpSortField} currentDir={bpSortDir} onSort={bpToggleSort} className="hidden lg:table-cell" />
+                <th className="text-right px-4 py-2 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bpSorted.map((bp) => (
+                <tr key={bp.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                  <td className="px-4 py-2.5 font-medium">{bp.name}</td>
+                  <td className="px-4 py-2.5 text-muted-foreground text-xs hidden sm:table-cell max-w-xs truncate">{bp.description || "—"}</td>
+                  <td className="px-4 py-2.5 text-muted-foreground hidden md:table-cell">{bp.template_name || "—"}</td>
+                  <td className="px-4 py-2.5 text-muted-foreground hidden lg:table-cell">{bp.target_name || "—"}</td>
+                  <td className="px-4 py-2.5 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => setDeployingId(bp.id)} title="Deploy">
+                        <Rocket className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleDelete(bp.id)} title="Delete" className="text-destructive">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {bpList.map((bp) => (
