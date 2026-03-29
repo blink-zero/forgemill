@@ -356,7 +356,7 @@ func (h *SettingsHandler) UpdateUserRole(w http.ResponseWriter, r *http.Request)
 
 	if err := h.db.UpdateUserRole(targetID, req.Role); err != nil {
 		if strings.Contains(err.Error(), "invalid role") {
-			writeError(w, err.Error(), http.StatusBadRequest)
+			writeError(w, "invalid role — must be admin, user, or viewer", http.StatusBadRequest)
 			return
 		}
 		writeErrorLog(w, "failed to update user role", http.StatusInternalServerError, err)
