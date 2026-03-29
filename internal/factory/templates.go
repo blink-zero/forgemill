@@ -7,10 +7,12 @@ import (
 )
 
 // Input validation patterns for Packer build config fields.
+// validPath and validNetwork allow characters commonly found in vCenter resource names
+// (parentheses, brackets, etc.) while blocking HCL injection chars (", \, $, `).
 var (
 	validName    = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
-	validPath    = regexp.MustCompile(`^[a-zA-Z0-9/][a-zA-Z0-9._ /-]{0,127}$`)
-	validNetwork = regexp.MustCompile(`^[a-zA-Z0-9/][a-zA-Z0-9._ /-]{0,127}$`)
+	validPath    = regexp.MustCompile(`^[a-zA-Z0-9/][a-zA-Z0-9._ /\-()[\]@#&+,]{0,127}$`)
+	validNetwork = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._ /\-()[\]@#&+,]{0,127}$`)
 )
 
 // ValidateBuildConfig validates all user-supplied fields in a BuildConfig.
