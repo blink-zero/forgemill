@@ -14,6 +14,8 @@ import { getErrorMessage } from "@/lib/utils";
 import { useProviders, useProvider } from "@/context/ProviderContext";
 import { ViewToggle } from "@/components/ui/view-toggle";
 import { usePreference } from "@/context/PreferencesContext";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { useTableSort } from "@/hooks/useTableSort";
 
 // Extracted form component using provider metadata from context
 interface TargetFormProps {
@@ -170,6 +172,9 @@ export default function Targets() {
       document.removeEventListener("click", handleClick);
     };
   }, [openMenu]);
+
+  const viewMode = usePreference("view_mode", "cards");
+  const { sorted: targetsSorted, sortField: tgtSortField, sortDir: tgtSortDir, toggleSort: tgtToggleSort } = useTableSort(targets, "name");
 
   const [form, setForm] = useState({
     name: "", type: "vcenter", hostname: "", port: 443, username: "", password: "", validate_certs: true,
@@ -343,7 +348,53 @@ export default function Targets() {
           <p className="font-medium">No targets configured</p>
           <p className="text-sm mt-1">Add a vCenter, ESXi, or Proxmox target to get started</p>
         </div>
-      ) : (
+      ) : viewMode === "table" ? (
+        <div className="rounded-md border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                <SortableTh label="Name" field="name" currentField={tgtSortField} currentDir={tgtSortDir} onSort={tgtToggleSort} />
+                <SortableTh label="Hostname" field="hostname" currentField={tgtSortField} currentDir={tgtSortDir} onSort={tgtToggleSort} className="hidden sm:table-cell" />
+                <SortableTh label="Type" field="type" currentField={tgtSortField} currentDir={tgtSortDir} onSort={tgtToggleSort} className="hidden md:table-cell" />
+                <th className="text-left px-4 py-2 font-medium">Status</th>
+                <th className="text-right px-4 py-2 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {targetsSorted.map((t) => (
+                <tr key={t.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <ProviderIcon type={t.type} size={18} />
+                      <span className="font-medium">{t.name}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-2.5 text-muted-foreground font-mono text-xs hidden sm:table-cell">{t.hostname}:{t.port}</td>
+                  <td className="px-4 py-2.5 text-muted-foreground hidden md:table-cell">{providerLabel(t.type)}</td>
+                  <td className="px-4 py-2.5">
+                    <Badge variant={t.status === "connected" ? "success" : t.status === "error" ? "destructive" : "secondary"}>
+                      {t.status}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => handleTest(t)} disabled={testing === t.id} title="Test">
+                        <Wifi className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleSync(t)} disabled={syncing === t.id} title="Sync">
+                        <RefreshCw className={`h-3.5 w-3.5 ${syncing === t.id ? "animate-spin" : ""}`} />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleEditClick(t)} title="Edit">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        ) : (
         <div className="space-y-4">
           {targets.map((t) => (
             <Card key={t.id}>

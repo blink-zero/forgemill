@@ -14,6 +14,8 @@ import { Pagination } from "@/components/ui/pagination";
 import { SkeletonVMCard, Skeleton } from "@/components/ui/skeleton";
 import { ViewToggle } from "@/components/ui/view-toggle";
 import { usePreference } from "@/context/PreferencesContext";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { useTableSort } from "@/hooks/useTableSort";
 
 const ITEMS_PER_PAGE = 12;
 
@@ -84,6 +86,7 @@ export default function VMs() {
 
   // Sort
   const viewMode = usePreference("view_mode", "cards");
+  const { sorted: vmTableSorted, sortField: vmSortField, sortDir: vmSortDir, toggleSort: vmToggleSort } = useTableSort(filtered, "vm_name");
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -265,16 +268,16 @@ export default function VMs() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="text-left px-4 py-2 font-medium">Name</th>
-                  <th className="text-left px-4 py-2 font-medium hidden sm:table-cell">IP Address</th>
-                  <th className="text-left px-4 py-2 font-medium hidden md:table-cell">Specs</th>
-                  <th className="text-left px-4 py-2 font-medium hidden lg:table-cell">Target</th>
-                  <th className="text-left px-4 py-2 font-medium">Status</th>
+                  <SortableTh label="Name" field="vm_name" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} />
+                  <SortableTh label="IP Address" field="ip_address" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} className="hidden sm:table-cell" />
+                  <SortableTh label="CPU" field="cpu" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} className="hidden md:table-cell" />
+                  <SortableTh label="Target" field="target_name" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} className="hidden lg:table-cell" />
+                  <SortableTh label="Status" field="power_state" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} />
                   <th className="text-right px-4 py-2 font-medium">Power</th>
                 </tr>
               </thead>
               <tbody>
-                {paginated.map((vm) => (
+                {vmTableSorted.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE).map((vm) => (
                   <tr key={vm.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-2.5">
                       <Link to={`/vms/${vm.id}`} className="font-medium hover:text-primary transition-colors">
