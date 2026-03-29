@@ -4,11 +4,13 @@ on:
   push:
     branches:
       - main
+      - dev
     tags:
       - 'v*.*.*'
   pull_request:
     branches:
       - main
+      - dev
 
 env:
   REGISTRY: ghcr.io
@@ -44,6 +46,8 @@ jobs:
           tags: |
             # Tag :latest on every push to main
             type=raw,value=latest,enable={{is_default_branch}}
+            # Tag :dev on every push to dev branch
+            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
             # Tag :v1.2.3 and :v1.2 and :v1 from git tags
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
