@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { actions as actionsApi } from "@/api/client";
 import type { Action, ActionParameter } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -481,7 +481,8 @@ export default function ActionsPage() {
             </thead>
             <tbody>
               {actionsSorted.map((action) => (
-                <tr key={action.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                <React.Fragment key={action.id}>
+                <tr className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                   <td className="px-4 py-2.5 font-medium">{action.name}</td>
                   <td className="px-4 py-2.5 hidden sm:table-cell">
                     <span className={`text-xs px-1.5 py-0.5 rounded ${categoryColors[action.category] || categoryColors.custom}`}>
@@ -493,18 +494,31 @@ export default function ActionsPage() {
                     {action.builtin ? <Badge variant="outline" className="text-xs">Built-in</Badge> : <Badge variant="secondary" className="text-xs">Custom</Badge>}
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    {isAdmin && !action.builtin && (
-                      <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => handleEdit(action)} title="Edit">
-                          <Edit2 className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleDelete(action.id)} title="Delete" className="text-destructive">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    )}
+                    <div className="flex items-center justify-end gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => setExpandedId(expandedId === action.id ? null : action.id)} title="View script">
+                        <Code2 className="h-3.5 w-3.5" />
+                      </Button>
+                      {isAdmin && !action.builtin && (
+                        <>
+                          <Button variant="ghost" size="sm" onClick={() => handleEdit(action)} title="Edit">
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => handleDelete(action.id)} title="Delete" className="text-destructive">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
+                {expandedId === action.id && (
+                  <tr className="border-b last:border-0">
+                    <td colSpan={5} className="px-4 py-3">
+                      <pre className="text-xs bg-gray-950 text-green-400 p-3 rounded-md overflow-x-auto max-h-64 whitespace-pre-wrap">{action.script}</pre>
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>
