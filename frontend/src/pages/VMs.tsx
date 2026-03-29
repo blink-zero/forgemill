@@ -243,6 +243,7 @@ export default function VMs() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
+                  <SortableTh label="ID" field="id" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} className="w-16" />
                   <SortableTh label="Name" field="vm_name" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} />
                   <SortableTh label="IP Address" field="ip_address" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} className="hidden sm:table-cell" />
                   <SortableTh label="CPU" field="cpu" currentField={vmSortField} currentDir={vmSortDir} onSort={vmToggleSort} className="hidden md:table-cell" />
@@ -254,6 +255,7 @@ export default function VMs() {
               <tbody>
                 {vmTableSorted.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE).map((vm) => (
                   <tr key={vm.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                    <td className="px-4 py-2.5 text-muted-foreground font-mono text-xs">#{vm.id}</td>
                     <td className="px-4 py-2.5">
                       <Link to={`/vms/${vm.id}`} className="font-medium hover:text-primary transition-colors">
                         {vm.vm_name}
