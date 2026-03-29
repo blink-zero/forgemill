@@ -16,6 +16,8 @@ import { getErrorMessage } from "@/lib/utils";
 import { SkeletonTemplateCard, Skeleton } from "@/components/ui/skeleton";
 import { ViewToggle } from "@/components/ui/view-toggle";
 import { usePreference } from "@/context/PreferencesContext";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { useTableSort } from "@/hooks/useTableSort";
 
 const ITEMS_PER_PAGE = 12;
 
@@ -280,6 +282,7 @@ export default function Templates() {
 
   const hasManagedTemplates = templates.some((t) => t.managed_by_forgemill);
   const viewMode = usePreference("view_mode", "cards");
+  const { sorted: tableSorted, sortField: tSortField, sortDir: tSortDir, toggleSort: tToggleSort } = useTableSort(filtered, "name");
 
   return (
     <div className="space-y-6">
@@ -366,15 +369,15 @@ export default function Templates() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
-                <th className="text-left px-4 py-2 font-medium">Name</th>
-                <th className="text-left px-4 py-2 font-medium hidden sm:table-cell">Target</th>
-                <th className="text-left px-4 py-2 font-medium hidden md:table-cell">Specs</th>
+                <SortableTh label="Name" field="name" currentField={tSortField} currentDir={tSortDir} onSort={tToggleSort} />
+                <SortableTh label="Target" field="target_name" currentField={tSortField} currentDir={tSortDir} onSort={tToggleSort} className="hidden sm:table-cell" />
+                <SortableTh label="CPU" field="cpu" currentField={tSortField} currentDir={tSortDir} onSort={tToggleSort} className="hidden md:table-cell" />
                 <th className="text-left px-4 py-2 font-medium hidden lg:table-cell">Status</th>
                 <th className="text-right px-4 py-2 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE).map((t) => {
+              {tableSorted.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE).map((t) => {
                 const targetObj = targetsList.find((tg) => tg.id === t.target_id);
                 return (
                   <tr key={t.id} className={`border-b last:border-0 hover:bg-muted/30 transition-colors ${t.lifecycle_status === "superseded" ? "opacity-60" : ""}`}>

@@ -14,6 +14,9 @@ import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { getErrorMessage } from "@/lib/utils";
 import { ViewToggle } from "@/components/ui/view-toggle";
+import { usePreference } from "@/context/PreferencesContext";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { useTableSort } from "@/hooks/useTableSort";
 
 const categoryIcons: Record<string, typeof Package> = {
   packages: Package,
@@ -133,6 +136,8 @@ export default function ActionsPage() {
     const matchCategory = categoryFilter === "all" || a.category === categoryFilter;
     return matchSearch && matchCategory;
   });
+  const viewMode = usePreference("view_mode", "cards");
+  const { sorted: actionsSorted, sortField: actSortField, sortDir: actSortDir, toggleSort: actToggleSort } = useTableSort(filtered, "name");
 
   const categories = Array.from(new Set(actionList.map((a) => a.category)));
 
@@ -461,6 +466,48 @@ export default function ActionsPage() {
         <div className="text-center py-12">
           <p className="text-muted-foreground">No actions match your search</p>
           <Button variant="link" onClick={() => { setSearch(""); setCategoryFilter("all"); }}>Clear filters</Button>
+        </div>
+      ) : viewMode === "table" ? (
+        <div className="rounded-md border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                <SortableTh label="Name" field="name" currentField={actSortField} currentDir={actSortDir} onSort={actToggleSort} />
+                <SortableTh label="Category" field="category" currentField={actSortField} currentDir={actSortDir} onSort={actToggleSort} className="hidden sm:table-cell" />
+                <th className="text-left px-4 py-2 font-medium hidden md:table-cell">Description</th>
+                <th className="text-left px-4 py-2 font-medium hidden lg:table-cell">Type</th>
+                <th className="text-right px-4 py-2 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {actionsSorted.map((action) => (
+                <tr key={action.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                  <td className="px-4 py-2.5 font-medium">{action.name}</td>
+                  <td className="px-4 py-2.5 hidden sm:table-cell">
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${categoryColors[action.category] || categoryColors.custom}`}>
+                      {action.category}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-muted-foreground text-xs hidden md:table-cell max-w-xs truncate">{action.description || "—"}</td>
+                  <td className="px-4 py-2.5 hidden lg:table-cell">
+                    {action.builtin ? <Badge variant="outline" className="text-xs">Built-in</Badge> : <Badge variant="secondary" className="text-xs">Custom</Badge>}
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
+                    {isAdmin && !action.builtin && (
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => handleEdit(action)} title="Edit">
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => handleDelete(action.id)} title="Delete" className="text-destructive">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : (
         Object.entries(grouped).map(([category, categoryActions]) => {
