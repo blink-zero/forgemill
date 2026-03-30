@@ -64,7 +64,7 @@ func init() {
 		Arch:           "x86_64",
 		ISOURLPattern:  "https://download.rockylinux.org/pub/rocky/9/isos/x86_64/Rocky-9-latest-x86_64-minimal.iso",
 		ISOChecksumURL: "https://download.rockylinux.org/pub/rocky/9/isos/x86_64/CHECKSUM",
-		GuestOSType:    "other5xLinux64Guest", // VMware packer-examples uses this
+		GuestOSType:    "centos8_64Guest", // Compatible with ESXi 6.7+; other5xLinux64Guest requires 7.0+
 		ProxmoxOSType:  "l26",
 		MinDiskGB:      20,
 		MinMemoryMB:    2048,
