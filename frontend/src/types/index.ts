@@ -153,6 +153,7 @@ export interface Resources {
 export interface ResourceItem {
   name: string;
   id: string;
+  path?: string;
 }
 
 export interface PaginatedResponse<T> {
