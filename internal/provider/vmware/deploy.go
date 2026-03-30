@@ -104,8 +104,11 @@ func (p *Provider) DeployVM(ctx context.Context, spec *provider.DeploySpec) (*pr
 	}
 
 	// PV-V5: Separate customization from network backing change.
+	// Network changes are handled by DeviceChange (NIC backing swap), not
+	// guest customization. Including Network here caused vCenter's
+	// customization engine to reset the NIC connection state post-clone.
 	needsCustomization := spec.Hostname != "" || spec.IPAddress != "" ||
-		spec.DomainName != "" || len(spec.DNS) > 0 || spec.Network != ""
+		spec.DomainName != "" || len(spec.DNS) > 0
 	if needsCustomization {
 		cloneSpec.Customization = p.buildCustomization(spec)
 	}
