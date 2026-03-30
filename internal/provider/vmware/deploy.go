@@ -104,9 +104,6 @@ func (p *Provider) DeployVM(ctx context.Context, spec *provider.DeploySpec) (*pr
 	}
 
 	// PV-V5: Separate customization from network backing change.
-	// Network changes are handled by DeviceChange (NIC backing swap), not
-	// guest customization. Including Network here caused vCenter's
-	// customization engine to reset the NIC connection state post-clone.
 	needsCustomization := spec.Hostname != "" || spec.IPAddress != "" ||
 		spec.DomainName != "" || len(spec.DNS) > 0
 	if needsCustomization {
@@ -279,9 +276,43 @@ func (p *Provider) DeployVM(ctx context.Context, spec *provider.DeploySpec) (*pr
 		return nil, fmt.Errorf("clone task failed: %w", err)
 	}
 	vmID := ""
+	var vmRef *types.ManagedObjectReference
 	if info.Result != nil {
 		if ref, ok := info.Result.(types.ManagedObjectReference); ok {
 			vmID = ref.Value
+			vmRef = &ref
+		}
+	}
+
+	// Post-clone: ensure all NICs are connected. vCenter's guest customization
+	// can reset NIC connection state, leaving interfaces disconnected.
+	if vmRef != nil {
+		clonedVM := object.NewVirtualMachine(client.Client, *vmRef)
+		var clonedProps mo.VirtualMachine
+		if err := pc.RetrieveOne(ctx, clonedVM.Reference(), []string{"config.hardware.device"}, &clonedProps); err == nil && clonedProps.Config != nil {
+			var nicChanges []types.BaseVirtualDeviceConfigSpec
+			for _, dev := range clonedProps.Config.Hardware.Device {
+				if card, ok := dev.(types.BaseVirtualEthernetCard); ok {
+					ethCard := card.GetVirtualEthernetCard()
+					ethCard.Connectable = &types.VirtualDeviceConnectInfo{
+						StartConnected:    true,
+						AllowGuestControl: true,
+						Connected:         true,
+					}
+					nicChanges = append(nicChanges, &types.VirtualDeviceConfigSpec{
+						Operation: types.VirtualDeviceConfigSpecOperationEdit,
+						Device:    dev,
+					})
+				}
+			}
+			if len(nicChanges) > 0 {
+				reconfigTask, err := clonedVM.Reconfigure(ctx, types.VirtualMachineConfigSpec{
+					DeviceChange: nicChanges,
+				})
+				if err == nil {
+					_ = reconfigTask.Wait(ctx)
+				}
+			}
 		}
 	}
 
