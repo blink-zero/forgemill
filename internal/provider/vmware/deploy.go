@@ -490,6 +490,7 @@ func (p *Provider) GetResources(ctx context.Context) (*provider.Resources, error
 				resources.Networks = append(resources.Networks, provider.ResourceItem{
 					Name: prefix + networkName(n.GetInventoryPath()),
 					ID:   n.Reference().Value,
+					Path: n.GetInventoryPath(),
 				})
 			}
 		}

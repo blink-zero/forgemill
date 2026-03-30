@@ -152,6 +152,7 @@ type Resources struct {
 type ResourceItem struct {
 	Name string `json:"name"`
 	ID   string `json:"id"`
+	Path string `json:"path,omitempty"`
 }
 
 type Snapshot struct {
