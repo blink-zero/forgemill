@@ -433,9 +433,14 @@ func (e *Engine) executeBuild(ctx context.Context, buildID int64, targetType str
 		}
 	}
 
+	// Use the build directory for Packer's ISO cache so it's cleaned up with
+	// the build dir (defer os.RemoveAll above). Prevents unbounded cache growth
+	// that can exhaust tmpfs/RAM-backed filesystems in read-only containers.
+	packerEnv := []string{"PACKER_CACHE_DIR=" + buildDir}
+
 	// Phase 4: Packer init
 	sendPhase("Initializing Packer plugins")
-	if err := e.runCommand(ctx, buildDir, sendLog, "packer", "init", "."); err != nil {
+	if err := e.runCommandEnv(ctx, buildDir, packerEnv, sendLog, "packer", "init", "."); err != nil {
 		if ctx.Err() != nil {
 			e.handleCancel(buildID, log)
 			return
@@ -448,7 +453,7 @@ func (e *Engine) executeBuild(ctx context.Context, buildID int64, targetType str
 	sendPhase("Running Packer build")
 	logStoreErr("UpdateBuildStatus(building/phase5)", e.store.UpdateBuildStatus(buildID, "building", ""))
 
-	if err := e.runCommand(ctx, buildDir, sendLog, "packer", "build", "-force", "-machine-readable", "."); err != nil {
+	if err := e.runCommandEnv(ctx, buildDir, packerEnv, sendLog, "packer", "build", "-force", "-machine-readable", "."); err != nil {
 		if ctx.Err() != nil {
 			e.handleCancel(buildID, log)
 			return
@@ -472,7 +477,7 @@ func (e *Engine) executeBuild(ctx context.Context, buildID int64, targetType str
 			}
 
 			// Retry the build
-			if err := e.runCommand(ctx, buildDir, sendLog, "packer", "build", "-force", "-machine-readable", "."); err != nil {
+			if err := e.runCommandEnv(ctx, buildDir, packerEnv, sendLog, "packer", "build", "-force", "-machine-readable", "."); err != nil {
 				if ctx.Err() != nil {
 					e.handleCancel(buildID, log)
 					return
@@ -526,8 +531,15 @@ func (e *Engine) handleCancel(buildID int64, log *strings.Builder) {
 }
 
 func (e *Engine) runCommand(ctx context.Context, dir string, sendLog func(string), name string, args ...string) error {
+	return e.runCommandEnv(ctx, dir, nil, sendLog, name, args...)
+}
+
+func (e *Engine) runCommandEnv(ctx context.Context, dir string, env []string, sendLog func(string), name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	// Create a new process group so we can kill all child processes on cancel
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// Override CommandContext's default SIGKILL with process group kill
