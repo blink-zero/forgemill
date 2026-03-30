@@ -540,7 +540,11 @@ func (p *Provider) GetResources(ctx context.Context) (*provider.Resources, error
 		resources.Defaults["datastore"] = resources.Datastores[0].Name
 	}
 	if len(resources.Networks) > 0 {
-		resources.Defaults["network"] = resources.Networks[0].Name
+		if resources.Networks[0].Path != "" {
+			resources.Defaults["network"] = resources.Networks[0].Path
+		} else {
+			resources.Defaults["network"] = resources.Networks[0].Name
+		}
 	}
 
 	return resources, nil
