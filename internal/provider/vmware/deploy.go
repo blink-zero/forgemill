@@ -105,7 +105,7 @@ func (p *Provider) DeployVM(ctx context.Context, spec *provider.DeploySpec) (*pr
 
 	// PV-V5: Separate customization from network backing change.
 	needsCustomization := spec.Hostname != "" || spec.IPAddress != "" ||
-		spec.DomainName != "" || len(spec.DNS) > 0 || spec.Network != ""
+		spec.DomainName != "" || len(spec.DNS) > 0
 	if needsCustomization {
 		cloneSpec.Customization = p.buildCustomization(spec)
 	}
@@ -146,6 +146,12 @@ func (p *Provider) DeployVM(ctx context.Context, spec *provider.DeploySpec) (*pr
 				if card, ok := dev.(types.BaseVirtualEthernetCard); ok {
 					ethCard := card.GetVirtualEthernetCard()
 					ethCard.Backing = backing
+					// Ensure NIC is connected at power-on after network backing change
+					ethCard.Connectable = &types.VirtualDeviceConnectInfo{
+						StartConnected:    true,
+						AllowGuestControl: true,
+						Connected:         true,
+					}
 					nicDevice = dev
 					break
 				}
@@ -270,9 +276,43 @@ func (p *Provider) DeployVM(ctx context.Context, spec *provider.DeploySpec) (*pr
 		return nil, fmt.Errorf("clone task failed: %w", err)
 	}
 	vmID := ""
+	var vmRef *types.ManagedObjectReference
 	if info.Result != nil {
 		if ref, ok := info.Result.(types.ManagedObjectReference); ok {
 			vmID = ref.Value
+			vmRef = &ref
+		}
+	}
+
+	// Post-clone: ensure all NICs are connected. vCenter's guest customization
+	// can reset NIC connection state, leaving interfaces disconnected.
+	if vmRef != nil {
+		clonedVM := object.NewVirtualMachine(client.Client, *vmRef)
+		var clonedProps mo.VirtualMachine
+		if err := pc.RetrieveOne(ctx, clonedVM.Reference(), []string{"config.hardware.device"}, &clonedProps); err == nil && clonedProps.Config != nil {
+			var nicChanges []types.BaseVirtualDeviceConfigSpec
+			for _, dev := range clonedProps.Config.Hardware.Device {
+				if card, ok := dev.(types.BaseVirtualEthernetCard); ok {
+					ethCard := card.GetVirtualEthernetCard()
+					ethCard.Connectable = &types.VirtualDeviceConnectInfo{
+						StartConnected:    true,
+						AllowGuestControl: true,
+						Connected:         true,
+					}
+					nicChanges = append(nicChanges, &types.VirtualDeviceConfigSpec{
+						Operation: types.VirtualDeviceConfigSpecOperationEdit,
+						Device:    dev,
+					})
+				}
+			}
+			if len(nicChanges) > 0 {
+				reconfigTask, err := clonedVM.Reconfigure(ctx, types.VirtualMachineConfigSpec{
+					DeviceChange: nicChanges,
+				})
+				if err == nil {
+					_ = reconfigTask.Wait(ctx)
+				}
+			}
 		}
 	}
 
@@ -490,6 +530,7 @@ func (p *Provider) GetResources(ctx context.Context) (*provider.Resources, error
 				resources.Networks = append(resources.Networks, provider.ResourceItem{
 					Name: prefix + networkName(n.GetInventoryPath()),
 					ID:   n.Reference().Value,
+					Path: n.GetInventoryPath(),
 				})
 			}
 		}
@@ -539,7 +580,11 @@ func (p *Provider) GetResources(ctx context.Context) (*provider.Resources, error
 		resources.Defaults["datastore"] = resources.Datastores[0].Name
 	}
 	if len(resources.Networks) > 0 {
-		resources.Defaults["network"] = resources.Networks[0].Name
+		if resources.Networks[0].Path != "" {
+			resources.Defaults["network"] = resources.Networks[0].Path
+		} else {
+			resources.Defaults["network"] = resources.Networks[0].Name
+		}
 	}
 
 	return resources, nil
@@ -882,6 +927,11 @@ func buildNICFromTemplate(ctx context.Context, finder *find.Finder, spec *provid
 		VirtualDevice: types.VirtualDevice{
 			Key:     -3,
 			Backing: backing,
+			Connectable: &types.VirtualDeviceConnectInfo{
+				StartConnected:    true,
+				AllowGuestControl: true,
+				Connected:         true,
+			},
 		},
 		AddressType: string(types.VirtualEthernetCardMacTypeGenerated),
 	}
