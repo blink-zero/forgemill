@@ -110,7 +110,7 @@ export default function FactoryBuild() {
     if (isVMw) {
       if (resources.datacenters?.length === 1 && !datacenter) setDatacenter(resources.datacenters[0].name);
       if (resources.datastores?.length === 1 && !datastore) setDatastore(resources.datastores[0].name);
-      if (resources.networks?.length === 1 && !network) setNetwork(resources.networks[0].name);
+      if (resources.networks?.length === 1 && !network) setNetwork(resources.networks[0].path || resources.networks[0].name);
       if (resources.clusters?.length === 1 && !cluster) setCluster(resources.clusters[0].name);
     }
     if (isPve) {
@@ -455,7 +455,7 @@ export default function FactoryBuild() {
                       >
                         <option value="">Select network</option>
                         {resources.networks.map((n) => (
-                          <option key={n.id} value={n.name}>
+                          <option key={n.id} value={n.path || n.name}>
                             {n.name}
                           </option>
                         ))}
@@ -600,7 +600,7 @@ export default function FactoryBuild() {
                   <span className="text-muted-foreground">Folder</span>
                   <span>{folder || "-"}</span>
                   <span className="text-muted-foreground">Network</span>
-                  <span>{network || "-"}</span>
+                  <span>{network ? resources?.networks?.find((n) => (n.path || n.name) === network)?.name || network : "-"}</span>
                 </>
               )}
 

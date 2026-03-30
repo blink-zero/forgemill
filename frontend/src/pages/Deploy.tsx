@@ -353,7 +353,7 @@ export default function Deploy() {
                         >
                           <option value="">{field.placeholder || `Select ${field.label.toLowerCase()}...`}</option>
                           {Array.isArray(items) && items.map((item) => (
-                            <option key={item.id} value={item.name}>{item.name}</option>
+                            <option key={item.id} value={field.key === "network" && item.path ? item.path : item.name}>{item.name}</option>
                           ))}
                         </Select>
                       </div>
@@ -437,7 +437,10 @@ export default function Deploy() {
               {showDiskProvisioning && config.disk_provisioning && <div><span className="text-muted-foreground">Disk Provisioning:</span> <span className="font-medium">{DISK_PROVISIONING_OPTIONS.find((o) => o.value === config.disk_provisioning)?.label}</span></div>}
               {platformFields.map((field) => {
                 const val = (config as Record<string, unknown>)[field.key] as string;
-                return val ? <div key={field.key}><span className="text-muted-foreground">{field.label}:</span> <span className="font-medium">{val}</span></div> : null;
+                if (!val) return null;
+                const items = resources?.[field.resource as keyof Resources];
+                const displayVal = field.key === "network" && Array.isArray(items) ? items.find((i) => (i.path || i.name) === val)?.name || val : val;
+                return <div key={field.key}><span className="text-muted-foreground">{field.label}:</span> <span className="font-medium">{displayVal}</span></div>;
               })}
               {config.ip_address && <div><span className="text-muted-foreground">IP:</span> <span className="font-medium">{config.ip_address}</span></div>}
               {config.ssh_public_key && <div className="sm:col-span-2"><span className="text-muted-foreground">SSH Key:</span> <span className="font-medium font-mono text-xs">{config.ssh_public_key.substring(0, 40)}...</span></div>}

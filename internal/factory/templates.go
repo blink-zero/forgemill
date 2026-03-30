@@ -12,7 +12,7 @@ import (
 var (
 	validName    = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
 	validPath    = regexp.MustCompile(`^[a-zA-Z0-9/][a-zA-Z0-9._ /\-()[\]@#&+,]{0,127}$`)
-	validNetwork = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._ /\-()[\]@#&+,]{0,127}$`)
+	validNetwork = regexp.MustCompile(`^[/a-zA-Z0-9][a-zA-Z0-9._ /\-()[\]@#&+,]{0,255}$`)
 )
 
 // ValidateBuildConfig validates all user-supplied fields in a BuildConfig.

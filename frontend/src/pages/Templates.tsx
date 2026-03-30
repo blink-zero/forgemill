@@ -89,7 +89,10 @@ export default function Templates() {
       (t.name || "").toLowerCase().includes(search.toLowerCase()) ||
       (t.os_type || "").toLowerCase().includes(search.toLowerCase()) ||
       (t.target_name || "").toLowerCase().includes(search.toLowerCase())
-  );
+  ).map((t) => ({
+    ...t,
+    _status: t.lifecycle_status === "superseded" ? "superseded" : t.managed_by_forgemill ? "managed" : "synced",
+  }));
 
   const checkAllUpdates = async () => {
     const managed = templates.filter((t) => t.managed_by_forgemill && t.lifecycle_status === "active");
@@ -374,7 +377,7 @@ export default function Templates() {
                 <SortableTh label="Name" field="name" currentField={tSortField} currentDir={tSortDir} onSort={tToggleSort} />
                 <SortableTh label="Target" field="target_name" currentField={tSortField} currentDir={tSortDir} onSort={tToggleSort} className="hidden sm:table-cell" />
                 <th className="text-left px-4 py-2 font-medium hidden md:table-cell">Specs</th>
-                <th className="text-left px-4 py-2 font-medium hidden lg:table-cell">Status</th>
+                <SortableTh label="Status" field="_status" currentField={tSortField} currentDir={tSortDir} onSort={tToggleSort} className="hidden lg:table-cell" />
                 <th className="text-right px-4 py-2 font-medium">Actions</th>
               </tr>
             </thead>
@@ -399,13 +402,9 @@ export default function Templates() {
                       {t.cpu || "?"}C · {t.memory_mb ? (t.memory_mb >= 1024 ? `${(t.memory_mb / 1024).toFixed(0)}G` : `${t.memory_mb}M`) : "?"} · {t.disk_gb || "?"}G
                     </td>
                     <td className="px-4 py-2.5 hidden lg:table-cell">
-                      {t.managed_by_forgemill ? (
-                        <Badge variant={t.lifecycle_status === "superseded" ? "warning" : "success"} className="text-xs">
-                          {t.lifecycle_status === "superseded" ? "superseded" : "managed"}
-                        </Badge>
-                      ) : (
-                        <Badge variant="secondary" className="text-xs">synced</Badge>
-                      )}
+                      <Badge variant={t._status === "superseded" ? "warning" : t._status === "managed" ? "success" : "secondary"} className="text-xs">
+                        {t._status}
+                      </Badge>
                     </td>
                     <td className="px-4 py-2.5 text-right">
                       <div className="flex items-center justify-end gap-1">
