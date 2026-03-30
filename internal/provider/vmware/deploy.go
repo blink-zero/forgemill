@@ -146,6 +146,12 @@ func (p *Provider) DeployVM(ctx context.Context, spec *provider.DeploySpec) (*pr
 				if card, ok := dev.(types.BaseVirtualEthernetCard); ok {
 					ethCard := card.GetVirtualEthernetCard()
 					ethCard.Backing = backing
+					// Ensure NIC is connected at power-on after network backing change
+					ethCard.Connectable = &types.VirtualDeviceConnectInfo{
+						StartConnected:    true,
+						AllowGuestControl: true,
+						Connected:         true,
+					}
 					nicDevice = dev
 					break
 				}
@@ -887,6 +893,11 @@ func buildNICFromTemplate(ctx context.Context, finder *find.Finder, spec *provid
 		VirtualDevice: types.VirtualDevice{
 			Key:     -3,
 			Backing: backing,
+			Connectable: &types.VirtualDeviceConnectInfo{
+				StartConnected:    true,
+				AllowGuestControl: true,
+				Connected:         true,
+			},
 		},
 		AddressType: string(types.VirtualEthernetCardMacTypeGenerated),
 	}
