@@ -49,7 +49,6 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-      - /home/forgemill/.cache:uid=1001,gid=1001
       - /home/forgemill/.config:uid=1001,gid=1001
     deploy:
       resources:
