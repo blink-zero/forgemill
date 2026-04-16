@@ -57,6 +57,7 @@ var migrations = []struct {
 	{31, migrationV31},
 	{32, migrationV32},
 	{33, migrationV33},
+	{34, migrationV34},
 }
 
 const migrationV1 = `
@@ -708,6 +709,23 @@ func runMigrations(db *sql.DB, dbPath string) error {
 			}
 		}
 
+		// V34 post-migration: insert "Change VM Password" and "Add SSH Authorized Key" built-in actions
+		if m.version == 34 {
+			for _, a := range v34BuiltinActions {
+				paramsJSON := "NULL"
+				if a.parameters != "" {
+					paramsJSON = "'" + a.parameters + "'"
+				}
+				q := fmt.Sprintf(
+					`INSERT INTO actions (name, description, category, script, script_type, platform, builtin, parameters, created_at, updated_at) VALUES (?, ?, ?, ?, 'bash', 'linux', 1, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+					paramsJSON,
+				)
+				if _, err := db.Exec(q, a.name, a.description, a.category, a.script); err != nil {
+					slog.Warn("failed to insert V34 builtin action", "name", a.name, "error", err)
+				}
+			}
+		}
+
 		// V22 post-migration: insert "Collect VM Info" built-in action
 		if m.version == 22 {
 			if _, err := db.Exec(
@@ -1235,3 +1253,27 @@ CREATE TABLE IF NOT EXISTS user_preferences (
 INSERT INTO schema_version (version) VALUES (33);
 `
 
+// migrationV34: Add "Change VM Password" and "Add SSH Authorized Key" built-in actions.
+const migrationV34 = `
+INSERT INTO schema_version (version) VALUES (34);
+`
+
+// v34BuiltinActions defines the 2 new built-in actions added in V34.
+var v34BuiltinActions = []struct {
+	name, description, category, script, parameters string
+}{
+	{
+		name:        "Change VM Password",
+		description: "Change the password for a user account on the VM.",
+		category:    "security",
+		script:      v34ChangePasswordScript,
+		parameters:  `[{"name":"USERNAME","label":"Username","type":"string","required":true,"default":"","placeholder":"forgemill","options":null,"description":"The user account whose password will be changed"},{"name":"NEW_PASSWORD","label":"New Password","type":"password","required":true,"default":"","placeholder":"","options":null,"description":"The new password to set for the user"}]`,
+	},
+	{
+		name:        "Add SSH Authorized Key",
+		description: "Add an SSH public key to a user's authorized_keys file for key-based authentication.",
+		category:    "security",
+		script:      v34AddSSHKeyScript,
+		parameters:  `[{"name":"USERNAME","label":"Username","type":"string","required":true,"default":"","placeholder":"forgemill","options":null,"description":"The user account to add the SSH key to"},{"name":"SSH_PUBLIC_KEY","label":"SSH Public Key","type":"string","required":true,"default":"","placeholder":"ssh-ed25519 AAAA... user@host","options":null,"description":"The full SSH public key string to add to authorized_keys"}]`,
+	},
+}
