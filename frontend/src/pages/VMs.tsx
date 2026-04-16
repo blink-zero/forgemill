@@ -6,7 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Monitor, Cpu, MemoryStick, HardDrive, Power, RefreshCw, Play, Square, Info, Loader2 } from "lucide-react";
+import { Search, Monitor, Cpu, MemoryStick, HardDrive, Power, RefreshCw, Play, Square, Info, Loader2, Rocket } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getErrorMessage } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
@@ -186,6 +186,12 @@ export default function VMs() {
             />
           </div>
           <ViewToggle />
+          <Link to="/deploy">
+            <Button size="sm" className="shrink-0">
+              <Rocket className="h-4 w-4 mr-1" />
+              Deploy VM
+            </Button>
+          </Link>
           <Button variant="outline" size="sm" onClick={doSyncAll} disabled={syncing} className="shrink-0">
             <RefreshCw className={`h-4 w-4 mr-1 ${syncing ? "animate-spin" : ""}`} />
             {syncing ? "Syncing..." : "Sync All"}
