@@ -627,7 +627,22 @@ function CredentialsCard({ vmId, vmIp }: { vmId: number; vmIp?: string }) {
             <div className="flex items-center gap-2">
               <Label className="w-20 text-xs text-muted-foreground">Password</Label>
               <code className="flex-1 bg-muted px-2 py-1 rounded text-sm font-mono">
-                {showPwd ? creds.password : "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"}
+                {showPwd
+                  ? creds.password.split("").map((ch, i) => (
+                      <span
+                        key={i}
+                        className={
+                          /[0-9]/.test(ch)
+                            ? "text-blue-500"
+                            : /[a-zA-Z]/.test(ch)
+                              ? "text-green-500"
+                              : "text-orange-500"
+                        }
+                      >
+                        {ch}
+                      </span>
+                    ))
+                  : "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"}
               </code>
               <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setShowPwd(!showPwd)} aria-label={showPwd ? "Hide password" : "Show password"}>
                 {showPwd ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
