@@ -13,6 +13,7 @@ import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon
 import { ForgemillLogo } from "@/components/ForgemillLogo";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
+import { PageHeader } from "@/components/ui/page-header";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { getErrorMessage } from "@/lib/utils";
 
@@ -308,15 +309,10 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Settings</h1>
-
-      <div className="rounded-lg border bg-blue-500/5 border-blue-500/20 px-4 py-3 flex items-start gap-3">
-        <Info className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
-        <div>
-          <p className="text-sm font-medium">Application settings</p>
-          <p className="text-xs text-muted-foreground">Manage users, webhooks, API keys, and display preferences.</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Settings"
+        description="Manage users, webhooks, API keys, and display preferences."
+      />
 
       <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-none">
         {tabItems.filter((t) => !t.adminOnly || isAdmin).map((t) => (

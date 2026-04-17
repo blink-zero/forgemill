@@ -1,13 +1,12 @@
-import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { LogOut, Moon, Sun, Menu, Search } from "lucide-react";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { Moon, Sun, Menu, Search } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
 import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { navItems } from "@/config/navigation";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 
 export function Header() {
-  const { user, logout } = useAuth();
   const [dark, setDark] = useState(() => {
     const stored = localStorage.getItem("forgemill_theme");
     if (stored) return stored === "dark";
@@ -17,7 +16,6 @@ export function Header() {
   const menuRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
 
-  // 7.11: Close mobile menu on Escape key or outside click
   useEffect(() => {
     if (!mobileOpen) return;
     const handleEscape = (e: KeyboardEvent) => {
@@ -25,8 +23,6 @@ export function Header() {
     };
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node;
-      // F-153: Exclude clicks on the hamburger toggle button to prevent
-      // outside-click closing the menu while the button's onClick reopens it
       if (
         menuRef.current && !menuRef.current.contains(target) &&
         (!toggleRef.current || !toggleRef.current.contains(target))
@@ -51,9 +47,11 @@ export function Header() {
 
   return (
     <>
-      <header className="grid h-14 grid-cols-[1fr_minmax(0,28rem)_1fr] items-center gap-4 border-b border-border bg-card px-6">
-        <div className="flex items-center gap-4">
+      <header className="grid h-14 shrink-0 grid-cols-[1fr_minmax(0,28rem)_1fr] items-center gap-4 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-6">
+        {/* Left: hamburger (mobile) + breadcrumbs (desktop) */}
+        <div className="flex items-center gap-3 min-w-0">
           <Button
+            ref={toggleRef}
             variant="ghost"
             size="icon"
             className="md:hidden"
@@ -62,36 +60,37 @@ export function Header() {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <span className="text-sm text-muted-foreground md:hidden font-bold">Forgemill</span>
+          <span className="text-sm text-muted-foreground md:hidden font-semibold">Forgemill</span>
+          <div className="hidden md:block min-w-0">
+            <Breadcrumbs />
+          </div>
         </div>
+
+        {/* Center: search pill */}
         <div className="flex justify-center">
-          {/* Search pill - opens command palette */}
           <button
             onClick={() => document.dispatchEvent(new CustomEvent("openCommandPalette"))}
-            className="hidden sm:flex items-center gap-2 w-full max-w-md px-4 py-2 text-sm text-muted-foreground bg-muted/50 hover:bg-muted rounded-lg border border-border transition-colors"
+            className="hidden sm:flex items-center gap-2 w-full max-w-md px-3.5 py-2 text-sm text-muted-foreground bg-muted/60 hover:bg-muted rounded-md border border-border/60 hover:border-border transition-colors"
             aria-label="Open search"
           >
             <Search className="h-4 w-4 shrink-0" />
             <span className="flex-1 text-left">Search...</span>
-            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border border-border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border border-border bg-background/80 px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
               {navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}K
             </kbd>
           </button>
         </div>
-        <div className="flex items-center gap-2 justify-end">
-          <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}>
+
+        {/* Right: theme toggle */}
+        <div className="flex items-center gap-1 justify-end">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleTheme}
+            aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+          >
             {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </Button>
-          {user && (
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground hidden sm:inline">
-                {user.display_name || user.username}
-              </span>
-              <Button variant="ghost" size="icon" onClick={logout} aria-label="Log out">
-                <LogOut className="h-4 w-4" />
-              </Button>
-            </div>
-          )}
         </div>
       </header>
 

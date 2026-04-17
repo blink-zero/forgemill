@@ -17,6 +17,7 @@ import { ViewToggle } from "@/components/ui/view-toggle";
 import { usePreference } from "@/context/PreferencesContext";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableSort } from "@/hooks/useTableSort";
+import { PageHeader } from "@/components/ui/page-header";
 
 const categoryIcons: Record<string, typeof Package> = {
   packages: Package,
@@ -161,45 +162,41 @@ export default function ActionsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-bold">Actions</h1>
-          {actionList.length > 0 && <Badge variant="outline">{actionList.length}</Badge>}
-        </div>
-        <div className="flex items-center gap-2">
-          {actionList.length > 0 && (
-            <div className="relative w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search actions..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-              />
-              {search && (
-                <button className="absolute right-3 top-1/2 -translate-y-1/2" onClick={() => setSearch("")}>
-                  <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-                </button>
-              )}
-            </div>
-          )}
-          <ViewToggle />
-          {isAdmin && (
-            <Button onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ name: "", description: "", category: "custom" as Action["category"], script: "", parameters: [] }); setConfigError(""); }}>
-              <Plus className="h-4 w-4 mr-2" /> Create Action
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <div className="rounded-lg border bg-blue-500/5 border-blue-500/20 px-4 py-3 flex items-start gap-3">
-        <Info className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
-        <div>
-          <p className="text-sm font-medium">Post-deploy automation</p>
-          <p className="text-xs text-muted-foreground">Reusable automation that runs on your VMs — install packages, configure services, or run scripts.</p>
-        </div>
-      </div>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2">
+            Actions
+            {actionList.length > 0 && <Badge variant="outline">{actionList.length}</Badge>}
+          </span>
+        }
+        description="Reusable post-deploy automation — install packages, configure services, run scripts."
+        actions={
+          <>
+            {actionList.length > 0 && (
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search actions..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9"
+                />
+                {search && (
+                  <button className="absolute right-3 top-1/2 -translate-y-1/2" onClick={() => setSearch("")}>
+                    <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                  </button>
+                )}
+              </div>
+            )}
+            <ViewToggle />
+            {isAdmin && (
+              <Button onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ name: "", description: "", category: "custom" as Action["category"], script: "", parameters: [] }); setConfigError(""); }}>
+                <Plus className="h-4 w-4 mr-2" /> Create Action
+              </Button>
+            )}
+          </>
+        }
+      />
 
       {/* Category Filter */}
       {actionList.length > 0 && (

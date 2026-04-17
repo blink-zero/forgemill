@@ -26,6 +26,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { Input } from "@/components/ui/input";
 import ProviderIcon from "@/components/ProviderIcon";
 import { useToast } from "@/components/ui/toast";
+import { PageHeader } from "@/components/ui/page-header";
 
 const statusColors: Record<string, string> = {
   pending: "bg-yellow-500/10 text-yellow-500",
@@ -145,14 +146,10 @@ export default function Factory() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Template Factory</h1>
-          <p className="text-muted-foreground">
-            Build VM templates from ISO using Packer
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Template Factory"
+        description="Build VM templates from ISO using Packer."
+      />
 
       {/* Prerequisites Check */}
       {prereqs && !prereqs.packer_installed && (
