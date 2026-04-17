@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { getErrorMessage } from "@/lib/utils";
 import { useProvider } from "@/context/ProviderContext";
+import { PageHeader } from "@/components/ui/page-header";
 
 type Step = "template" | "configure" | "review";
 
@@ -169,15 +170,10 @@ export default function Deploy() {
   if (templates.length === 0) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold">Deploy VM</h1>
-
-        <div className="rounded-lg border bg-blue-500/5 border-blue-500/20 px-4 py-3 flex items-start gap-3">
-          <Info className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium">Deploy a VM</p>
-            <p className="text-xs text-muted-foreground">Launch a virtual machine from your template library with cloud-init customisation, networking, and post-deploy actions.</p>
-          </div>
-        </div>
+        <PageHeader
+          title="Deploy VM"
+          description="Launch a virtual machine from your template library with cloud-init customisation, networking, and post-deploy actions."
+        />
 
         <div className="flex flex-col items-center justify-center py-16 text-center gap-4">
           <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center">
@@ -206,15 +202,10 @@ export default function Deploy() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Deploy VM</h1>
-
-      <div className="rounded-lg border bg-blue-500/5 border-blue-500/20 px-4 py-3 flex items-start gap-3">
-        <Info className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
-        <div>
-          <p className="text-sm font-medium">Deploy a VM</p>
-          <p className="text-xs text-muted-foreground">Launch a virtual machine from your template library with cloud-init customisation, networking, and post-deploy actions.</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Deploy VM"
+        description="Launch a virtual machine from your template library with cloud-init customisation, networking, and post-deploy actions."
+      />
 
       <div className="flex items-center gap-2 text-sm">
         {(["template", "configure", "review"] as Step[]).map((s, i) => (

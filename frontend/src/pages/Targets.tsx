@@ -16,6 +16,7 @@ import { ViewToggle } from "@/components/ui/view-toggle";
 import { usePreference } from "@/context/PreferencesContext";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableSort } from "@/hooks/useTableSort";
+import { PageHeader } from "@/components/ui/page-header";
 
 // Extracted form component using provider metadata from context
 interface TargetFormProps {
@@ -300,26 +301,23 @@ export default function Targets() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-bold">Targets</h1>
-          {targets.length > 0 && <Badge variant="outline">{targets.length}</Badge>}
-        </div>
-        <div className="flex items-center gap-2">
-          <ViewToggle />
-          <Button onClick={() => { setShowForm(!showForm); setEditTarget(null); }}>
-            {showForm ? <><X className="h-4 w-4 mr-2" />Cancel</> : <><Plus className="h-4 w-4 mr-2" />Add Target</>}
-          </Button>
-        </div>
-      </div>
-
-      <div className="rounded-lg border bg-blue-500/5 border-blue-500/20 px-4 py-3 flex items-start gap-3">
-        <Info className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
-        <div>
-          <p className="text-sm font-medium">Hypervisor connections</p>
-          <p className="text-xs text-muted-foreground">Manage your VMware vCenter, ESXi, and Proxmox targets. Templates and VMs are built and deployed through these connections.</p>
-        </div>
-      </div>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2">
+            Targets
+            {targets.length > 0 && <Badge variant="outline">{targets.length}</Badge>}
+          </span>
+        }
+        description="Hypervisor connections — manage your vCenter, ESXi, and Proxmox targets. Templates and VMs are built and deployed through these."
+        actions={
+          <>
+            <ViewToggle />
+            <Button onClick={() => { setShowForm(!showForm); setEditTarget(null); }}>
+              {showForm ? <><X className="h-4 w-4 mr-2" />Cancel</> : <><Plus className="h-4 w-4 mr-2" />Add Target</>}
+            </Button>
+          </>
+        }
+      />
 
       {showForm && (
         <TargetForm

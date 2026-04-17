@@ -17,14 +17,37 @@ export interface NavItem {
   label: string;
 }
 
-export const navItems: NavItem[] = [
-  { to: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/targets", icon: Server, label: "Targets" },
-  { to: "/templates", icon: Box, label: "Templates" },
-  { to: "/factory", icon: Cog, label: "Template Factory" },
-  { to: "/vms", icon: Monitor, label: "VMs" },
-  { to: "/deploy", icon: Rocket, label: "Deploy" },
-  { to: "/actions", icon: Zap, label: "Actions" },
-  { to: "/history", icon: History, label: "History" },
-  { to: "/settings", icon: Settings, label: "Settings" },
+export interface NavSection {
+  heading?: string;
+  items: NavItem[];
+}
+
+export const navSections: NavSection[] = [
+  {
+    items: [{ to: "/", icon: LayoutDashboard, label: "Dashboard" }],
+  },
+  {
+    heading: "Infrastructure",
+    items: [
+      { to: "/targets", icon: Server, label: "Targets" },
+      { to: "/templates", icon: Box, label: "Templates" },
+      { to: "/factory", icon: Cog, label: "Template Factory" },
+      { to: "/vms", icon: Monitor, label: "VMs" },
+    ],
+  },
+  {
+    heading: "Operations",
+    items: [
+      { to: "/deploy", icon: Rocket, label: "Deploy" },
+      { to: "/actions", icon: Zap, label: "Actions" },
+      { to: "/history", icon: History, label: "History" },
+    ],
+  },
+  {
+    heading: "System",
+    items: [{ to: "/settings", icon: Settings, label: "Settings" }],
+  },
 ];
+
+// Flat list retained for mobile menu and command palette consumers
+export const navItems: NavItem[] = navSections.flatMap((s) => s.items);
