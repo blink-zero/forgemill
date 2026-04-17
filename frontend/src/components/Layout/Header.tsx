@@ -51,7 +51,7 @@ export function Header() {
 
   return (
     <>
-      <header className="flex h-14 items-center justify-between border-b border-border bg-card px-6">
+      <header className="grid h-14 grid-cols-[1fr_auto_1fr] items-center border-b border-border bg-card px-6">
         <div className="flex items-center gap-4">
           <Button
             variant="ghost"
@@ -64,7 +64,7 @@ export function Header() {
           </Button>
           <span className="text-sm text-muted-foreground md:hidden font-bold">Forgemill</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex justify-center">
           {/* Search pill - opens command palette */}
           <button
             onClick={() => document.dispatchEvent(new CustomEvent("openCommandPalette"))}
@@ -77,6 +77,8 @@ export function Header() {
               {navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}K
             </kbd>
           </button>
+        </div>
+        <div className="flex items-center gap-2 justify-end">
           <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}>
             {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </Button>
