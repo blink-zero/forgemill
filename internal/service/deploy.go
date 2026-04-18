@@ -24,6 +24,7 @@ type DeployService struct {
 	targets   *TargetService
 	hub       ProgressHub
 	webhooks  *WebhookService
+	notifier  *NotificationService
 	encryptor Encryptor
 	onDeployComplete func() // called after a deployment completes
 	// V3-H8: Cancel map for deployment goroutine cancellation
@@ -34,6 +35,11 @@ type DeployService struct {
 // SetOnDeployComplete registers a callback to run after any deployment completes.
 func (s *DeployService) SetOnDeployComplete(fn func()) {
 	s.onDeployComplete = fn
+}
+
+// SetNotificationService wires the in-app notification service. Optional.
+func (s *DeployService) SetNotificationService(n *NotificationService) {
+	s.notifier = n
 }
 
 type ProgressHub interface {
@@ -413,7 +419,7 @@ func (s *DeployService) sendProgress(deploymentID int64, msgType string, data in
 }
 
 func (s *DeployService) fireWebhook(event string, deploymentID int64) {
-	if s.webhooks == nil {
+	if s.webhooks == nil && s.notifier == nil {
 		return
 	}
 	deployment, err := s.db.GetDeployment(deploymentID)
@@ -421,7 +427,18 @@ func (s *DeployService) fireWebhook(event string, deploymentID int64) {
 		slog.Error("failed to get deployment for webhook", "deployment_id", deploymentID, "error", err)
 		return
 	}
-	s.webhooks.Fire(event, deployment)
+	if s.webhooks != nil {
+		s.webhooks.Fire(event, deployment)
+	}
+	// Fan out to in-app notifications for the events users care about.
+	if s.notifier != nil {
+		switch event {
+		case "deploy.completed":
+			s.notifier.NotifyDeployCompleted(deployment)
+		case "deploy.failed":
+			s.notifier.NotifyDeployFailed(deployment)
+		}
+	}
 }
 
 func (s *DeployService) Get(id int64) (*models.Deployment, error) {

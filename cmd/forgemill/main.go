@@ -98,9 +98,13 @@ func main() {
 	templateSvc := service.NewTemplateService(database, targetSvc)
 	webhookSvc := service.NewWebhookService(database, cfg.AllowPrivateWebhooks)
 	webhookSvc.SetDecryptor(enc) // V3-M14: Wire decryptor for HMAC signing with encrypted secrets
+	notificationSvc := service.NewNotificationService(database)
+	notificationSvc.StartRetentionCleanup(context.Background())
 	deploySvc := service.NewDeployService(database, targetSvc, hub, webhookSvc, enc)
+	deploySvc.SetNotificationService(notificationSvc)
 	vmSvc := service.NewVMService(database, targetSvc, enc)
 	executorSvc := service.NewExecutorService(database, targetSvc, enc, executionHub)
+	executorSvc.SetNotificationService(notificationSvc)
 	// Auto-sync VMs after deployments complete
 	deploySvc.SetOnDeployComplete(func() {
 		go func() {
@@ -127,6 +131,7 @@ func main() {
 	auditSvc.StartRetentionCleanup()
 	factorySvc := service.NewFactoryService(database, buildEngine, enc)
 	factorySvc.SetWebhookService(webhookSvc)
+	factorySvc.SetNotificationService(notificationSvc)
 	factorySvc.SetTemplateSyncCallback(func(ctx context.Context, targetID int64) {
 		if _, err := targetSvc.SyncTemplates(ctx, targetID); err != nil {
 			slog.Error("auto-sync templates after build failed", "target_id", targetID, "error", err)
@@ -144,7 +149,8 @@ func main() {
 		BulkDeployService: bulkDeploySvc,
 		LDAPService:       ldapSvc,
 		FactoryService:    factorySvc,
-		AuditService:      auditSvc,
+		AuditService:        auditSvc,
+		NotificationService: notificationSvc,
 		ExecutorService:   executorSvc,
 		Hub:               hub,
 		BuildHub:          buildHub,
@@ -160,6 +166,7 @@ func main() {
 
 	// Start the template build scheduler
 	buildScheduler := factory.NewBuildScheduler(database, factorySvc.GetEngine(), factorySvc.GetUpdateChecker(), webhookSvc)
+	buildScheduler.SetNotificationEmitter(notificationSvc)
 	buildScheduler.SetRebuildFunc(func(templateID int64, userID int64) error {
 		_, err := factorySvc.RebuildTemplate(templateID, userID)
 		return err
