@@ -22,7 +22,21 @@ type FactoryService struct {
 	checker *factory.ISOUpdateChecker
 	hooksMu sync.RWMutex
 	hooks   *WebhookService
+	notifier *NotificationService
 	syncTemplates func(ctx context.Context, targetID int64)
+}
+
+// SetNotificationService wires the in-app notification service. Optional.
+func (s *FactoryService) SetNotificationService(n *NotificationService) {
+	s.hooksMu.Lock()
+	defer s.hooksMu.Unlock()
+	s.notifier = n
+}
+
+func (s *FactoryService) getNotifier() *NotificationService {
+	s.hooksMu.RLock()
+	defer s.hooksMu.RUnlock()
+	return s.notifier
 }
 
 // SetTemplateSyncCallback sets a function to call after a build completes to sync templates.
@@ -451,6 +465,9 @@ func (s *FactoryService) onBuildComplete(buildID int64, templateName string) {
 			"build_id":      buildID,
 			"version":       version,
 		})
+	}
+	if notifier := s.getNotifier(); notifier != nil && build != nil {
+		notifier.NotifyTemplateBuildCompleted(build.CreatedBy, tmpl.Name, buildID, true)
 	}
 
 	slog.Info("template lineage linked", "build_id", buildID, "template_id", tmpl.ID, "version", version)

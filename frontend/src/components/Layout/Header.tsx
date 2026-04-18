@@ -5,6 +5,7 @@ import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { navItems } from "@/config/navigation";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
+import { NotificationBell } from "./NotificationBell";
 
 export function Header() {
   const [dark, setDark] = useState(() => {
@@ -81,8 +82,9 @@ export function Header() {
           </button>
         </div>
 
-        {/* Right: theme toggle */}
+        {/* Right: notifications + theme toggle */}
         <div className="flex items-center gap-1 justify-end">
+          <NotificationBell />
           <Button
             variant="ghost"
             size="icon"
