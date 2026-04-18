@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, Fragment } from "react";
 import { users as usersApi, settings as settingsApi, webhooks as webhooksApi, apiKeys as apiKeysApi, auditLogs as auditLogsApi, factoryApi } from "@/api/client";
 import type { AuditLog, PaginatedAuditLogs } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -9,13 +9,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon, Copy, Send, Pencil, Check, Info, UserCheck, UserX, LogOut as LogOutIcon } from "lucide-react";
+import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon, Copy, Send, Pencil, Check, Info, UserCheck, UserX, LogOut as LogOutIcon, MoreHorizontal, Search } from "lucide-react";
+import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { ForgemillLogo } from "@/components/ForgemillLogo";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { getErrorMessage } from "@/lib/utils";
+import { getErrorMessage, cn } from "@/lib/utils";
 
 const WEBHOOK_EVENTS = [
   "deploy.started",
@@ -45,6 +46,8 @@ export default function SettingsPage() {
   const [pwdMsg, setPwdMsg] = useState("");
   const [editingNameUserId, setEditingNameUserId] = useState<number | null>(null);
   const [editingNameValue, setEditingNameValue] = useState("");
+  const [userSearch, setUserSearch] = useState("");
+  const [userStatusFilter, setUserStatusFilter] = useState<"all" | "active" | "disabled">("all");
   const isAdmin = currentUser?.role === "admin";
 
   // Webhooks state
@@ -386,15 +389,53 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      {tab === "users" && (
+      {tab === "users" && (() => {
+        const search = userSearch.trim().toLowerCase();
+        const filteredUsers = usersList.filter((u) => {
+          if (userStatusFilter === "active" && !u.is_active) return false;
+          if (userStatusFilter === "disabled" && u.is_active) return false;
+          if (search) {
+            return (
+              u.username.toLowerCase().includes(search) ||
+              (u.display_name || "").toLowerCase().includes(search) ||
+              u.role.toLowerCase().includes(search)
+            );
+          }
+          return true;
+        });
+        const activeCount = usersList.filter((u) => u.is_active).length;
+        const disabledCount = usersList.length - activeCount;
+
+        return (
         <div className="space-y-4">
-          {isAdmin && (
-            <div className="flex justify-end">
-              <Button onClick={() => { setShowForm(!showForm); setFormError(""); }}>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2 flex-1">
+              <div className="relative w-full sm:w-72">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search username, name, or role..."
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <Select
+                value={userStatusFilter}
+                onChange={(e) => setUserStatusFilter(e.target.value as typeof userStatusFilter)}
+                className="w-auto"
+                aria-label="Filter by status"
+              >
+                <option value="all">All ({usersList.length})</option>
+                <option value="active">Active ({activeCount})</option>
+                <option value="disabled">Disabled ({disabledCount})</option>
+              </Select>
+            </div>
+            {isAdmin && (
+              <Button onClick={() => { setShowForm(!showForm); setFormError(""); }} className="shrink-0">
                 {showForm ? <><X className="h-4 w-4 mr-2" />Cancel</> : <><Plus className="h-4 w-4 mr-2" />Add User</>}
               </Button>
-            </div>
-          )}
+            )}
+          </div>
 
           {showForm && isAdmin && (
             <Card>
@@ -437,157 +478,189 @@ export default function SettingsPage() {
             <CardContent className="p-0">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b">
-                    <th className="text-left p-4 font-medium text-muted-foreground">Username</th>
-                    <th className="text-left p-4 font-medium text-muted-foreground">Display Name</th>
-                    <th className="text-left p-4 font-medium text-muted-foreground">Role</th>
-                    <th className="text-left p-4 font-medium text-muted-foreground">Status</th>
-                    <th className="text-left p-4 font-medium text-muted-foreground">Last Login</th>
-                    {(isAdmin || currentUser) && <th className="text-left p-4 font-medium text-muted-foreground">Actions</th>}
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wider">User</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wider">Role</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wider">Status</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wider">Last Login</th>
+                    <th className="w-12"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {usersList.map((u) => (
-                    <tr key={u.id} className="border-b">
-                      <td className="p-4 font-medium">{u.username}</td>
-                      <td className="p-4 text-muted-foreground">
-                        {editingNameUserId === u.id ? (
-                          <div className="flex items-center gap-1.5">
-                            <Input
-                              value={editingNameValue}
-                              onChange={(e) => setEditingNameValue(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") handleSaveDisplayName(u.id);
-                                if (e.key === "Escape") setEditingNameUserId(null);
-                              }}
-                              autoFocus
-                              className="h-8 text-sm max-w-[240px]"
-                            />
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleSaveDisplayName(u.id)} title="Save">
-                              <Check className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingNameUserId(null)} title="Cancel">
-                              <X className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 group">
-                            <span>{u.display_name || "—"}</span>
-                            {(isAdmin || currentUser?.id === u.id) && (
-                              <button
-                                onClick={() => { setEditingNameUserId(u.id); setEditingNameValue(u.display_name || ""); }}
-                                className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity"
-                                title="Edit display name"
-                              >
-                                <Pencil className="h-3 w-3" />
-                              </button>
-                            )}
-                          </div>
-                        )}
+                  {filteredUsers.length === 0 && (
+                    <tr data-no-hover>
+                      <td colSpan={5} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                        {usersList.length === 0 ? "No users yet" : "No users match your filters"}
                       </td>
-                      <td className="p-4">
-                        {isAdmin && currentUser?.id !== u.id ? (
-                          <select
-                            className="text-sm border rounded px-2 py-1 bg-background text-foreground [&>option]:bg-background [&>option]:text-foreground"
-                            value={u.role}
-                            onChange={async (e) => {
-                              const newRole = e.target.value;
-                              try {
-                                await usersApi.updateRole(u.id, newRole);
-                                setUsersList(usersList.map(x => x.id === u.id ? { ...x, role: newRole as User["role"] } : x));
-                                toast(`Role updated to ${newRole}`);
-                              } catch (err) {
-                                toast(getErrorMessage(err, "Failed to update role"), "error");
-                              }
-                            }}
-                          >
-                            <option value="admin">admin</option>
-                            <option value="user">user</option>
-                            <option value="viewer">viewer</option>
-                          </select>
-                        ) : (
-                          <Badge variant="secondary">{u.role}</Badge>
-                        )}
-                      </td>
-                      <td className="p-4">
-                        <Badge variant={u.is_active ? "success" : "destructive"}>
-                          {u.is_active ? "Active" : "Disabled"}
-                        </Badge>
-                      </td>
-                      <td className="p-4 text-muted-foreground">
-                        {u.last_login_at ? formatDateTime(u.last_login_at) : "Never"}
-                      </td>
-                      {(isAdmin || currentUser) && (
-                        <td className="p-4">
-                          <div className="flex items-center gap-1">
-                            {(isAdmin || currentUser?.id === u.id) && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-8 w-8 p-0"
-                                onClick={() => { setPwdUserId(pwdUserId === u.id ? null : u.id); setNewPwd(""); setPwdMsg(""); }}
-                                title={pwdUserId === u.id ? "Cancel password change" : "Change password"}
-                              >
-                                <KeyRound className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
-                            {isAdmin && currentUser?.id !== u.id && (
-                              <>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-8 w-8 p-0"
-                                  onClick={() => handleForceLogout(u)}
-                                  title="Force sign out of all sessions"
-                                >
-                                  <LogOutIcon className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className={`h-8 w-8 p-0 ${u.is_active ? "text-muted-foreground hover:text-warning" : "text-muted-foreground hover:text-success"}`}
-                                  onClick={() => handleToggleActive(u)}
-                                  title={u.is_active ? "Disable user" : "Enable user"}
-                                >
-                                  {u.is_active ? <UserX className="h-3.5 w-3.5" /> : <UserCheck className="h-3.5 w-3.5" />}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                  onClick={() => handleDeleteUser(u)}
-                                  title="Delete user"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                          {pwdUserId === u.id && (
-                            <div className="flex items-center gap-2 mt-2">
-                              <Input
-                                type="password"
-                                placeholder="New password (min 12 chars)"
-                                value={newPwd}
-                                onChange={(e) => setNewPwd(e.target.value)}
-                                className="h-8 text-xs"
-                              />
-                              <Button size="sm" onClick={() => handleChangePassword(u.id)}>Save</Button>
-                            </div>
-                          )}
-                          {pwdUserId === u.id && pwdMsg && (
-                            <p className={`text-xs mt-1 ${pwdMsg.includes("✓") ? "text-success" : "text-destructive"}`}>{pwdMsg}</p>
-                          )}
-                        </td>
-                      )}
                     </tr>
-                  ))}
+                  )}
+                  {filteredUsers.map((u) => {
+                    const isSelf = currentUser?.id === u.id;
+                    const displayName = u.display_name || u.username;
+                    const initials = displayName.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((s) => s[0]?.toUpperCase() || "").join("") || u.username.slice(0, 2).toUpperCase();
+                    const isEditingPwd = pwdUserId === u.id;
+                    const isEditingName = editingNameUserId === u.id;
+                    return (
+                      <Fragment key={u.id}>
+                        <tr className={cn("border-b border-border", !u.is_active && "opacity-60")}>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[11px] font-semibold text-primary">
+                                {initials}
+                              </div>
+                              <div className="min-w-0">
+                                {isEditingName ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <Input
+                                      value={editingNameValue}
+                                      onChange={(e) => setEditingNameValue(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") handleSaveDisplayName(u.id);
+                                        if (e.key === "Escape") setEditingNameUserId(null);
+                                      }}
+                                      autoFocus
+                                      className="h-8 text-sm max-w-[200px]"
+                                      placeholder="Display name"
+                                    />
+                                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleSaveDisplayName(u.id)} title="Save">
+                                      <Check className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingNameUserId(null)} title="Cancel">
+                                      <X className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="flex items-center gap-1.5 group/name">
+                                      <span className="font-medium text-foreground truncate">{u.display_name || u.username}</span>
+                                      {isSelf && <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">You</Badge>}
+                                      {(isAdmin || isSelf) && (
+                                        <button
+                                          onClick={() => { setEditingNameUserId(u.id); setEditingNameValue(u.display_name || ""); }}
+                                          className="opacity-0 group-hover/name:opacity-100 text-muted-foreground hover:text-foreground transition-opacity"
+                                          title="Edit display name"
+                                          aria-label="Edit display name"
+                                        >
+                                          <Pencil className="h-3 w-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground font-mono truncate">@{u.username}</div>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            {isAdmin && !isSelf ? (
+                              <select
+                                className="text-sm border border-input rounded-md px-2 py-1 bg-background text-foreground hover:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&>option]:bg-background [&>option]:text-foreground"
+                                value={u.role}
+                                onChange={async (e) => {
+                                  const newRole = e.target.value;
+                                  try {
+                                    await usersApi.updateRole(u.id, newRole);
+                                    setUsersList(usersList.map(x => x.id === u.id ? { ...x, role: newRole as User["role"] } : x));
+                                    toast(`Role updated to ${newRole}`);
+                                  } catch (err) {
+                                    toast(getErrorMessage(err, "Failed to update role"), "error");
+                                  }
+                                }}
+                              >
+                                <option value="admin">Admin</option>
+                                <option value="user">User</option>
+                                <option value="viewer">Viewer</option>
+                              </select>
+                            ) : (
+                              <Badge variant="secondary" className="capitalize">{u.role}</Badge>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant={u.is_active ? "success" : "destructive"}>
+                              {u.is_active ? "Active" : "Disabled"}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground text-sm">
+                            {u.last_login_at ? formatDateTime(u.last_login_at) : <span className="italic">Never</span>}
+                          </td>
+                          <td className="px-2 py-3 text-right">
+                            <DropdownMenu
+                              trigger={
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label="User actions">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              }
+                            >
+                              {(isAdmin || isSelf) && (
+                                <DropdownMenuItem
+                                  icon={<KeyRound />}
+                                  onClick={() => { setPwdUserId(isEditingPwd ? null : u.id); setNewPwd(""); setPwdMsg(""); }}
+                                >
+                                  {isEditingPwd ? "Cancel password change" : "Change password"}
+                                </DropdownMenuItem>
+                              )}
+                              {(isAdmin || isSelf) && (
+                                <DropdownMenuItem
+                                  icon={<Pencil />}
+                                  onClick={() => { setEditingNameUserId(u.id); setEditingNameValue(u.display_name || ""); }}
+                                >
+                                  Edit display name
+                                </DropdownMenuItem>
+                              )}
+                              {isAdmin && !isSelf && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem icon={<LogOutIcon />} onClick={() => handleForceLogout(u)}>
+                                    Force sign out
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    icon={u.is_active ? <UserX /> : <UserCheck />}
+                                    onClick={() => handleToggleActive(u)}
+                                  >
+                                    {u.is_active ? "Disable user" : "Enable user"}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem icon={<Trash2 />} destructive onClick={() => handleDeleteUser(u)}>
+                                    Delete user
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenu>
+                          </td>
+                        </tr>
+                        {isEditingPwd && (
+                          <tr data-no-hover>
+                            <td colSpan={5} className="px-4 py-3 bg-muted/30 border-b border-border">
+                              <div className="flex items-center gap-2 max-w-xl">
+                                <div className="text-xs text-muted-foreground whitespace-nowrap">New password for <span className="font-mono text-foreground">@{u.username}</span>:</div>
+                                <Input
+                                  type="password"
+                                  placeholder="Min 12 characters"
+                                  value={newPwd}
+                                  onChange={(e) => setNewPwd(e.target.value)}
+                                  className="h-8 text-sm flex-1"
+                                  autoFocus
+                                  onKeyDown={(e) => { if (e.key === "Enter") handleChangePassword(u.id); }}
+                                />
+                                <Button size="sm" onClick={() => handleChangePassword(u.id)}>Save</Button>
+                                <Button size="sm" variant="ghost" onClick={() => { setPwdUserId(null); setNewPwd(""); setPwdMsg(""); }}>Cancel</Button>
+                              </div>
+                              {pwdMsg && (
+                                <p className={`text-xs mt-1.5 ${pwdMsg.includes("✓") ? "text-success" : "text-destructive"}`}>{pwdMsg}</p>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </CardContent>
           </Card>
         </div>
-      )}
+        );
+      })()}
 
       {tab === "webhooks" && isAdmin && (
         <div className="space-y-4">
