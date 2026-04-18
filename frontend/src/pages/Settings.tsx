@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { users as usersApi, settings as settingsApi, webhooks as webhooksApi, apiKeys as apiKeysApi, auditLogs as auditLogsApi } from "@/api/client";
+import { users as usersApi, settings as settingsApi, webhooks as webhooksApi, apiKeys as apiKeysApi, auditLogs as auditLogsApi, factoryApi } from "@/api/client";
 import type { AuditLog, PaginatedAuditLogs } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useTimezone, COMMON_TIMEZONES } from "@/hooks/useTimezone";
-import type { User, Webhook, APIKey } from "@/types";
+import type { User, Webhook, APIKey, PrereqStatus } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,7 @@ export default function SettingsPage() {
   const { timezone, setTimezone, formatDateTime } = useTimezone();
   const [tab, setTab] = useState<"users" | "webhooks" | "apikeys" | "preferences" | "auditlog" | "about">("users");
   const [appVersion, setAppVersion] = useState({ version: "loading...", commit: "", date: "" });
+  const [packerStatus, setPackerStatus] = useState<PrereqStatus | null>(null);
   const [usersList, setUsersList] = useState<User[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ username: "", password: "", display_name: "", role: "user" });
@@ -84,6 +85,13 @@ export default function SettingsPage() {
       // Version fetch is non-critical, silently ignore
     });
   }, []);
+
+  useEffect(() => {
+    if (tab !== "about" || packerStatus) return;
+    factoryApi.prerequisites().then((res) => setPackerStatus(res.data)).catch(() => {
+      // Non-critical, silently ignore
+    });
+  }, [tab, packerStatus]);
 
   const refreshWebhooks = () => {
     webhooksApi.list().then((res) => setWebhooksList(res.data || [])).catch((e) => {
@@ -946,6 +954,16 @@ export default function SettingsPage() {
               <div className="rounded-md border p-3 space-y-1">
                 <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Runtime</p>
                 <p className="text-foreground">Docker (single container)</p>
+              </div>
+              <div className="rounded-md border p-3 space-y-1 sm:col-span-2">
+                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Packer</p>
+                {packerStatus === null ? (
+                  <p className="text-muted-foreground text-xs">Checking...</p>
+                ) : packerStatus.packer_installed ? (
+                  <p className="text-foreground font-mono text-sm">{packerStatus.packer_version}</p>
+                ) : (
+                  <p className="text-warning text-sm">Not installed — required for Template Factory</p>
+                )}
               </div>
             </div>
           </CardContent>
