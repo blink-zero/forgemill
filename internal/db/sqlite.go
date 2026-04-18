@@ -138,6 +138,20 @@ func (db *DB) UpdateUserPassword(id int64, passwordHash string) error {
 	return err
 }
 
+// UpdateUserActive toggles the is_active flag for a user. Disabled users
+// cannot log in, and existing sessions are rejected by auth middleware when
+// combined with IncrementTokenVersion.
+func (db *DB) UpdateUserActive(id int64, active bool) error {
+	_, err := db.conn.Exec(`UPDATE users SET is_active = ? WHERE id = ?`, active, id)
+	return err
+}
+
+// UpdateUserDisplayName updates the display_name for a user.
+func (db *DB) UpdateUserDisplayName(id int64, displayName string) error {
+	_, err := db.conn.Exec(`UPDATE users SET display_name = ? WHERE id = ?`, displayName, id)
+	return err
+}
+
 func (db *DB) DeleteUser(id int64) error {
 	_, err := db.conn.Exec(`DELETE FROM users WHERE id = ?`, id)
 	return err

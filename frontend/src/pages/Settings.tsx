@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon, Copy, Send, Pencil, Check, Info } from "lucide-react";
+import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon, Copy, Send, Pencil, Check, Info, UserCheck, UserX, LogOut as LogOutIcon } from "lucide-react";
 import { ForgemillLogo } from "@/components/ForgemillLogo";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
@@ -43,6 +43,8 @@ export default function SettingsPage() {
   const [pwdUserId, setPwdUserId] = useState<number | null>(null);
   const [newPwd, setNewPwd] = useState("");
   const [pwdMsg, setPwdMsg] = useState("");
+  const [editingNameUserId, setEditingNameUserId] = useState<number | null>(null);
+  const [editingNameValue, setEditingNameValue] = useState("");
   const isAdmin = currentUser?.role === "admin";
 
   // Webhooks state
@@ -178,6 +180,54 @@ export default function SettingsPage() {
       refreshUsers();
     } catch (e: any) {
       toast(getErrorMessage(e, "Failed to delete user"), "error");
+    }
+  };
+
+  const handleToggleActive = async (user: User) => {
+    const next = !user.is_active;
+    const ok = await showConfirm({
+      title: next ? "Enable User" : "Disable User",
+      message: next
+        ? `Enable "${user.username}"? They will be able to log in again.`
+        : `Disable "${user.username}"? They will be signed out of all sessions and unable to log in.`,
+      confirmLabel: next ? "Enable" : "Disable",
+      variant: next ? undefined : "destructive",
+    });
+    if (!ok) return;
+    try {
+      await usersApi.setActive(user.id, next);
+      toast(next ? `User "${user.username}" enabled.` : `User "${user.username}" disabled and signed out.`);
+      refreshUsers();
+    } catch (e: any) {
+      toast(getErrorMessage(e, "Failed to update status"), "error");
+    }
+  };
+
+  const handleForceLogout = async (user: User) => {
+    const ok = await showConfirm({
+      title: "Force Logout",
+      message: `Sign "${user.username}" out of all active sessions? They will need to log in again.`,
+      confirmLabel: "Sign Out",
+    });
+    if (!ok) return;
+    try {
+      await usersApi.forceLogout(user.id);
+      toast(`Signed "${user.username}" out of all sessions.`);
+      refreshUsers();
+    } catch (e: any) {
+      toast(getErrorMessage(e, "Failed to force logout"), "error");
+    }
+  };
+
+  const handleSaveDisplayName = async (userId: number) => {
+    const name = editingNameValue.trim();
+    try {
+      await usersApi.update(userId, { display_name: name });
+      setUsersList(usersList.map((u) => (u.id === userId ? { ...u, display_name: name } : u)));
+      setEditingNameUserId(null);
+      toast("Display name updated");
+    } catch (e: any) {
+      toast(getErrorMessage(e, "Failed to update display name"), "error");
     }
   };
 
@@ -400,7 +450,41 @@ export default function SettingsPage() {
                   {usersList.map((u) => (
                     <tr key={u.id} className="border-b">
                       <td className="p-4 font-medium">{u.username}</td>
-                      <td className="p-4 text-muted-foreground">{u.display_name || "-"}</td>
+                      <td className="p-4 text-muted-foreground">
+                        {editingNameUserId === u.id ? (
+                          <div className="flex items-center gap-1.5">
+                            <Input
+                              value={editingNameValue}
+                              onChange={(e) => setEditingNameValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSaveDisplayName(u.id);
+                                if (e.key === "Escape") setEditingNameUserId(null);
+                              }}
+                              autoFocus
+                              className="h-8 text-sm max-w-[240px]"
+                            />
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleSaveDisplayName(u.id)} title="Save">
+                              <Check className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingNameUserId(null)} title="Cancel">
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 group">
+                            <span>{u.display_name || "—"}</span>
+                            {(isAdmin || currentUser?.id === u.id) && (
+                              <button
+                                onClick={() => { setEditingNameUserId(u.id); setEditingNameValue(u.display_name || ""); }}
+                                className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity"
+                                title="Edit display name"
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </td>
                       <td className="p-4">
                         {isAdmin && currentUser?.id !== u.id ? (
                           <select
@@ -435,27 +519,48 @@ export default function SettingsPage() {
                       </td>
                       {(isAdmin || currentUser) && (
                         <td className="p-4">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1">
                             {(isAdmin || currentUser?.id === u.id) && (
                               <Button
                                 size="sm"
                                 variant="ghost"
+                                className="h-8 w-8 p-0"
                                 onClick={() => { setPwdUserId(pwdUserId === u.id ? null : u.id); setNewPwd(""); setPwdMsg(""); }}
+                                title={pwdUserId === u.id ? "Cancel password change" : "Change password"}
                               >
-                                <KeyRound className="h-3 w-3 mr-1" />
-                                {pwdUserId === u.id ? "Cancel" : "Change Password"}
+                                <KeyRound className="h-3.5 w-3.5" />
                               </Button>
                             )}
                             {isAdmin && currentUser?.id !== u.id && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                                onClick={() => handleDeleteUser(u)}
-                                title="Delete user"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 w-8 p-0"
+                                  onClick={() => handleForceLogout(u)}
+                                  title="Force sign out of all sessions"
+                                >
+                                  <LogOutIcon className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className={`h-8 w-8 p-0 ${u.is_active ? "text-muted-foreground hover:text-warning" : "text-muted-foreground hover:text-success"}`}
+                                  onClick={() => handleToggleActive(u)}
+                                  title={u.is_active ? "Disable user" : "Enable user"}
+                                >
+                                  {u.is_active ? <UserX className="h-3.5 w-3.5" /> : <UserCheck className="h-3.5 w-3.5" />}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  onClick={() => handleDeleteUser(u)}
+                                  title="Delete user"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </>
                             )}
                           </div>
                           {pwdUserId === u.id && (
@@ -471,7 +576,7 @@ export default function SettingsPage() {
                             </div>
                           )}
                           {pwdUserId === u.id && pwdMsg && (
-                            <p className={`text-xs mt-1 ${pwdMsg.includes("✓") ? "text-green-500" : "text-destructive"}`}>{pwdMsg}</p>
+                            <p className={`text-xs mt-1 ${pwdMsg.includes("✓") ? "text-success" : "text-destructive"}`}>{pwdMsg}</p>
                           )}
                         </td>
                       )}
