@@ -271,8 +271,11 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 				// Users
 				r.Get("/users", settingsH.ListUsers)
 				r.Post("/users", settingsH.CreateUser)
+				r.Patch("/users/{id}", settingsH.UpdateUser)
 				r.Put("/users/{id}/password", settingsH.ChangePassword)
 				r.Put("/users/{id}/role", settingsH.UpdateUserRole)
+				r.Put("/users/{id}/active", settingsH.SetUserActive)
+				r.Post("/users/{id}/force-logout", settingsH.ForceLogoutUser)
 				r.Delete("/users/{id}", settingsH.DeleteUser)
 				r.Delete("/deployment-history", settingsH.ClearDeploymentHistory)
 

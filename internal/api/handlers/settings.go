@@ -373,6 +373,162 @@ func (h *SettingsHandler) UpdateUserRole(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]string{"role": req.Role})
 }
 
+// SetUserActive enables or disables a user. Disabling also revokes existing
+// sessions by bumping TokenVersion. Admins cannot disable themselves, and
+// the last active admin cannot be disabled.
+func (h *SettingsHandler) SetUserActive(w http.ResponseWriter, r *http.Request) {
+	targetID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, "invalid user ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Active bool `json:"active"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	actor := middleware.UserFromContext(r.Context())
+	if actor == nil {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if actor.ID == targetID {
+		writeError(w, "cannot change your own active status", http.StatusBadRequest)
+		return
+	}
+
+	targetUser, err := h.db.GetUserByID(targetID)
+	if err != nil {
+		writeError(w, "user not found", http.StatusNotFound)
+		return
+	}
+
+	// Prevent disabling the last active admin
+	if !req.Active && targetUser.Role == "admin" {
+		users, err := h.db.ListUsers()
+		if err != nil {
+			writeErrorLog(w, "failed to list users", http.StatusInternalServerError, err)
+			return
+		}
+		activeAdmins := 0
+		for _, u := range users {
+			if u.Role == "admin" && u.IsActive {
+				activeAdmins++
+			}
+		}
+		if activeAdmins <= 1 {
+			writeError(w, "cannot disable the last active admin account", http.StatusBadRequest)
+			return
+		}
+	}
+
+	if err := h.db.UpdateUserActive(targetID, req.Active); err != nil {
+		writeErrorLog(w, "failed to update user active status", http.StatusInternalServerError, err)
+		return
+	}
+
+	// On disable, revoke existing sessions so the user is logged out everywhere.
+	if !req.Active {
+		if err := h.db.IncrementTokenVersion(targetID); err != nil {
+			slog.Warn("failed to bump token version after disable", "user_id", targetID, "error", err)
+		}
+	}
+
+	action := "user.enable"
+	if !req.Active {
+		action = "user.disable"
+	}
+	slog.Info("audit", "action", action, "actor", actor.Username, "target_user", targetUser.Username)
+	h.audit.Log(actor.Username, &actor.ID, action, "user", strconv.FormatInt(targetID, 10), service.IPFromRequest(r), map[string]interface{}{"target_user": targetUser.Username})
+
+	writeJSON(w, http.StatusOK, map[string]bool{"is_active": req.Active})
+}
+
+// ForceLogoutUser invalidates all existing JWTs for the target user by
+// bumping their TokenVersion. Admin only.
+func (h *SettingsHandler) ForceLogoutUser(w http.ResponseWriter, r *http.Request) {
+	targetID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, "invalid user ID", http.StatusBadRequest)
+		return
+	}
+
+	actor := middleware.UserFromContext(r.Context())
+	if actor == nil {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	targetUser, err := h.db.GetUserByID(targetID)
+	if err != nil {
+		writeError(w, "user not found", http.StatusNotFound)
+		return
+	}
+
+	if err := h.db.IncrementTokenVersion(targetID); err != nil {
+		writeErrorLog(w, "failed to force logout", http.StatusInternalServerError, err)
+		return
+	}
+
+	slog.Info("audit", "action", "user.force_logout", "actor", actor.Username, "target_user", targetUser.Username)
+	h.audit.Log(actor.Username, &actor.ID, "user.force_logout", "user", strconv.FormatInt(targetID, 10), service.IPFromRequest(r), map[string]interface{}{"target_user": targetUser.Username})
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "user signed out of all sessions"})
+}
+
+// UpdateUser updates mutable profile fields (currently display_name only).
+// Admins can update any user; non-admins can only update themselves.
+func (h *SettingsHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
+	targetID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, "invalid user ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		DisplayName *string `json:"display_name,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	actor := middleware.UserFromContext(r.Context())
+	if actor == nil {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if actor.Role != "admin" && actor.ID != targetID {
+		writeError(w, "forbidden: can only update your own profile", http.StatusForbidden)
+		return
+	}
+
+	if req.DisplayName != nil {
+		name := strings.TrimSpace(*req.DisplayName)
+		if len(name) > 100 {
+			writeError(w, "display_name must be 100 characters or fewer", http.StatusBadRequest)
+			return
+		}
+		if err := h.db.UpdateUserDisplayName(targetID, name); err != nil {
+			writeErrorLog(w, "failed to update display name", http.StatusInternalServerError, err)
+			return
+		}
+		slog.Info("audit", "action", "user.update_display_name", "actor", actor.Username, "target_user_id", targetID)
+		h.audit.Log(actor.Username, &actor.ID, "user.update_display_name", "user", strconv.FormatInt(targetID, 10), service.IPFromRequest(r), map[string]interface{}{"display_name": name})
+	}
+
+	updated, err := h.db.GetUserByID(targetID)
+	if err != nil {
+		writeErrorLog(w, "failed to reload user", http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
 func (h *SettingsHandler) ClearDeploymentHistory(w http.ResponseWriter, r *http.Request) {
 	count, err := h.db.ClearDeploymentHistory()
 	if err != nil {

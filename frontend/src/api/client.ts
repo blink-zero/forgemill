@@ -120,10 +120,16 @@ export const users = {
   list: () => api.get<User[]>("/users"),
   create: (data: { username: string; password: string; display_name: string; role: string }) =>
     api.post<User>("/users", data),
+  update: (id: number, data: { display_name?: string }) =>
+    api.patch<User>(`/users/${id}`, data),
   changePassword: (id: number, password: string) =>
     api.put<{ status: string }>(`/users/${id}/password`, { password }),
   updateRole: (id: number, role: string) =>
     api.put<{ role: string }>(`/users/${id}/role`, { role }),
+  setActive: (id: number, active: boolean) =>
+    api.put<{ is_active: boolean }>(`/users/${id}/active`, { active }),
+  forceLogout: (id: number) =>
+    api.post<{ status: string }>(`/users/${id}/force-logout`),
   delete: (id: number) => api.delete(`/users/${id}`),
 };
 
