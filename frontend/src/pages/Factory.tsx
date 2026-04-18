@@ -174,20 +174,6 @@ export default function Factory() {
         </Card>
       )}
 
-      {prereqs && prereqs.packer_installed && (
-        <Card className="p-4 border-green-500/50 bg-green-500/5">
-          <div className="flex items-center gap-3">
-            <CheckCircle className="h-5 w-5 text-green-500" />
-            <div>
-              <p className="font-medium">Packer Ready</p>
-              <p className="text-sm text-muted-foreground">
-                {prereqs.packer_version}
-              </p>
-            </div>
-          </div>
-        </Card>
-      )}
-
       {/* Update check results */}
       {updates.length > 0 ? (
         <div>
