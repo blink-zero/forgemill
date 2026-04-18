@@ -8,6 +8,26 @@ export interface User {
   created_at: string;
 }
 
+export type NotificationLevel = "info" | "success" | "warning" | "error";
+
+export interface Notification {
+  id: number;
+  user_id?: number;
+  level: NotificationLevel;
+  title: string;
+  body?: string;
+  link?: string;
+  event?: string;
+  is_read: boolean;
+  created_at: string;
+  read_at?: string | null;
+}
+
+export interface NotificationListResponse {
+  notifications: Notification[];
+  unread_count: number;
+}
+
 export interface Target {
   id: number;
   name: string;

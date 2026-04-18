@@ -32,6 +32,7 @@ type ExecutorService struct {
 	targets   *TargetService
 	encryptor Encryptor
 	hub       ExecutionHub
+	notifier  *NotificationService
 	mu        sync.Mutex
 	cancels   map[int64]context.CancelFunc
 }
@@ -44,6 +45,24 @@ func NewExecutorService(db *db.DB, targets *TargetService, enc Encryptor, hub Ex
 		hub:       hub,
 		cancels:   make(map[int64]context.CancelFunc),
 	}
+}
+
+// SetNotificationService wires the in-app notification service. Optional.
+func (s *ExecutorService) SetNotificationService(n *NotificationService) {
+	s.notifier = n
+}
+
+// notifyCompleted posts a bell notification for a finished (or failed) execution.
+// Called at the end of runExecution once the final status is known.
+func (s *ExecutorService) notifyCompleted(execID int64) {
+	if s.notifier == nil {
+		return
+	}
+	exec, err := s.db.GetExecution(execID)
+	if err != nil || exec == nil {
+		return
+	}
+	s.notifier.NotifyExecutionCompleted(exec)
 }
 
 type ExecuteRequest struct {
@@ -258,17 +277,20 @@ func (s *ExecutorService) runExecution(ctx context.Context, cancel context.Cance
 			s.db.UpdateExecutionStatus(execID, "cancelled", nil, output)
 			s.sendWSStatus(execID, "cancelled", nil)
 			slog.Info("execution cancelled", "execution_id", execID)
+			s.notifyCompleted(execID)
 			return
 		}
 		if ctx.Err() == context.DeadlineExceeded {
 			s.db.UpdateExecutionStatus(execID, "failed", nil, output+"\n[TIMEOUT] Execution timed out")
 			s.sendWSError(execID, "execution timed out")
 			slog.Info("execution timed out", "execution_id", execID)
+			s.notifyCompleted(execID)
 			return
 		}
 		s.db.UpdateExecutionStatus(execID, "failed", nil, output+"\n[ERROR] "+err.Error())
 		s.sendWSError(execID, err.Error())
 		slog.Error("execution failed", "execution_id", execID, "error", err)
+		s.notifyCompleted(execID)
 		return
 	}
 
@@ -279,6 +301,7 @@ func (s *ExecutorService) runExecution(ctx context.Context, cancel context.Cance
 	s.db.UpdateExecutionStatus(execID, status, &exitCode, output)
 	s.sendWSStatus(execID, status, &exitCode)
 	slog.Info("execution finished", "execution_id", execID, "exit_code", exitCode, "status", status)
+	s.notifyCompleted(execID)
 }
 
 // Cancel cancels a running execution.

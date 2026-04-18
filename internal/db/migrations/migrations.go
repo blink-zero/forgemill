@@ -58,6 +58,7 @@ var migrations = []struct {
 	{32, migrationV32},
 	{33, migrationV33},
 	{34, migrationV34},
+	{35, migrationV35},
 }
 
 const migrationV1 = `
@@ -1256,6 +1257,26 @@ INSERT INTO schema_version (version) VALUES (33);
 // migrationV34: Add "Change VM Password" and "Add SSH Authorized Key" built-in actions.
 const migrationV34 = `
 INSERT INTO schema_version (version) VALUES (34);
+`
+
+// migrationV35: In-app notifications table. user_id nullable for broadcast
+// notifications. Recipients index lets us filter unread quickly.
+const migrationV35 = `
+CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    level TEXT NOT NULL DEFAULT 'info' CHECK(level IN ('info', 'success', 'warning', 'error')),
+    title TEXT NOT NULL,
+    body TEXT DEFAULT '',
+    link TEXT DEFAULT '',
+    event TEXT DEFAULT '',
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    read_at DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, is_read);
+INSERT INTO schema_version (version) VALUES (35);
 `
 
 // v34BuiltinActions defines the 2 new built-in actions added in V34.

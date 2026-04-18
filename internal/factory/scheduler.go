@@ -24,6 +24,11 @@ type WebhookFirer interface {
 	FireTemplateEvent(event string, data map[string]interface{})
 }
 
+// NotificationEmitter allows the scheduler to post in-app notifications.
+type NotificationEmitter interface {
+	NotifyTemplateUpdateAvailable(templateID int64, templateName string)
+}
+
 // BuildScheduler manages periodic checks and auto-rebuilds.
 // RebuildFunc is a callback that triggers an actual build execution for a template.
 type RebuildFunc func(templateID int64, userID int64) error
@@ -33,6 +38,7 @@ type BuildScheduler struct {
 	engine      *Engine
 	checker     *ISOUpdateChecker
 	hooks       WebhookFirer
+	notifier    NotificationEmitter
 	rebuildFunc RebuildFunc
 	ticker      *time.Ticker
 	stopCh      chan struct{}
@@ -49,6 +55,11 @@ func NewBuildScheduler(store ScheduleStore, engine *Engine, checker *ISOUpdateCh
 		hooks:   hooks,
 		stopCh:  make(chan struct{}),
 	}
+}
+
+// SetNotificationEmitter wires in-app notifications. Optional.
+func (s *BuildScheduler) SetNotificationEmitter(n NotificationEmitter) {
+	s.notifier = n
 }
 
 // SetRebuildFunc sets the callback used to trigger builds with full target credential resolution.
@@ -163,6 +174,9 @@ func (s *BuildScheduler) processOneSchedule(sched models.TemplateSchedule) {
 					"new_checksum":  update.LatestChecksum,
 				})
 			}
+			if s.notifier != nil {
+				s.notifier.NotifyTemplateUpdateAvailable(tmpl.ID, tmpl.Name)
+			}
 		}
 
 	case "both":
@@ -183,6 +197,9 @@ func (s *BuildScheduler) processOneSchedule(sched models.TemplateSchedule) {
 							"template_name": tmpl.Name,
 							"new_checksum":  update.LatestChecksum,
 						})
+					}
+					if s.notifier != nil {
+						s.notifier.NotifyTemplateUpdateAvailable(tmpl.ID, tmpl.Name)
 					}
 				}
 			}

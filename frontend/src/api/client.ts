@@ -28,6 +28,8 @@ import type {
   Webhook,
   APIKey,
   APIKeyCreateResponse,
+  Notification,
+  NotificationListResponse,
 } from "@/types";
 
 const api = axios.create({
@@ -293,6 +295,19 @@ export const auditLogs = {
 export const preferences = {
   get: () => api.get<Record<string, string>>("/preferences"),
   set: (key: string, value: string) => api.put("/preferences", { key, value }),
+};
+
+export const notifications = {
+  list: (params?: { unread_only?: boolean; limit?: number }) => {
+    const qs: Record<string, string> = {};
+    if (params?.unread_only) qs.unread_only = "true";
+    if (params?.limit) qs.limit = String(params.limit);
+    return api.get<NotificationListResponse>("/notifications", { params: qs });
+  },
+  unreadCount: () => api.get<{ unread_count: number }>("/notifications/unread-count"),
+  markRead: (id: number) => api.post<{ status: string }>(`/notifications/${id}/read`),
+  markAllRead: () => api.post<{ marked_read: number }>("/notifications/read-all"),
+  delete: (id: number) => api.delete(`/notifications/${id}`),
 };
 
 export default api;
