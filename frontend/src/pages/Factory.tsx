@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import ProviderIcon from "@/components/ProviderIcon";
 import { useToast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
+import { usePageSize } from "@/hooks/usePageSize";
 
 const statusColors: Record<string, string> = {
   pending: "bg-yellow-500/10 text-yellow-500",
@@ -55,6 +56,7 @@ export default function Factory() {
   const [buildStatusFilter, setBuildStatusFilter] = useState("");
   const [buildTargetFilter, setBuildTargetFilter] = useState("");
   const [buildPage, setBuildPage] = useState(1);
+  const [buildPageSize, setBuildPageSize] = usePageSize("factory_builds", 25);
   const [osSearch, setOsSearch] = useState("");
 
   useEffect(() => {
@@ -62,7 +64,7 @@ export default function Factory() {
   }, []);
 
   // Reset build page on filter change
-  useEffect(() => { setBuildPage(1); }, [buildSearch, buildStatusFilter, buildTargetFilter]);
+  useEffect(() => { setBuildPage(1); }, [buildSearch, buildStatusFilter, buildTargetFilter, buildPageSize]);
 
   const loadData = async () => {
     try {
@@ -132,9 +134,8 @@ export default function Factory() {
   }), [builds, buildStatusFilter, buildTargetFilter, buildSearch]);
 
   const paginatedBuilds = useMemo(() => {
-    const BUILDS_PER_PAGE = 10;
-    return filteredBuilds.slice((buildPage - 1) * BUILDS_PER_PAGE, buildPage * BUILDS_PER_PAGE);
-  }, [filteredBuilds, buildPage]);
+    return filteredBuilds.slice((buildPage - 1) * buildPageSize, buildPage * buildPageSize);
+  }, [filteredBuilds, buildPage, buildPageSize]);
 
   if (loading) {
     return (
@@ -427,7 +428,14 @@ export default function Factory() {
               </Card>
             ))}
             {/* Build Pagination */}
-            <Pagination page={buildPage} totalPages={Math.ceil(filteredBuilds.length / 10)} onPageChange={setBuildPage} />
+            <Pagination
+              page={buildPage}
+              pageSize={buildPageSize}
+              totalItems={filteredBuilds.length}
+              onPageChange={setBuildPage}
+              onPageSizeChange={setBuildPageSize}
+              itemLabel="builds"
+            />
           </div>
           )}
       </div>
