@@ -48,7 +48,7 @@ export function Header() {
 
   return (
     <>
-      <header className="grid h-14 shrink-0 grid-cols-[1fr_minmax(0,28rem)_1fr] items-center gap-4 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-6">
+      <header className="relative z-30 grid h-14 shrink-0 grid-cols-[1fr_minmax(0,28rem)_1fr] items-center gap-4 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-6">
         {/* Left: hamburger (mobile) + breadcrumbs (desktop) */}
         <div className="flex items-center gap-3 min-w-0">
           <Button

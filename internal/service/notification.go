@@ -113,7 +113,7 @@ func (s *NotificationService) NotifyDeployCompleted(d *models.Deployment) {
 	s.EmitForUser(d.CreatedBy, "success",
 		fmt.Sprintf("Deployed %s", d.VMName),
 		"",
-		fmt.Sprintf("/history/%d", d.ID),
+		fmt.Sprintf("/deploy/%d", d.ID),
 		"deploy.completed",
 	)
 }
@@ -130,7 +130,7 @@ func (s *NotificationService) NotifyDeployFailed(d *models.Deployment) {
 	s.EmitForUser(d.CreatedBy, "error",
 		fmt.Sprintf("Deploy failed: %s", d.VMName),
 		body,
-		fmt.Sprintf("/history/%d", d.ID),
+		fmt.Sprintf("/deploy/%d", d.ID),
 		"deploy.failed",
 	)
 }
