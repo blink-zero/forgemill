@@ -143,14 +143,13 @@ export default function ActionsPage() {
 
   const categories = Array.from(new Set(actionList.map((a) => a.category)));
 
-  // Group filtered actions
+  // Paginate the sorted+filtered list so both views share the same slice
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = usePageSize("actions", 25);
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const paginated = actionsSorted.slice((page - 1) * pageSize, page * pageSize);
 
-  // Reset page on filter change
-  useEffect(() => { setPage(1); }, [search, categoryFilter, pageSize]);
+  // Reset page on filter, sort, or page-size change
+  useEffect(() => { setPage(1); }, [search, categoryFilter, pageSize, actSortField, actSortDir]);
 
   const grouped = paginated.reduce<Record<string, Action[]>>((acc, a) => {
     (acc[a.category] = acc[a.category] || []).push(a);
@@ -478,7 +477,7 @@ export default function ActionsPage() {
               </tr>
             </thead>
             <tbody>
-              {actionsSorted.map((action) => (
+              {paginated.map((action) => (
                 <React.Fragment key={action.id}>
                 <tr className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                   <td className="px-4 py-2.5 font-medium">{action.name}</td>
