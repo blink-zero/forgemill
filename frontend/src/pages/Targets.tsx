@@ -17,6 +17,7 @@ import { usePreference } from "@/context/PreferencesContext";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableSort } from "@/hooks/useTableSort";
 import { PageHeader } from "@/components/ui/page-header";
+import { PermissionsHelp } from "@/components/ui/permissions-help";
 
 // Extracted form component using provider metadata from context
 interface TargetFormProps {
@@ -89,7 +90,10 @@ function TargetForm({ form, setForm, onSubmit, onCancel, submitLabel, title, isE
             )}
           </div>
           <div className="space-y-2">
-            <Label>Username</Label>
+            <div className="flex items-center gap-1.5">
+              <Label>Username</Label>
+              <PermissionsHelp providerType={form.type} />
+            </div>
             <Input
               value={form.username}
               onChange={(e) => setForm({ ...form, username: e.target.value })}
