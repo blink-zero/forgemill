@@ -19,8 +19,7 @@ import { usePreference } from "@/context/PreferencesContext";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableSort } from "@/hooks/useTableSort";
 import { PageHeader } from "@/components/ui/page-header";
-
-const ITEMS_PER_PAGE = 12;
+import { usePageSize } from "@/hooks/usePageSize";
 
 export default function Templates() {
   const { formatDate, formatDateTime } = useTimezone();
@@ -53,6 +52,7 @@ export default function Templates() {
   const [keepVMs, setKeepVMs] = useState(true);
   const [destroyConfirmText, setDestroyConfirmText] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = usePageSize("templates", 25);
   const [detailModal, setDetailModal] = useState<TemplateDetailInfo | null>(null);
   const [detailLoading, setDetailLoading] = useState<number | null>(null);
   const [menuOpen, setMenuOpen] = useState<number | null>(null);
@@ -82,7 +82,7 @@ export default function Templates() {
   useEffect(() => { loadData(); }, []);
 
   // Reset page when search changes
-  useEffect(() => { setPage(1); }, [search]);
+  useEffect(() => { setPage(1); }, [search, pageSize]);
 
   // F-157: Guard against null/undefined fields to prevent TypeError crashes
   const filtered = templates.filter(
@@ -268,6 +268,9 @@ export default function Templates() {
   const viewMode = usePreference("view_mode", "cards");
   const { sorted: tableSorted, sortField: tSortField, sortDir: tSortDir, toggleSort: tToggleSort } = useTableSort(filtered, "name");
 
+  // Reset to page 1 when sort changes, so we don't land on an empty page
+  useEffect(() => { setPage(1); }, [tSortField, tSortDir]);
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -380,7 +383,7 @@ export default function Templates() {
               </tr>
             </thead>
             <tbody>
-              {tableSorted.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE).map((t) => {
+              {tableSorted.slice((page - 1) * pageSize, page * pageSize).map((t) => {
                 const targetObj = targetsList.find((tg) => tg.id === t.target_id);
                 const schedule = getScheduleForTemplate(t.id);
                 return (
@@ -535,7 +538,7 @@ export default function Templates() {
         </div>
         ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE).map((t) => {
+          {tableSorted.slice((page - 1) * pageSize, page * pageSize).map((t) => {
             const updateInfo = updateChecks[t.id];
             const hasUpdate = updateInfo?.update_available;
             const targetObj = targetsList.find((tg) => tg.id === t.target_id);
@@ -826,7 +829,14 @@ export default function Templates() {
         </div>
         )}
         {/* Pagination */}
-        <Pagination page={page} totalPages={Math.ceil(filtered.length / ITEMS_PER_PAGE)} onPageChange={setPage} />
+        <Pagination
+          page={page}
+          pageSize={pageSize}
+          totalItems={filtered.length}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          itemLabel="templates"
+        />
         </>
       )}
 

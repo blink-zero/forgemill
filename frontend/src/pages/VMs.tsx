@@ -17,8 +17,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { usePreference } from "@/context/PreferencesContext";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableSort } from "@/hooks/useTableSort";
-
-const ITEMS_PER_PAGE = 12;
+import { usePageSize } from "@/hooks/usePageSize";
 
 type SortField = "vm_name" | "power_state" | "target_name";
 type SortDir = "asc" | "desc";
@@ -47,6 +46,7 @@ export default function VMs() {
   const [sortField, setSortField] = useState<SortField>("vm_name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = usePageSize("vms", 25);
   const [syncing, setSyncing] = useState(false);
   const [actingOn, setActingOn] = useState<number | null>(null);
 
@@ -99,11 +99,11 @@ export default function VMs() {
   }, [filtered, sortField, sortDir]);
 
   // Paginate
-  const totalPages = Math.max(1, Math.ceil(sorted.length / ITEMS_PER_PAGE));
-  const paginated = sorted.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const paginated = sorted.slice((page - 1) * pageSize, page * pageSize);
 
-  // Reset to page 1 when filters change
-  useEffect(() => { setPage(1); }, [search, statusFilter, targetFilter, sortField, sortDir]);
+  // Reset to page 1 when filters or page-size change
+  useEffect(() => { setPage(1); }, [search, statusFilter, targetFilter, sortField, sortDir, pageSize]);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -257,7 +257,7 @@ export default function VMs() {
                 </tr>
               </thead>
               <tbody>
-                {vmTableSorted.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE).map((vm) => (
+                {vmTableSorted.slice((page - 1) * pageSize, page * pageSize).map((vm) => (
                   <tr key={vm.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-2.5 text-muted-foreground font-mono text-xs">#{vm.id}</td>
                     <td className="px-4 py-2.5">
@@ -364,7 +364,14 @@ export default function VMs() {
           )}
 
           {/* Pagination */}
-          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+          <Pagination
+            page={page}
+            pageSize={pageSize}
+            totalItems={sorted.length}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            itemLabel="VMs"
+          />
         </>
       )}
     </div>

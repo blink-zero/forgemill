@@ -18,6 +18,7 @@ import { usePreference } from "@/context/PreferencesContext";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableSort } from "@/hooks/useTableSort";
 import { PageHeader } from "@/components/ui/page-header";
+import { usePageSize } from "@/hooks/usePageSize";
 
 const categoryIcons: Record<string, typeof Package> = {
   packages: Package,
@@ -143,13 +144,13 @@ export default function ActionsPage() {
   const categories = Array.from(new Set(actionList.map((a) => a.category)));
 
   // Group filtered actions
-  const ACTIONS_PER_PAGE = 10;
   const [page, setPage] = useState(1);
-  const totalPages = Math.max(1, Math.ceil(filtered.length / ACTIONS_PER_PAGE));
-  const paginated = filtered.slice((page - 1) * ACTIONS_PER_PAGE, page * ACTIONS_PER_PAGE);
+  const [pageSize, setPageSize] = usePageSize("actions", 25);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   // Reset page on filter change
-  useEffect(() => { setPage(1); }, [search, categoryFilter]);
+  useEffect(() => { setPage(1); }, [search, categoryFilter, pageSize]);
 
   const grouped = paginated.reduce<Record<string, Action[]>>((acc, a) => {
     (acc[a.category] = acc[a.category] || []).push(a);
@@ -598,7 +599,14 @@ export default function ActionsPage() {
       )}
 
       {/* Pagination */}
-      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+      <Pagination
+        page={page}
+        pageSize={pageSize}
+        totalItems={filtered.length}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+        itemLabel="actions"
+      />
     </div>
   );
 }
