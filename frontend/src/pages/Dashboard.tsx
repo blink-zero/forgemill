@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Server, Box, Rocket, Monitor, Zap, Plus, ArrowRight, Terminal, Clock, Loader2 } from "lucide-react";
 import ProviderIcon, { providerLabel } from "@/components/ProviderIcon";
 import { SkeletonCard, Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 
 const statusVariant = (status: string) => {
   switch (status) {
@@ -138,15 +139,18 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <Link to="/deploy">
-          <Button size="sm" className="gap-2">
-            <Plus className="h-4 w-4" />
-            Deploy VM
-          </Button>
-        </Link>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        description="Overview of your infrastructure, recent activity, and quick actions."
+        actions={
+          <Link to="/deploy">
+            <Button size="sm" className="gap-2">
+              <Plus className="h-4 w-4" />
+              Deploy VM
+            </Button>
+          </Link>
+        }
+      />
 
       {/* Stats */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

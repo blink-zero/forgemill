@@ -146,6 +146,21 @@ type Webhook struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Notification is a single in-app notification shown in the bell dropdown.
+// UserID is nullable: nil = broadcast, visible to every user.
+type Notification struct {
+	ID        int64      `json:"id"`
+	UserID    *int64     `json:"user_id,omitempty"`
+	Level     string     `json:"level"` // info | success | warning | error
+	Title     string     `json:"title"`
+	Body      string     `json:"body,omitempty"`
+	Link      string     `json:"link,omitempty"`
+	Event     string     `json:"event,omitempty"`
+	IsRead    bool       `json:"is_read"`
+	CreatedAt time.Time  `json:"created_at"`
+	ReadAt    *time.Time `json:"read_at,omitempty"`
+}
+
 // --- Phase 3 models ---
 
 type ManagedVM struct {

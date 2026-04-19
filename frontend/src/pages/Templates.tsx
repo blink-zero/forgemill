@@ -18,8 +18,8 @@ import { ViewToggle } from "@/components/ui/view-toggle";
 import { usePreference } from "@/context/PreferencesContext";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableSort } from "@/hooks/useTableSort";
-
-const ITEMS_PER_PAGE = 12;
+import { PageHeader } from "@/components/ui/page-header";
+import { usePageSize } from "@/hooks/usePageSize";
 
 export default function Templates() {
   const { formatDate, formatDateTime } = useTimezone();
@@ -52,6 +52,7 @@ export default function Templates() {
   const [keepVMs, setKeepVMs] = useState(true);
   const [destroyConfirmText, setDestroyConfirmText] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = usePageSize("templates", 25);
   const [detailModal, setDetailModal] = useState<TemplateDetailInfo | null>(null);
   const [detailLoading, setDetailLoading] = useState<number | null>(null);
   const [menuOpen, setMenuOpen] = useState<number | null>(null);
@@ -81,7 +82,7 @@ export default function Templates() {
   useEffect(() => { loadData(); }, []);
 
   // Reset page when search changes
-  useEffect(() => { setPage(1); }, [search]);
+  useEffect(() => { setPage(1); }, [search, pageSize]);
 
   // F-157: Guard against null/undefined fields to prevent TypeError crashes
   const filtered = templates.filter(
@@ -267,6 +268,9 @@ export default function Templates() {
   const viewMode = usePreference("view_mode", "cards");
   const { sorted: tableSorted, sortField: tSortField, sortDir: tSortDir, toggleSort: tToggleSort } = useTableSort(filtered, "name");
 
+  // Reset to page 1 when sort changes, so we don't land on an empty page
+  useEffect(() => { setPage(1); }, [tSortField, tSortDir]);
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -291,49 +295,46 @@ export default function Templates() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-bold">Templates</h1>
-          {templates.length > 0 && <Badge variant="outline">{templates.length}</Badge>}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search templates..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-          <ViewToggle />
-          {hasManagedTemplates && (
-            <Button variant="outline" size="sm" onClick={checkAllUpdates} disabled={checking}>
-              <RefreshCw className={`h-4 w-4 mr-1 ${checking ? "animate-spin" : ""}`} />
-              Check Updates
-            </Button>
-          )}
-          {templates.length === 0 ? (
-            <Button size="sm" onClick={() => navigate("/factory")}>
-              <Hammer className="h-4 w-4 mr-1" />
-              Build Template
-            </Button>
-          ) : (
-            <Button size="sm" onClick={() => navigate("/deploy")}>
-              <Rocket className="h-4 w-4 mr-1" />
-              Deploy VM
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <div className="rounded-lg border bg-blue-500/5 border-blue-500/20 px-4 py-3 flex items-start gap-3">
-        <Info className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
-        <div>
-          <p className="text-sm font-medium">Template library</p>
-          <p className="text-xs text-muted-foreground">VM templates synced from your hypervisors. Forgemill-managed templates can be rebuilt and versioned automatically.</p>
-        </div>
-      </div>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2">
+            Templates
+            {templates.length > 0 && <Badge variant="outline">{templates.length}</Badge>}
+          </span>
+        }
+        description="VM templates synced from your hypervisors. Forgemill-managed templates can be rebuilt and versioned automatically."
+        actions={
+          <>
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search templates..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <ViewToggle />
+            {hasManagedTemplates && (
+              <Button variant="outline" size="sm" onClick={checkAllUpdates} disabled={checking}>
+                <RefreshCw className={`h-4 w-4 mr-1 ${checking ? "animate-spin" : ""}`} />
+                Check Updates
+              </Button>
+            )}
+            {templates.length === 0 ? (
+              <Button size="sm" onClick={() => navigate("/factory")}>
+                <Hammer className="h-4 w-4 mr-1" />
+                Build Template
+              </Button>
+            ) : (
+              <Button size="sm" onClick={() => navigate("/deploy")}>
+                <Rocket className="h-4 w-4 mr-1" />
+                Deploy VM
+              </Button>
+            )}
+          </>
+        }
+      />
 
       {filtered.length === 0 ? (
         templates.length === 0 ? (
@@ -382,7 +383,7 @@ export default function Templates() {
               </tr>
             </thead>
             <tbody>
-              {tableSorted.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE).map((t) => {
+              {tableSorted.slice((page - 1) * pageSize, page * pageSize).map((t) => {
                 const targetObj = targetsList.find((tg) => tg.id === t.target_id);
                 const schedule = getScheduleForTemplate(t.id);
                 return (
@@ -537,7 +538,7 @@ export default function Templates() {
         </div>
         ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE).map((t) => {
+          {tableSorted.slice((page - 1) * pageSize, page * pageSize).map((t) => {
             const updateInfo = updateChecks[t.id];
             const hasUpdate = updateInfo?.update_available;
             const targetObj = targetsList.find((tg) => tg.id === t.target_id);
@@ -828,7 +829,14 @@ export default function Templates() {
         </div>
         )}
         {/* Pagination */}
-        <Pagination page={page} totalPages={Math.ceil(filtered.length / ITEMS_PER_PAGE)} onPageChange={setPage} />
+        <Pagination
+          page={page}
+          pageSize={pageSize}
+          totalItems={filtered.length}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          itemLabel="templates"
+        />
         </>
       )}
 

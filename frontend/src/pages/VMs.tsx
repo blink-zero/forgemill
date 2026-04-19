@@ -6,18 +6,18 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Monitor, Cpu, MemoryStick, HardDrive, Power, RefreshCw, Play, Square, Info, Loader2 } from "lucide-react";
+import { Search, Monitor, Cpu, MemoryStick, HardDrive, Power, RefreshCw, Play, Square, Info, Loader2, Rocket } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getErrorMessage } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
 import { Pagination } from "@/components/ui/pagination";
 import { SkeletonVMCard, Skeleton } from "@/components/ui/skeleton";
 import { ViewToggle } from "@/components/ui/view-toggle";
+import { PageHeader } from "@/components/ui/page-header";
 import { usePreference } from "@/context/PreferencesContext";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableSort } from "@/hooks/useTableSort";
-
-const ITEMS_PER_PAGE = 12;
+import { usePageSize } from "@/hooks/usePageSize";
 
 type SortField = "vm_name" | "power_state" | "target_name";
 type SortDir = "asc" | "desc";
@@ -46,6 +46,7 @@ export default function VMs() {
   const [sortField, setSortField] = useState<SortField>("vm_name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = usePageSize("vms", 25);
   const [syncing, setSyncing] = useState(false);
   const [actingOn, setActingOn] = useState<number | null>(null);
 
@@ -98,11 +99,11 @@ export default function VMs() {
   }, [filtered, sortField, sortDir]);
 
   // Paginate
-  const totalPages = Math.max(1, Math.ceil(sorted.length / ITEMS_PER_PAGE));
-  const paginated = sorted.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const paginated = sorted.slice((page - 1) * pageSize, page * pageSize);
 
-  // Reset to page 1 when filters change
-  useEffect(() => { setPage(1); }, [search, statusFilter, targetFilter, sortField, sortDir]);
+  // Reset to page 1 when filters or page-size change
+  useEffect(() => { setPage(1); }, [search, statusFilter, targetFilter, sortField, sortDir, pageSize]);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -170,36 +171,39 @@ export default function VMs() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2 shrink-0">
-          <h1 className="text-2xl font-bold whitespace-nowrap">Virtual Machines</h1>
-          {vmList.length > 0 && <Badge variant="outline">{vmList.length}</Badge>}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by name, target, IP..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-          <ViewToggle />
-          <Button variant="outline" size="sm" onClick={doSyncAll} disabled={syncing} className="shrink-0">
-            <RefreshCw className={`h-4 w-4 mr-1 ${syncing ? "animate-spin" : ""}`} />
-            {syncing ? "Syncing..." : "Sync All"}
-          </Button>
-        </div>
-      </div>
-
-      <div className="rounded-lg border bg-blue-500/5 border-blue-500/20 px-4 py-3 flex items-start gap-3">
-        <Info className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
-        <div>
-          <p className="text-sm font-medium">Virtual machines</p>
-          <p className="text-xs text-muted-foreground">VMs deployed through Forgemill are tracked here. Use Sync All to refresh status from your hypervisors.</p>
-        </div>
-      </div>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2">
+            Virtual Machines
+            {vmList.length > 0 && <Badge variant="outline">{vmList.length}</Badge>}
+          </span>
+        }
+        description="Tracked virtual machines across your targets."
+        actions={
+          <>
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name, target, IP..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <ViewToggle />
+            <Link to="/deploy">
+              <Button size="sm" className="shrink-0">
+                <Rocket className="h-4 w-4 mr-1" />
+                Deploy VM
+              </Button>
+            </Link>
+            <Button variant="outline" size="sm" onClick={doSyncAll} disabled={syncing} className="shrink-0">
+              <RefreshCw className={`h-4 w-4 mr-1 ${syncing ? "animate-spin" : ""}`} />
+              {syncing ? "Syncing..." : "Sync All"}
+            </Button>
+          </>
+        }
+      />
 
       {/* Filter Bar */}
       <div className="flex flex-wrap items-center gap-3">
@@ -253,7 +257,7 @@ export default function VMs() {
                 </tr>
               </thead>
               <tbody>
-                {vmTableSorted.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE).map((vm) => (
+                {vmTableSorted.slice((page - 1) * pageSize, page * pageSize).map((vm) => (
                   <tr key={vm.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-2.5 text-muted-foreground font-mono text-xs">#{vm.id}</td>
                     <td className="px-4 py-2.5">
@@ -360,7 +364,14 @@ export default function VMs() {
           )}
 
           {/* Pagination */}
-          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+          <Pagination
+            page={page}
+            pageSize={pageSize}
+            totalItems={sorted.length}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            itemLabel="VMs"
+          />
         </>
       )}
     </div>

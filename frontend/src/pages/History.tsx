@@ -10,6 +10,9 @@ import { Info, Loader2, Search, X, Rocket } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
+import { PageHeader } from "@/components/ui/page-header";
+import { usePageSize } from "@/hooks/usePageSize";
+import { EmptyState } from "@/components/ui/empty-state";
 
 const statusVariant = (status: string) => {
   switch (status) {
@@ -26,80 +29,79 @@ export default function HistoryPage() {
   const [data, setData] = useState<PaginatedResponse<Deployment> | null>(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = usePageSize("history", 25);
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
+
+  // Reset to page 1 when filters or page-size change, so we don't request
+  // a stale page that no longer exists.
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, search, pageSize]);
 
   useEffect(() => {
     setLoading(true);
     historyApi
-      .list({ page, per_page: 20, status: statusFilter || undefined, search: search || undefined })
+      .list({ page, per_page: pageSize, status: statusFilter || undefined, search: search || undefined })
       .then((res) => setData(res.data))
       .finally(() => setLoading(false));
-  }, [page, statusFilter, search]);
-
-  // Reset to page 1 when filters change
-  useEffect(() => {
-    setPage(1);
-  }, [statusFilter, search]);
+  }, [page, pageSize, statusFilter, search]);
 
   const totalPages = data ? Math.ceil(data.total / data.per_page) : 0;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-bold">Deployment History</h1>
-          {data && data.total > 0 && <Badge variant="outline">{data.total}</Badge>}
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="relative w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search VM, template, target..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 pr-8"
-            />
-            {search && (
-              <button
-                onClick={() => setSearch("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
-          </div>
-          <Select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="w-auto"
-          >
-            <option value="">All statuses</option>
-            <option value="completed">Completed</option>
-            <option value="running">Running</option>
-            <option value="failed">Failed</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="pending">Pending</option>
-          </Select>
-        </div>
-      </div>
-
-      <div className="rounded-lg border bg-blue-500/5 border-blue-500/20 px-4 py-3 flex items-start gap-3">
-        <Info className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
-        <div>
-          <p className="text-sm font-medium">Deployment history</p>
-          <p className="text-xs text-muted-foreground">Track all VM deployments across your targets. View logs, status, and deployment details.</p>
-        </div>
-      </div>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2">
+            Deployment History
+            {data && data.total > 0 && <Badge variant="outline">{data.total}</Badge>}
+          </span>
+        }
+        description="Track every VM deployment across your targets — status, logs, and details."
+        actions={
+          <>
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search VM, template, target..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9 pr-8"
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <Select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-auto"
+            >
+              <option value="">All statuses</option>
+              <option value="completed">Completed</option>
+              <option value="running">Running</option>
+              <option value="failed">Failed</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="pending">Pending</option>
+            </Select>
+          </>
+        }
+      />
 
       {loading ? (
         <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
       ) : !data || !data.data || data.data.length === 0 ? (
-        <div className="text-center py-16 text-muted-foreground">
-          <Rocket className="h-12 w-12 mx-auto mb-4 opacity-50" />
-          <p className="font-medium">No deployments found</p>
-          <p className="text-sm mt-1">Deploy your first VM to see it here</p>
-        </div>
+        <EmptyState
+          icon={Rocket}
+          title="No deployments yet"
+          description="Deploy your first VM to see its history here."
+        />
       ) : (
         <Card>
           <CardContent className="p-0">
@@ -141,7 +143,15 @@ export default function HistoryPage() {
         </Card>
       )}
 
-      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+      <Pagination
+        page={page}
+        pageSize={pageSize}
+        totalItems={data?.total ?? 0}
+        totalPages={totalPages}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+        itemLabel="deployments"
+      />
     </div>
   );
 }

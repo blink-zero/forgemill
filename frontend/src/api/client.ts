@@ -28,6 +28,8 @@ import type {
   Webhook,
   APIKey,
   APIKeyCreateResponse,
+  Notification,
+  NotificationListResponse,
 } from "@/types";
 
 const api = axios.create({
@@ -120,10 +122,16 @@ export const users = {
   list: () => api.get<User[]>("/users"),
   create: (data: { username: string; password: string; display_name: string; role: string }) =>
     api.post<User>("/users", data),
+  update: (id: number, data: { display_name?: string }) =>
+    api.patch<User>(`/users/${id}`, data),
   changePassword: (id: number, password: string) =>
     api.put<{ status: string }>(`/users/${id}/password`, { password }),
   updateRole: (id: number, role: string) =>
     api.put<{ role: string }>(`/users/${id}/role`, { role }),
+  setActive: (id: number, active: boolean) =>
+    api.put<{ is_active: boolean }>(`/users/${id}/active`, { active }),
+  forceLogout: (id: number) =>
+    api.post<{ status: string }>(`/users/${id}/force-logout`),
   delete: (id: number) => api.delete(`/users/${id}`),
 };
 
@@ -287,6 +295,19 @@ export const auditLogs = {
 export const preferences = {
   get: () => api.get<Record<string, string>>("/preferences"),
   set: (key: string, value: string) => api.put("/preferences", { key, value }),
+};
+
+export const notifications = {
+  list: (params?: { unread_only?: boolean; limit?: number }) => {
+    const qs: Record<string, string> = {};
+    if (params?.unread_only) qs.unread_only = "true";
+    if (params?.limit) qs.limit = String(params.limit);
+    return api.get<NotificationListResponse>("/notifications", { params: qs });
+  },
+  unreadCount: () => api.get<{ unread_count: number }>("/notifications/unread-count"),
+  markRead: (id: number) => api.post<{ status: string }>(`/notifications/${id}/read`),
+  markAllRead: () => api.post<{ marked_read: number }>("/notifications/read-all"),
+  delete: (id: number) => api.delete(`/notifications/${id}`),
 };
 
 export default api;

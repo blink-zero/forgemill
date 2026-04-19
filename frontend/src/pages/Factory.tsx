@@ -26,6 +26,8 @@ import { Pagination } from "@/components/ui/pagination";
 import { Input } from "@/components/ui/input";
 import ProviderIcon from "@/components/ProviderIcon";
 import { useToast } from "@/components/ui/toast";
+import { PageHeader } from "@/components/ui/page-header";
+import { usePageSize } from "@/hooks/usePageSize";
 
 const statusColors: Record<string, string> = {
   pending: "bg-yellow-500/10 text-yellow-500",
@@ -54,6 +56,7 @@ export default function Factory() {
   const [buildStatusFilter, setBuildStatusFilter] = useState("");
   const [buildTargetFilter, setBuildTargetFilter] = useState("");
   const [buildPage, setBuildPage] = useState(1);
+  const [buildPageSize, setBuildPageSize] = usePageSize("factory_builds", 25);
   const [osSearch, setOsSearch] = useState("");
 
   useEffect(() => {
@@ -61,7 +64,7 @@ export default function Factory() {
   }, []);
 
   // Reset build page on filter change
-  useEffect(() => { setBuildPage(1); }, [buildSearch, buildStatusFilter, buildTargetFilter]);
+  useEffect(() => { setBuildPage(1); }, [buildSearch, buildStatusFilter, buildTargetFilter, buildPageSize]);
 
   const loadData = async () => {
     try {
@@ -131,9 +134,8 @@ export default function Factory() {
   }), [builds, buildStatusFilter, buildTargetFilter, buildSearch]);
 
   const paginatedBuilds = useMemo(() => {
-    const BUILDS_PER_PAGE = 10;
-    return filteredBuilds.slice((buildPage - 1) * BUILDS_PER_PAGE, buildPage * BUILDS_PER_PAGE);
-  }, [filteredBuilds, buildPage]);
+    return filteredBuilds.slice((buildPage - 1) * buildPageSize, buildPage * buildPageSize);
+  }, [filteredBuilds, buildPage, buildPageSize]);
 
   if (loading) {
     return (
@@ -145,14 +147,10 @@ export default function Factory() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Template Factory</h1>
-          <p className="text-muted-foreground">
-            Build VM templates from ISO using Packer
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Template Factory"
+        description="Build VM templates from ISO using Packer."
+      />
 
       {/* Prerequisites Check */}
       {prereqs && !prereqs.packer_installed && (
@@ -171,20 +169,6 @@ export default function Factory() {
                 >
                   developer.hashicorp.com/packer/install
                 </a>
-              </p>
-            </div>
-          </div>
-        </Card>
-      )}
-
-      {prereqs && prereqs.packer_installed && (
-        <Card className="p-4 border-green-500/50 bg-green-500/5">
-          <div className="flex items-center gap-3">
-            <CheckCircle className="h-5 w-5 text-green-500" />
-            <div>
-              <p className="font-medium">Packer Ready</p>
-              <p className="text-sm text-muted-foreground">
-                {prereqs.packer_version}
               </p>
             </div>
           </div>
@@ -444,7 +428,14 @@ export default function Factory() {
               </Card>
             ))}
             {/* Build Pagination */}
-            <Pagination page={buildPage} totalPages={Math.ceil(filteredBuilds.length / 10)} onPageChange={setBuildPage} />
+            <Pagination
+              page={buildPage}
+              pageSize={buildPageSize}
+              totalItems={filteredBuilds.length}
+              onPageChange={setBuildPage}
+              onPageSizeChange={setBuildPageSize}
+              itemLabel="builds"
+            />
           </div>
           )}
       </div>

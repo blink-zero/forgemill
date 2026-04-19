@@ -47,6 +47,7 @@ type RouterConfig struct {
 	Encryptor            interface{ Encrypt(string) (string, error); Decrypt(string) (string, error) } // V3-M14
 	TLSCert              string // MED-03: Used to detect production mode for CORS enforcement
 	AuditService         *service.AuditService
+	NotificationService  *service.NotificationService
 }
 
 func NewRouter(cfg RouterConfig) *chi.Mux {
@@ -118,6 +119,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 	factoryH := handlers.NewFactoryHandler(cfg.FactoryService, cfg.AuditService)
 	actionH := handlers.NewActionHandler(cfg.DB, cfg.AuditService)
 	execH := handlers.NewExecutionHandler(cfg.ExecutorService, cfg.AuditService)
+	notifH := handlers.NewNotificationHandler(cfg.DB)
 
 	r.Route("/api", func(r chi.Router) {
 		// Fix 8: Apply global rate limit to all API routes
@@ -154,6 +156,13 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 			// User preferences (viewer+ — users can only access their own)
 			r.Get("/preferences", settingsH.GetPreferences)
 			r.Put("/preferences", settingsH.UpdatePreference)
+
+			// Notifications — every authenticated user manages their own
+			r.Get("/notifications", notifH.List)
+			r.Get("/notifications/unread-count", notifH.UnreadCount)
+			r.Post("/notifications/{id}/read", notifH.MarkRead)
+			r.Post("/notifications/read-all", notifH.MarkAllRead)
+			r.Delete("/notifications/{id}", notifH.Delete)
 
 			// Read-only endpoints (viewer+)
 			r.Get("/actions", actionH.List)
@@ -271,8 +280,11 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 				// Users
 				r.Get("/users", settingsH.ListUsers)
 				r.Post("/users", settingsH.CreateUser)
+				r.Patch("/users/{id}", settingsH.UpdateUser)
 				r.Put("/users/{id}/password", settingsH.ChangePassword)
 				r.Put("/users/{id}/role", settingsH.UpdateUserRole)
+				r.Put("/users/{id}/active", settingsH.SetUserActive)
+				r.Post("/users/{id}/force-logout", settingsH.ForceLogoutUser)
 				r.Delete("/users/{id}", settingsH.DeleteUser)
 				r.Delete("/deployment-history", settingsH.ClearDeploymentHistory)
 
