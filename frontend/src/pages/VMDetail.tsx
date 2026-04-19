@@ -2,6 +2,7 @@ import { useTimezone } from "@/hooks/useTimezone";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { vms as vmApi, executions as execApi, actions as actionsApi } from "@/api/client";
+import { usePageSize } from "@/hooks/usePageSize";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import type { ManagedVM, VMSnapshot, Action, ActionExecution, ActionParameter } from "@/types";
@@ -690,7 +691,7 @@ function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState: string
   const [actionSearch, setActionSearch] = useState("");
   const [actionCategoryFilter, setActionCategoryFilter] = useState<string>("all");
   const [historyPage, setHistoryPage] = useState(1);
-  const historyPerPage = 10;
+  const [historyPerPage, setHistoryPerPage] = usePageSize("vmdetail_executions", 10);
   const [paramAction, setParamAction] = useState<Action | null>(null);
   const [paramValues, setParamValues] = useState<Record<string, string>>({});
 
@@ -1174,7 +1175,6 @@ function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState: string
           {executionHistory.length === 0 ? (
             <p className="text-sm text-muted-foreground">No executions yet</p>
           ) : (() => {
-            const totalPages = Math.ceil(executionHistory.length / historyPerPage);
             const paged = executionHistory.slice((historyPage - 1) * historyPerPage, historyPage * historyPerPage);
             return (
               <div className="space-y-2">
@@ -1219,7 +1219,14 @@ function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState: string
                     )}
                   </div>
                 ))}
-                <Pagination page={historyPage} totalPages={totalPages} onPageChange={setHistoryPage} />
+                <Pagination
+                  page={historyPage}
+                  pageSize={historyPerPage}
+                  totalItems={executionHistory.length}
+                  onPageChange={setHistoryPage}
+                  onPageSizeChange={(n) => { setHistoryPerPage(n); setHistoryPage(1); }}
+                  itemLabel="executions"
+                />
               </div>
             );
           })()}

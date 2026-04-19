@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { PageHeader } from "@/components/ui/page-header";
+import { usePageSize } from "@/hooks/usePageSize";
 import { EmptyState } from "@/components/ui/empty-state";
 
 const statusVariant = (status: string) => {
@@ -28,21 +29,23 @@ export default function HistoryPage() {
   const [data, setData] = useState<PaginatedResponse<Deployment> | null>(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = usePageSize("history", 25);
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
+
+  // Reset to page 1 when filters or page-size change, so we don't request
+  // a stale page that no longer exists.
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, search, pageSize]);
 
   useEffect(() => {
     setLoading(true);
     historyApi
-      .list({ page, per_page: 20, status: statusFilter || undefined, search: search || undefined })
+      .list({ page, per_page: pageSize, status: statusFilter || undefined, search: search || undefined })
       .then((res) => setData(res.data))
       .finally(() => setLoading(false));
-  }, [page, statusFilter, search]);
-
-  // Reset to page 1 when filters change
-  useEffect(() => {
-    setPage(1);
-  }, [statusFilter, search]);
+  }, [page, pageSize, statusFilter, search]);
 
   const totalPages = data ? Math.ceil(data.total / data.per_page) : 0;
 
@@ -140,7 +143,15 @@ export default function HistoryPage() {
         </Card>
       )}
 
-      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+      <Pagination
+        page={page}
+        pageSize={pageSize}
+        totalItems={data?.total ?? 0}
+        totalPages={totalPages}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+        itemLabel="deployments"
+      />
     </div>
   );
 }
