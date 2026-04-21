@@ -21,7 +21,7 @@ export function PermissionsHelp({ providerType, ariaLabel, className }: Permissi
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
+  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -37,9 +37,15 @@ export function PermissionsHelp({ providerType, ariaLabel, className }: Permissi
       const el = triggerRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
+      const panelWidth = 420;
+      const margin = 8;
+      // Prefer opening right-ward from the trigger's left edge, but clamp
+      // so the panel never leaves the viewport on either side.
+      const maxLeft = window.innerWidth - panelWidth - margin;
+      const clampedLeft = Math.max(margin, Math.min(rect.left, maxLeft));
       setAnchor({
         top: rect.bottom + 8,
-        right: Math.max(8, window.innerWidth - rect.right),
+        left: clampedLeft,
       });
     };
     reposition();
@@ -96,7 +102,7 @@ export function PermissionsHelp({ providerType, ariaLabel, className }: Permissi
       ref={panelRef}
       role="dialog"
       aria-label="Required permissions"
-      style={{ position: "fixed", top: anchor.top, right: anchor.right, zIndex: 1000 }}
+      style={{ position: "fixed", top: anchor.top, left: anchor.left, zIndex: 1000 }}
       className="w-[420px] max-w-[calc(100vw-1rem)] rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
     >
           {/* Header */}
