@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { HelpCircle, Copy, Check, ExternalLink, X } from "lucide-react";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -20,13 +21,31 @@ export function PermissionsHelp({ providerType, ariaLabel, className }: Permissi
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const perms = permissionsForType(providerType);
 
+  // Position the portal'd panel relative to the trigger button each time it
+  // opens and while the viewport scrolls / resizes. Using a portal ensures
+  // the panel escapes any parent stacking context (sidebar, overflow-auto
+  // main, backdrop-blur header) and renders above everything on screen.
   useEffect(() => {
     if (!open) return;
+    const reposition = () => {
+      const el = triggerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      setAnchor({
+        top: rect.bottom + 8,
+        right: Math.max(8, window.innerWidth - rect.right),
+      });
+    };
+    reposition();
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+
     const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     const onClick = (e: MouseEvent) => {
       const t = e.target as Node;
@@ -40,6 +59,8 @@ export function PermissionsHelp({ providerType, ariaLabel, className }: Permissi
     document.addEventListener("keydown", onEsc);
     document.addEventListener("mousedown", onClick);
     return () => {
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
       document.removeEventListener("keydown", onEsc);
       document.removeEventListener("mousedown", onClick);
     };
@@ -70,27 +91,14 @@ export function PermissionsHelp({ providerType, ariaLabel, className }: Permissi
     }
   };
 
-  return (
-    <div className={cn("relative inline-block", className)}>
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex h-4 w-4 items-center justify-center text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
-        aria-label={ariaLabel ?? "Show required permissions"}
-        aria-expanded={open}
-        title="Required permissions"
-      >
-        <HelpCircle className="h-4 w-4" />
-      </button>
-
-      {open && (
-        <div
-          ref={panelRef}
-          role="dialog"
-          aria-label="Required permissions"
-          className="absolute right-0 top-full mt-2 z-40 w-[420px] max-w-[calc(100vw-2rem)] rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
-        >
+  const panel = open && anchor ? (
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-label="Required permissions"
+      style={{ position: "fixed", top: anchor.top, right: anchor.right, zIndex: 1000 }}
+      className="w-[420px] max-w-[calc(100vw-1rem)] rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
+    >
           {/* Header */}
           <div className="flex items-start justify-between gap-2 border-b border-border px-4 py-3">
             <div className="min-w-0">
@@ -163,8 +171,23 @@ export function PermissionsHelp({ providerType, ariaLabel, className }: Permissi
               {copied ? "Copied" : perms.copyAllLabel}
             </button>
           </div>
-        </div>
-      )}
     </div>
+  ) : null;
+
+  return (
+    <span className={cn("inline-flex", className)}>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex h-4 w-4 items-center justify-center text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+        aria-label={ariaLabel ?? "Show required permissions"}
+        aria-expanded={open}
+        title="Required permissions"
+      >
+        <HelpCircle className="h-4 w-4" />
+      </button>
+      {panel && createPortal(panel, document.body)}
+    </span>
   );
 }
