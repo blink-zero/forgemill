@@ -11,7 +11,7 @@ import {
   Play, Square, Rocket, MoreHorizontal, ExternalLink, Terminal,
   Camera, RotateCw, X, Box,
 } from "lucide-react";
-import { cn, getErrorMessage } from "@/lib/utils";
+import { cn, getErrorMessage, timeAgo, copyText } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
 import { Pagination } from "@/components/ui/pagination";
 import { SkeletonVMCard, Skeleton } from "@/components/ui/skeleton";
@@ -41,35 +41,6 @@ const powerLabel = (state: string) => {
 
 const isRunning = (state: string) => state === "poweredOn" || state === "running";
 const isStopped = (state: string) => state === "poweredOff" || state === "stopped";
-
-function timeAgo(iso?: string | null): string {
-  if (!iso) return "never";
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "never";
-  const diffS = Math.max(0, Math.floor((Date.now() - then) / 1000));
-  if (diffS < 45) return "just now";
-  if (diffS < 90) return "1m ago";
-  const diffM = Math.floor(diffS / 60);
-  if (diffM < 60) return `${diffM}m ago`;
-  const diffH = Math.floor(diffM / 60);
-  if (diffH < 24) return `${diffH}h ago`;
-  const diffD = Math.floor(diffH / 24);
-  if (diffD < 30) return `${diffD}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
-
-function copyToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
-  const ta = document.createElement("textarea");
-  ta.value = text;
-  ta.style.position = "fixed";
-  ta.style.opacity = "0";
-  document.body.appendChild(ta);
-  ta.select();
-  document.execCommand("copy");
-  document.body.removeChild(ta);
-  return Promise.resolve();
-}
 
 export default function VMs() {
   const navigate = useNavigate();
@@ -213,7 +184,7 @@ export default function VMs() {
       // ignore — use fallback
     }
     try {
-      await copyToClipboard(cmd);
+      await copyText(cmd);
       toast(`Copied: ${cmd}`);
     } catch {
       toast("Could not copy to clipboard", "error");
@@ -226,7 +197,7 @@ export default function VMs() {
       return;
     }
     try {
-      await copyToClipboard(vm.ip_address);
+      await copyText(vm.ip_address);
       toast(`Copied ${vm.ip_address}`);
     } catch {
       toast("Could not copy to clipboard", "error");
