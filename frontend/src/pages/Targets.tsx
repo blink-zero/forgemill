@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { targets as targetApi } from "@/api/client";
 import type { Target } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -10,7 +10,9 @@ import { Label } from "@/components/ui/label";
 import { Plus, Trash2, RefreshCw, Wifi, X, ShieldCheck, Info, AlertTriangle, Box, Monitor, Rocket, Wrench, Terminal, Pencil, Loader2, MoreHorizontal } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import ProviderIcon, { providerLabel } from "@/components/ProviderIcon";
-import { getErrorMessage } from "@/lib/utils";
+import { getErrorMessage, timeAgo } from "@/lib/utils";
+import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { Star } from "lucide-react";
 import { useProviders, useProvider } from "@/context/ProviderContext";
 import { ViewToggle } from "@/components/ui/view-toggle";
 import { usePreference } from "@/context/PreferencesContext";
@@ -156,27 +158,6 @@ export default function Targets() {
     templatesFound?: number;
   } | null>(null);
   const [editTarget, setEditTarget] = useState<Target | null>(null);
-  const [openMenu, setOpenMenu] = useState<number | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    if (!openMenu) return;
-    const handleClick = (e: MouseEvent) => {
-      // Only close if clicking outside the menu
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpenMenu(null);
-      }
-    };
-    // Use setTimeout to avoid closing immediately on the same click that opened the menu
-    const timer = setTimeout(() => {
-      document.addEventListener("click", handleClick);
-    }, 0);
-    return () => {
-      clearTimeout(timer);
-      document.removeEventListener("click", handleClick);
-    };
-  }, [openMenu]);
 
   const viewMode = usePreference("view_mode", "cards");
   const { sorted: targetsSorted, sortField: tgtSortField, sortDir: tgtSortDir, toggleSort: tgtToggleSort } = useTableSort(targets, "name");
@@ -350,107 +331,149 @@ export default function Targets() {
           <p className="font-medium">No targets configured</p>
           <p className="text-sm mt-1">Add a vCenter, ESXi, or Proxmox target to get started</p>
         </div>
-      ) : viewMode === "table" ? (
-        <div className="rounded-md border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <SortableTh label="Name" field="name" currentField={tgtSortField} currentDir={tgtSortDir} onSort={tgtToggleSort} />
-                <SortableTh label="Hostname" field="hostname" currentField={tgtSortField} currentDir={tgtSortDir} onSort={tgtToggleSort} className="hidden sm:table-cell" />
-                <SortableTh label="Type" field="type" currentField={tgtSortField} currentDir={tgtSortDir} onSort={tgtToggleSort} className="hidden md:table-cell" />
-                <th className="text-left px-4 py-2 font-medium">Status</th>
-                <th className="text-right px-4 py-2 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+      ) : (
+        <>
+          {/* Per-target action menu (reused by table and card views) */}
+          {(() => null)()}
+          {viewMode === "table" ? (
+            <div className="rounded-md border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <SortableTh label="Name" field="name" currentField={tgtSortField} currentDir={tgtSortDir} onSort={tgtToggleSort} />
+                    <SortableTh label="Hostname" field="hostname" currentField={tgtSortField} currentDir={tgtSortDir} onSort={tgtToggleSort} className="hidden sm:table-cell" />
+                    <SortableTh label="Type" field="type" currentField={tgtSortField} currentDir={tgtSortDir} onSort={tgtToggleSort} className="hidden md:table-cell" />
+                    <th className="text-left px-4 py-2 font-medium">Status</th>
+                    <th className="text-left px-4 py-2 font-medium hidden lg:table-cell">Last connected</th>
+                    <th className="text-right px-4 py-2 font-medium w-32">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {targetsSorted.map((t) => (
+                    <tr key={t.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <ProviderIcon type={t.type} size={18} />
+                          <span className="font-medium">{t.name}</span>
+                          {t.is_default && (
+                            <span title="Default target" className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-primary/15 text-primary">
+                              <Star className="h-2.5 w-2.5" />
+                              default
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 text-muted-foreground font-mono text-xs hidden sm:table-cell">{t.hostname}:{t.port}</td>
+                      <td className="px-4 py-2.5 text-muted-foreground hidden md:table-cell">{providerLabel(t.type)}</td>
+                      <td className="px-4 py-2.5">
+                        <Badge variant={t.status === "connected" ? "success" : t.status === "error" ? "destructive" : "secondary"}>
+                          {t.status}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground hidden lg:table-cell" title={t.last_connected_at ? new Date(t.last_connected_at).toLocaleString() : undefined}>
+                        {timeAgo(t.last_connected_at)}
+                      </td>
+                      <td className="px-2 py-2.5 text-right">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleTest(t)} disabled={testing === t.id} title="Test connection">
+                            <Wifi className={`h-3.5 w-3.5 ${testing === t.id ? "animate-pulse" : ""}`} />
+                          </Button>
+                          <DropdownMenu
+                            trigger={
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label="Target actions">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            }
+                          >
+                            <DropdownMenuItem
+                              icon={<RefreshCw className={syncing === t.id ? "animate-spin" : ""} />}
+                              disabled={syncing === t.id}
+                              onClick={() => handleSync(t)}
+                            >
+                              Sync templates
+                            </DropdownMenuItem>
+                            <DropdownMenuItem icon={<Pencil />} onClick={() => handleEditClick(t)}>
+                              Edit target
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem icon={<Trash2 />} destructive onClick={() => handleDeleteClick(t)}>
+                              Delete target
+                            </DropdownMenuItem>
+                          </DropdownMenu>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="space-y-4">
               {targetsSorted.map((t) => (
-                <tr key={t.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <ProviderIcon type={t.type} size={18} />
-                      <span className="font-medium">{t.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-2.5 text-muted-foreground font-mono text-xs hidden sm:table-cell">{t.hostname}:{t.port}</td>
-                  <td className="px-4 py-2.5 text-muted-foreground hidden md:table-cell">{providerLabel(t.type)}</td>
-                  <td className="px-4 py-2.5">
-                    <Badge variant={t.status === "connected" ? "success" : t.status === "error" ? "destructive" : "secondary"}>
-                      {t.status}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-2.5 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => handleTest(t)} disabled={testing === t.id} title="Test">
-                        <Wifi className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => handleSync(t)} disabled={syncing === t.id} title="Sync">
-                        <RefreshCw className={`h-3.5 w-3.5 ${syncing === t.id ? "animate-spin" : ""}`} />
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => handleEditClick(t)} title="Edit">
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        ) : (
-        <div className="space-y-4">
-          {targets.map((t) => (
-            <Card key={t.id}>
-              <CardContent className="flex items-center justify-between p-4">
-                <div className="flex items-center gap-4">
-                  <ProviderIcon type={t.type} size={32} />
-                  <div>
-                    <p className="font-medium">{t.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {t.hostname}:{t.port} &middot; {providerLabel(t.type)} &middot; {t.username}
-                      <span className="inline-flex items-center gap-0.5 ml-2 text-green-500"><ShieldCheck className="h-3 w-3" /> encrypted</span>
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant={t.status === "connected" ? "success" : t.status === "error" ? "destructive" : "secondary"}>
-                    {t.status}
-                  </Badge>
-                  <Button variant="outline" size="sm" onClick={() => handleTest(t)} disabled={testing === t.id}>
-                    <Wifi className="h-3.5 w-3.5 mr-1" />
-                    {testing === t.id ? "Testing..." : "Test"}
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => handleSync(t)} disabled={syncing === t.id}>
-                    <RefreshCw className={`h-3.5 w-3.5 mr-1 ${syncing === t.id ? "animate-spin" : ""}`} />
-                    {syncing === t.id ? "Syncing..." : "Sync"}
-                  </Button>
-                  <div className="relative" ref={openMenu === t.id ? menuRef : undefined}>
-                    <Button variant="ghost" size="icon" onClick={() => setOpenMenu(openMenu === t.id ? null : t.id)} aria-label="More actions">
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    {openMenu === t.id && (
-                      <div className="absolute right-0 top-full mt-1 z-20 bg-popover border rounded-md shadow-lg py-1 min-w-[140px]">
-                        <button
-                          className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors"
-                          onClick={() => { setOpenMenu(null); handleEditClick(t); }}
-                        >
-                          <Pencil className="h-4 w-4" />
-                          Edit
-                        </button>
-                        <button
-                          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-accent transition-colors"
-                          onClick={() => { setOpenMenu(null); handleDeleteClick(t); }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Delete
-                        </button>
+                <Card key={t.id}>
+                  <CardContent className="flex items-center justify-between p-4 gap-4">
+                    <div className="flex items-center gap-4 min-w-0">
+                      <ProviderIcon type={t.type} size={32} />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-medium truncate">{t.name}</p>
+                          {t.is_default && (
+                            <span title="Default target" className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-primary/15 text-primary">
+                              <Star className="h-2.5 w-2.5" />
+                              default
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground truncate">
+                          <span className="font-mono">{t.hostname}:{t.port}</span>
+                          <span className="mx-1.5">·</span>
+                          {providerLabel(t.type)}
+                          <span className="mx-1.5">·</span>
+                          {t.username}
+                          <span className="inline-flex items-center gap-0.5 ml-2 text-green-500"><ShieldCheck className="h-3 w-3" /> encrypted</span>
+                        </p>
+                        <p className="text-[11px] text-muted-foreground/80 mt-0.5" title={t.last_connected_at ? new Date(t.last_connected_at).toLocaleString() : undefined}>
+                          Last connected {timeAgo(t.last_connected_at)}
+                        </p>
                       </div>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant={t.status === "connected" ? "success" : t.status === "error" ? "destructive" : "secondary"}>
+                        {t.status}
+                      </Badge>
+                      <Button variant="outline" size="sm" onClick={() => handleTest(t)} disabled={testing === t.id}>
+                        <Wifi className={`h-3.5 w-3.5 mr-1 ${testing === t.id ? "animate-pulse" : ""}`} />
+                        {testing === t.id ? "Testing..." : "Test"}
+                      </Button>
+                      <DropdownMenu
+                        trigger={
+                          <Button variant="ghost" size="icon" aria-label="Target actions">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        }
+                      >
+                        <DropdownMenuItem
+                          icon={<RefreshCw className={syncing === t.id ? "animate-spin" : ""} />}
+                          disabled={syncing === t.id}
+                          onClick={() => handleSync(t)}
+                        >
+                          Sync templates
+                        </DropdownMenuItem>
+                        <DropdownMenuItem icon={<Pencil />} onClick={() => handleEditClick(t)}>
+                          Edit target
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem icon={<Trash2 />} destructive onClick={() => handleDeleteClick(t)}>
+                          Delete target
+                        </DropdownMenuItem>
+                      </DropdownMenu>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
       )}
       {/* Test/Sync Modal */}
       {actionModal && (
