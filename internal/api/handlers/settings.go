@@ -37,11 +37,12 @@ func (h *SettingsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 
 // B-3: Allowlist of valid setting keys to prevent arbitrary key storage.
 var allowedSettingKeys = map[string]bool{
-	"motd":                  true,
-	"theme":                 true,
-	"session_timeout":       true,
-	"default_target_id":     true,
-	"audit_retention_days":  true,
+	"motd":                           true,
+	"theme":                          true,
+	"session_timeout":                true,
+	"default_target_id":              true,
+	"audit_retention_days":           true,
+	"target_check_interval_minutes":  true,
 }
 
 func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {

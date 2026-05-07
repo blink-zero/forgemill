@@ -154,6 +154,7 @@ export default function Targets() {
     targetName: string;
     targetId: number;
     phase: "testing" | "test-success" | "test-failed" | "syncing" | "sync-done";
+    targetType?: string;
     message: string;
     templatesFound?: number;
   } | null>(null);
@@ -248,37 +249,49 @@ export default function Targets() {
     }
   };
 
-  const runTest = async (id: number, name: string) => {
-    setActionModal({ targetName: name, targetId: id, phase: "testing", message: "Testing connection..." });
+  const runTest = async (id: number, name: string, type?: string) => {
+    setActionModal({ targetName: name, targetId: id, phase: "testing", message: "Testing connection...", targetType: type });
     setTesting(id);
     try {
       const res = await targetApi.test(id);
       loadTargets();
-      setActionModal({ targetName: name, targetId: id, phase: "test-success", message: res.data.message || "Connection successful" });
-    } catch {
-      setActionModal({ targetName: name, targetId: id, phase: "test-failed", message: "Connection test failed. Check credentials and hostname." });
+      setActionModal({ targetName: name, targetId: id, phase: "test-success", message: res.data.message || "Connection successful", targetType: type });
+    } catch (e) {
+      setActionModal({
+        targetName: name,
+        targetId: id,
+        phase: "test-failed",
+        message: getErrorMessage(e, "Connection test failed. Check credentials and hostname."),
+        targetType: type,
+      });
     } finally {
       setTesting(null);
     }
   };
 
-  const handleTest = (target: Target) => runTest(target.id, target.name);
+  const handleTest = (target: Target) => runTest(target.id, target.name, target.type);
 
-  const runSync = async (id: number, name: string) => {
-    setActionModal({ targetName: name, targetId: id, phase: "syncing", message: "Syncing templates..." });
+  const runSync = async (id: number, name: string, type?: string) => {
+    setActionModal({ targetName: name, targetId: id, phase: "syncing", message: "Syncing templates...", targetType: type });
     setSyncing(id);
     try {
       const res = await targetApi.sync(id);
       loadTargets();
-      setActionModal({ targetName: name, targetId: id, phase: "sync-done", message: `Sync complete`, templatesFound: res.data.templates_found });
-    } catch {
-      setActionModal({ targetName: name, targetId: id, phase: "test-failed", message: "Sync failed. Check target connection." });
+      setActionModal({ targetName: name, targetId: id, phase: "sync-done", message: `Sync complete`, templatesFound: res.data.templates_found, targetType: type });
+    } catch (e) {
+      setActionModal({
+        targetName: name,
+        targetId: id,
+        phase: "test-failed",
+        message: getErrorMessage(e, "Sync failed. Check target connection."),
+        targetType: type,
+      });
     } finally {
       setSyncing(null);
     }
   };
 
-  const handleSync = (target: Target) => runSync(target.id, target.name);
+  const handleSync = (target: Target) => runSync(target.id, target.name, target.type);
 
   if (loading) {
     return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
@@ -513,11 +526,62 @@ export default function Targets() {
               </div>
             )}
 
+            {actionModal.phase === "test-failed" && (
+              <div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                  <p className="text-xs font-semibold">Troubleshooting</p>
+                </div>
+                <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
+                  {actionModal.targetType === "vcenter" && (
+                    <>
+                      <li>Confirm the user can sign in to vSphere directly at <span className="font-mono">https://{"<host>"}/ui</span></li>
+                      <li>Username should be <span className="font-mono">user@vsphere.local</span> or your AD UPN</li>
+                      <li>Port 443 must be reachable from the Forgemill container</li>
+                      <li>If using a self-signed cert, untick "Validate SSL/TLS certificates"</li>
+                      <li>Required role: see the <span className="font-mono">?</span> next to Username on the create form</li>
+                    </>
+                  )}
+                  {actionModal.targetType === "esxi" && (
+                    <>
+                      <li>Confirm the user can sign in to the ESXi host UI at <span className="font-mono">https://{"<host>"}/ui</span></li>
+                      <li>If lockdown mode is enabled, only Exception users can connect via API</li>
+                      <li>Port 443 must be reachable from the Forgemill container</li>
+                      <li>If using a self-signed cert, untick "Validate SSL/TLS certificates"</li>
+                      <li>Default username is normally <span className="font-mono">root</span></li>
+                    </>
+                  )}
+                  {actionModal.targetType === "proxmox" && (
+                    <>
+                      <li>Default API port is <span className="font-mono">8006</span> — Forgemill normalises 443/0 → 8006 automatically</li>
+                      <li>Username format: <span className="font-mono">user@pam</span> or <span className="font-mono">user@pve</span></li>
+                      <li>If using API tokens, paste the full token: <span className="font-mono">user@pve!tokenid=secret</span></li>
+                      <li>If using a self-signed cert, untick "Validate SSL/TLS certificates"</li>
+                      <li>Required perms: see the <span className="font-mono">?</span> next to Username on the create form</li>
+                    </>
+                  )}
+                  {!actionModal.targetType && (
+                    <>
+                      <li>Verify hostname / port match the hypervisor's web UI</li>
+                      <li>If using a self-signed cert, untick "Validate SSL/TLS certificates"</li>
+                      <li>Confirm the username/password are correct by signing in to the hypervisor directly</li>
+                    </>
+                  )}
+                </ul>
+              </div>
+            )}
+
             <div className="flex justify-end gap-2 pt-2">
               {actionModal.phase === "test-success" && (
-                <Button size="sm" onClick={() => runSync(actionModal.targetId, actionModal.targetName)}>
+                <Button size="sm" onClick={() => runSync(actionModal.targetId, actionModal.targetName, actionModal.targetType)}>
                   <RefreshCw className="h-4 w-4 mr-1.5" />
                   Sync Templates
+                </Button>
+              )}
+              {actionModal.phase === "test-failed" && (
+                <Button size="sm" variant="outline" onClick={() => runTest(actionModal.targetId, actionModal.targetName, actionModal.targetType)}>
+                  <RefreshCw className="h-4 w-4 mr-1.5" />
+                  Retry
                 </Button>
               )}
               {!["testing", "syncing"].includes(actionModal.phase) && (
