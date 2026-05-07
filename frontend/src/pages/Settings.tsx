@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon, Copy, Send, Pencil, Check, Info, UserCheck, UserX, LogOut as LogOutIcon, MoreHorizontal, Search } from "lucide-react";
+import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon, Copy, Send, Pencil, Check, Info, UserCheck, UserX, LogOut as LogOutIcon, MoreHorizontal, Search, Wifi } from "lucide-react";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { ForgemillLogo } from "@/components/ForgemillLogo";
 import { Select } from "@/components/ui/select";
@@ -74,6 +74,8 @@ export default function SettingsPage() {
   const [auditUntil, setAuditUntil] = useState("");
   const [auditRetentionDays, setAuditRetentionDays] = useState<number>(90);
   const [auditRetentionSaving, setAuditRetentionSaving] = useState(false);
+  const [targetCheckMins, setTargetCheckMins] = useState<number>(0);
+  const [targetCheckSaving, setTargetCheckSaving] = useState(false);
 
   const refreshUsers = () => {
     usersApi.list().then((res) => setUsersList(res.data || [])).catch((e) => {
@@ -140,6 +142,15 @@ export default function SettingsPage() {
       });
     }
   }, [isAdmin, tab, auditPage]);
+
+  useEffect(() => {
+    if (isAdmin && tab === "preferences") {
+      settingsApi.get().then((res) => {
+        const v = (res.data as Record<string, string>)["target_check_interval_minutes"];
+        if (v !== undefined) setTargetCheckMins(Number(v));
+      }).catch(() => { /* non-critical */ });
+    }
+  }, [isAdmin, tab]);
 
   const handleCreate = async () => {
     setFormError("");
@@ -914,6 +925,52 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+
+          {isAdmin && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Wifi className="h-5 w-5" />Target Health Checks</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Forgemill can periodically test every target's connection in the background and update their status. Useful for spotting credential rot or hypervisor outages without manually clicking Test on each one.
+                </p>
+                <div className="flex items-end gap-3">
+                  <div className="space-y-2 flex-1 max-w-xs">
+                    <Label>Check interval</Label>
+                    <Select
+                      value={String(targetCheckMins)}
+                      onChange={(e) => setTargetCheckMins(Number(e.target.value))}
+                    >
+                      <option value="0">Off — manual only</option>
+                      <option value="5">Every 5 minutes</option>
+                      <option value="10">Every 10 minutes</option>
+                      <option value="15">Every 15 minutes</option>
+                      <option value="30">Every 30 minutes</option>
+                      <option value="60">Every hour</option>
+                    </Select>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      setTargetCheckSaving(true);
+                      try {
+                        await settingsApi.update({ target_check_interval_minutes: String(targetCheckMins) });
+                        toast(targetCheckMins > 0 ? `Targets will be tested every ${targetCheckMins} minutes` : "Periodic target checks disabled");
+                      } catch (e) {
+                        toast(getErrorMessage(e, "Failed to save setting"), "error");
+                      } finally {
+                        setTargetCheckSaving(false);
+                      }
+                    }}
+                    disabled={targetCheckSaving}
+                  >
+                    {targetCheckSaving ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>
