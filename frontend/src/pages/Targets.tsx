@@ -255,8 +255,27 @@ export default function Targets() {
     try {
       const res = await targetApi.test(id);
       loadTargets();
-      setActionModal({ targetName: name, targetId: id, phase: "test-success", message: res.data.message || "Connection successful", targetType: type });
+      // The /test endpoint returns 200 with { success, message } so we have
+      // to branch on res.data.success, not on a thrown exception.
+      if (res.data.success === false) {
+        setActionModal({
+          targetName: name,
+          targetId: id,
+          phase: "test-failed",
+          message: res.data.message || "Connection test failed. Check credentials and hostname.",
+          targetType: type,
+        });
+      } else {
+        setActionModal({
+          targetName: name,
+          targetId: id,
+          phase: "test-success",
+          message: res.data.message || "Connection successful",
+          targetType: type,
+        });
+      }
     } catch (e) {
+      // Network / 5xx / auth-401 — still route to failure.
       setActionModal({
         targetName: name,
         targetId: id,
