@@ -60,7 +60,7 @@ export default function SettingsPage() {
   // API Keys state
   const [apiKeysList, setApiKeysList] = useState<APIKey[]>([]);
   const [showApiKeyForm, setShowApiKeyForm] = useState(false);
-  const [apiKeyForm, setApiKeyForm] = useState({ name: "", expires_at: "" });
+  const [apiKeyForm, setApiKeyForm] = useState({ name: "", expires_at: "", role: "", scope: "" });
   const [apiKeyFormError, setApiKeyFormError] = useState("");
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [keyCopied, setKeyCopied] = useState(false);
@@ -322,13 +322,17 @@ export default function SettingsPage() {
       return;
     }
     try {
-      const payload: { name: string; expires_at?: string } = { name: apiKeyForm.name };
+      const payload: { name: string; expires_at?: string; role?: string; scope?: string } = {
+        name: apiKeyForm.name,
+      };
       if (apiKeyForm.expires_at) payload.expires_at = new Date(apiKeyForm.expires_at).toISOString();
+      if (apiKeyForm.role) payload.role = apiKeyForm.role;
+      if (apiKeyForm.scope) payload.scope = apiKeyForm.scope;
       const res = await apiKeysApi.create(payload);
       setRevealedKey(res.data.key);
       setKeyCopied(false);
       setShowApiKeyForm(false);
-      setApiKeyForm({ name: "", expires_at: "" });
+      setApiKeyForm({ name: "", expires_at: "", role: "", scope: "" });
       refreshApiKeys();
     } catch (e: any) {
       setApiKeyFormError(e?.response?.data?.error || e?.message || "Failed to create API key");
@@ -826,7 +830,7 @@ export default function SettingsPage() {
           )}
 
           <div className="flex justify-end">
-            <Button onClick={() => { setShowApiKeyForm(!showApiKeyForm); setApiKeyFormError(""); setApiKeyForm({ name: "", expires_at: "" }); }}>
+            <Button onClick={() => { setShowApiKeyForm(!showApiKeyForm); setApiKeyFormError(""); setApiKeyForm({ name: "", expires_at: "", role: "", scope: "" }); }}>
               {showApiKeyForm ? <><X className="h-4 w-4 mr-2" />Cancel</> : <><Plus className="h-4 w-4 mr-2" />Create API Key</>}
             </Button>
           </div>
@@ -843,6 +847,36 @@ export default function SettingsPage() {
                   <div className="space-y-2">
                     <Label>Expires <span className="text-xs text-muted-foreground">(optional)</span></Label>
                     <Input type="date" value={apiKeyForm.expires_at} onChange={(e) => setApiKeyForm({ ...apiKeyForm, expires_at: e.target.value })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Role</Label>
+                    <Select
+                      value={apiKeyForm.role}
+                      onChange={(e) => setApiKeyForm({ ...apiKeyForm, role: e.target.value })}
+                    >
+                      <option value="">Inherit your role ({currentUser?.role || "user"})</option>
+                      <option value="viewer">Viewer — read-only data access</option>
+                      {(currentUser?.role === "user" || currentUser?.role === "admin") && (
+                        <option value="user">User — can deploy + run actions</option>
+                      )}
+                      {currentUser?.role === "admin" && (
+                        <option value="admin">Admin — full access</option>
+                      )}
+                    </Select>
+                    <p className="text-xs text-muted-foreground">A key can't be granted more than your own role.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Scope</Label>
+                    <Select
+                      value={apiKeyForm.scope}
+                      onChange={(e) => setApiKeyForm({ ...apiKeyForm, scope: e.target.value })}
+                    >
+                      <option value="">Full — anything the role allows (default)</option>
+                      <option value="read-only">Read-only — list/get endpoints only</option>
+                      <option value="action-only">Action-only — read + execute saved actions</option>
+                      <option value="deploy-only">Deploy-only — read + execute + deploy VMs</option>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">Narrows what the key can do, regardless of role. Browser sessions are always full.</p>
                   </div>
                   <div className="sm:col-span-2 space-y-2">
                     {apiKeyFormError && <p className="text-sm text-destructive">{apiKeyFormError}</p>}
@@ -867,9 +901,9 @@ export default function SettingsPage() {
                       <th className="text-left p-4 font-medium text-muted-foreground">Name</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Prefix</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Owner</th>
+                      <th className="text-left p-4 font-medium text-muted-foreground">Permissions</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Last Used</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Expires</th>
-                      <th className="text-left p-4 font-medium text-muted-foreground">Created</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Actions</th>
                     </tr>
                   </thead>
@@ -879,9 +913,18 @@ export default function SettingsPage() {
                         <td className="p-4 font-medium">{k.name}</td>
                         <td className="p-4 font-mono text-xs text-muted-foreground">{k.prefix}...</td>
                         <td className="p-4 text-muted-foreground">{k.username || "-"}</td>
+                        <td className="p-4">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge variant="secondary" className="capitalize" title={k.role ? "Key-specific role override" : "Inherits from owning user"}>
+                              {k.role || "inherit"}
+                            </Badge>
+                            <Badge variant="outline" className="text-[10px]" title="What this key is allowed to do">
+                              {k.scope || "full"}
+                            </Badge>
+                          </div>
+                        </td>
                         <td className="p-4 text-muted-foreground">{k.last_used_at ? formatDateTime(k.last_used_at) : "Never"}</td>
                         <td className="p-4 text-muted-foreground">{k.expires_at ? formatDateTime(k.expires_at) : "Never"}</td>
-                        <td className="p-4 text-muted-foreground">{formatDateTime(k.created_at)}</td>
                         <td className="p-4">
                           <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleDeleteApiKey(k)}>
                             <Trash2 className="h-3 w-3" />

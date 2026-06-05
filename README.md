@@ -245,7 +245,7 @@ This prevents secrets from appearing in `docker inspect` output or process listi
 ### Authentication and access control
 - Local accounts with bcrypt password hashing
 - LDAP / Active Directory with group-based role mapping
-- Per-user API keys with optional expiration (`fm_*` prefix, bcrypt-hashed)
+- Per-user API keys with optional expiration (`fm_*` prefix, bcrypt-hashed), and per-key **role override + scope** so a key can be issued with less privilege than its owner (e.g. an admin's read-only key for monitoring, or a user's deploy-only key for CI)
 - Three-tier RBAC (viewer / user / admin) enforced in middleware on every endpoint
 - JWT (HS256) with per-user token-version revocation
 - User management: disable/enable, force-logout (revoke all sessions), inline display-name edit

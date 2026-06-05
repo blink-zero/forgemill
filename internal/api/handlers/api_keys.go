@@ -29,11 +29,23 @@ func NewAPIKeyHandler(db *db.DB, audit *service.AuditService) *APIKeyHandler {
 type createAPIKeyRequest struct {
 	Name      string `json:"name"`
 	ExpiresAt string `json:"expires_at"`
+	Role      string `json:"role"`  // "" = inherit; or "viewer" | "user" | "admin"
+	Scope     string `json:"scope"` // "" or "full" = no restriction; or "read-only" | "action-only" | "deploy-only"
 }
 
 type createAPIKeyResponse struct {
 	Key    string        `json:"key"`
 	APIKey models.APIKey `json:"api_key"`
+}
+
+// validRoles + roleLevel mirror the auth-middleware ladder.
+var apiKeyValidRoles = map[string]int{"viewer": 0, "user": 1, "admin": 2}
+
+var apiKeyValidScopes = map[string]bool{
+	"read-only":   true,
+	"action-only": true,
+	"deploy-only": true,
+	"full":        true,
 }
 
 func (h *APIKeyHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +87,36 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate role override. Empty means "inherit owning user's role".
+	// Otherwise must be a known role AND must not exceed the creator's
+	// own role level (no escalation).
+	var rolePtr *string
+	if req.Role != "" {
+		reqLevel, ok := apiKeyValidRoles[req.Role]
+		if !ok {
+			writeError(w, "invalid role — must be viewer, user, or admin", http.StatusBadRequest)
+			return
+		}
+		ownerLevel, ok := apiKeyValidRoles[user.Role]
+		if !ok || reqLevel > ownerLevel {
+			writeError(w, "cannot grant a key a role higher than your own", http.StatusForbidden)
+			return
+		}
+		role := req.Role
+		rolePtr = &role
+	}
+
+	// Validate scope. Empty string is the same as "full" (no restriction).
+	var scopePtr *string
+	if req.Scope != "" && req.Scope != "full" {
+		if !apiKeyValidScopes[req.Scope] {
+			writeError(w, "invalid scope — must be read-only, action-only, deploy-only, or full", http.StatusBadRequest)
+			return
+		}
+		scope := req.Scope
+		scopePtr = &scope
+	}
+
 	// L2: Enforce per-user API key limit
 	count, err := h.db.CountAPIKeysByUser(user.ID)
 	if err != nil {
@@ -106,6 +148,8 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Name:    req.Name,
 		KeyHash: string(hash),
 		Prefix:  prefix,
+		Role:    rolePtr,
+		Scope:   scopePtr,
 	}
 
 	if req.ExpiresAt != "" {
@@ -128,7 +172,14 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		"actor", user.Username,
 		"key_name", req.Name,
 	)
-	h.audit.Log(user.Username, &user.ID, "api_key.create", "api_key", strconv.FormatInt(apiKey.ID, 10), service.IPFromRequest(r), map[string]interface{}{"key_name": req.Name})
+	meta := map[string]interface{}{"key_name": req.Name}
+	if rolePtr != nil {
+		meta["role"] = *rolePtr
+	}
+	if scopePtr != nil {
+		meta["scope"] = *scopePtr
+	}
+	h.audit.Log(user.Username, &user.ID, "api_key.create", "api_key", strconv.FormatInt(apiKey.ID, 10), service.IPFromRequest(r), meta)
 
 	writeJSON(w, http.StatusCreated, createAPIKeyResponse{
 		Key:    rawKey,
