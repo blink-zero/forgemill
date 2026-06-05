@@ -233,18 +233,7 @@ func (e *Engine) executeBuild(ctx context.Context, buildID int64, targetType str
 	logStoreErr("UpdateBuildStarted", e.store.UpdateBuildStarted(buildID))
 
 	isoURL := osDef.ISOURLPattern
-	var (
-		isoChecksum string
-		err         error
-	)
-	if osDef.CustomChecksumFetcher != nil {
-		// Per-OS opt-in override (see OSDefinition.CustomChecksumFetcher). Used
-		// by Ubuntu 26.04 to wrap the fetch in retry + longer TLS timeout. All
-		// other OSes leave the field nil and follow the unchanged path below.
-		isoChecksum, err = osDef.CustomChecksumFetcher(ctx, isoURL)
-	} else {
-		isoChecksum, err = resolveChecksum(ctx, osDef.ISOChecksumURL, isoURL)
-	}
+	isoChecksum, err := resolveChecksum(ctx, osDef.ISOChecksumURL, isoURL)
 	if err != nil {
 		sendLog(fmt.Sprintf("Warning: could not resolve checksum from %s: %v, falling back to file: prefix", osDef.ISOChecksumURL, err))
 		isoChecksum = "file:" + osDef.ISOChecksumURL
