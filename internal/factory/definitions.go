@@ -1,5 +1,7 @@
 package factory
 
+import "context"
+
 // OSDefinition describes an operating system available for template building.
 type OSDefinition struct {
 	ID             string   `json:"id"`
@@ -27,6 +29,23 @@ type OSDefinition struct {
 	// ProvisionerCmds are OS-specific shell commands run by Packer's provisioner block
 	// before converting the VM to a template. Replaces hardcoded apt-get/cloud-init commands.
 	ProvisionerCmds []string `json:"provisioner_cmds,omitempty"`
+
+	// CustomChecksumFetcher, when non-nil, replaces the default resolveChecksum()
+	// call in engine.go for this OS only. Lets a single OS opt in to retry logic,
+	// longer TLS timeouts, hard-coded hashes, etc. without affecting the shared
+	// fetch path used by every other OS.
+	//
+	// Currently set only by Ubuntu 26.04 (see os_ubuntu_2604.go) — releases.ubuntu.com
+	// is round-robin DNS across multiple mirrors and at least one of them was
+	// regularly exceeding Go's default 10 s TLSHandshakeTimeout during early-release
+	// traffic. The same retry approach could be lifted to the default fetcher (or
+	// adopted by 22.04 / 24.04 entries) once it has soaked here without surprises —
+	// it was deliberately scoped narrow to avoid any risk to templates that build
+	// reliably today.
+	//
+	// This field is not serialised to JSON because it is a runtime-only behaviour
+	// hook, not part of the OS metadata exposed to the API.
+	CustomChecksumFetcher func(ctx context.Context, isoURL string) (string, error) `json:"-"`
 }
 
 // PrereqStatus reports whether required tools are available.
