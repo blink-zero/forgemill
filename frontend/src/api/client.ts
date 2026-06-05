@@ -262,8 +262,12 @@ export const webhooks = {
 
 export const apiKeys = {
   list: () => api.get<APIKey[]>("/api-keys"),
-  create: (data: { name: string; expires_at?: string }) =>
-    api.post<APIKeyCreateResponse>("/api-keys", data),
+  create: (data: {
+    name: string;
+    expires_at?: string;
+    role?: string;
+    scope?: string;
+  }) => api.post<APIKeyCreateResponse>("/api-keys", data),
   delete: (id: number) => api.delete(`/api-keys/${id}`),
 };
 

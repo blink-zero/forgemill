@@ -207,6 +207,10 @@ export interface APIKey {
   expires_at: string | null;
   created_at: string;
   username: string;
+  /** Per-key role override. null = inherit user's role. */
+  role?: "viewer" | "user" | "admin" | null;
+  /** Per-key scope. null/"full" = no restriction. */
+  scope?: "read-only" | "action-only" | "deploy-only" | "full" | null;
 }
 
 export interface APIKeyCreateResponse {
