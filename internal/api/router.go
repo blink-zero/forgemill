@@ -203,31 +203,53 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 			r.Get("/factory/families/{id}/history", factoryH.GetFamilyHistory)
 			r.Get("/templates/{id}/history", factoryH.GetTemplateHistory)
 
-			// User-level endpoints (user+): deploy, blueprints, API keys, bulk, executions
+			// User-level endpoints (user+): deploy, blueprints, API keys, bulk, executions.
+			//
+			// Within this block we further split by API-key scope. JWT-authenticated
+			// browser sessions always have effective scope "full" and so pass every
+			// scope check; only API keys can be issued with a narrower scope.
 			r.Group(func(r chi.Router) {
 				r.Use(cfg.Auth.RequireRole("user"))
 
-				// Action execution
-				r.Post("/vms/{id}/execute", execH.Execute)
-				r.Post("/executions/{id}/cancel", execH.Cancel)
-
-				r.Post("/deploy", deployH.Deploy)
-				r.Post("/deploy/{id}/cancel", deployH.Cancel)
-				r.Post("/deploy/bulk", bulkH.Create)
-
-				r.Post("/blueprints", blueprintH.Create)
-				r.Put("/blueprints/{id}", blueprintH.Update)
-				r.Delete("/blueprints/{id}", blueprintH.Delete)
-				r.Post("/blueprints/{id}/deploy", blueprintH.Deploy)
-
+				// Reads — any scope (including read-only) is fine.
 				r.Get("/api-keys", apiKeyH.List)
-				r.Post("/api-keys", apiKeyH.Create)
-				r.Delete("/api-keys/{id}", apiKeyH.Delete)
+
+				// "execute" scope: running actions / cancelling executions.
+				r.Group(func(r chi.Router) {
+					r.Use(cfg.Auth.RequireScope("execute"))
+					r.Post("/vms/{id}/execute", execH.Execute)
+					r.Post("/executions/{id}/cancel", execH.Cancel)
+				})
+
+				// "deploy" scope: VM deployment + bulk + blueprint-deploy.
+				r.Group(func(r chi.Router) {
+					r.Use(cfg.Auth.RequireScope("deploy"))
+					r.Post("/deploy", deployH.Deploy)
+					r.Post("/deploy/{id}/cancel", deployH.Cancel)
+					r.Post("/deploy/bulk", bulkH.Create)
+					r.Post("/blueprints/{id}/deploy", blueprintH.Deploy)
+				})
+
+				// "full" scope only: editing blueprint definitions and
+				// managing API keys themselves (creation/deletion is a key-
+				// management action that shouldn't be reachable from a
+				// narrowly-scoped key).
+				r.Group(func(r chi.Router) {
+					r.Use(cfg.Auth.RequireScope("full"))
+					r.Post("/blueprints", blueprintH.Create)
+					r.Put("/blueprints/{id}", blueprintH.Update)
+					r.Delete("/blueprints/{id}", blueprintH.Delete)
+					r.Post("/api-keys", apiKeyH.Create)
+					r.Delete("/api-keys/{id}", apiKeyH.Delete)
+				})
 			})
 
-			// Admin-level endpoints
+			// Admin-level endpoints — every route also requires "full"
+			// scope, so even an admin-role key issued with a narrower
+			// scope can't reach destructive operations.
 			r.Group(func(r chi.Router) {
 				r.Use(cfg.Auth.RequireRole("admin"))
+				r.Use(cfg.Auth.RequireScope("full"))
 
 				// Actions (mutating)
 				r.Post("/actions", actionH.Create)

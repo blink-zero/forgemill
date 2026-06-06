@@ -813,8 +813,8 @@ func (db *DB) DeleteTemplateSource(id int64) error {
 
 func (db *DB) CreateAPIKey(k *models.APIKey) error {
 	res, err := db.conn.Exec(
-		`INSERT INTO api_keys (user_id, name, key_hash, prefix, expires_at) VALUES (?, ?, ?, ?, ?)`,
-		k.UserID, k.Name, k.KeyHash, k.Prefix, k.ExpiresAt,
+		`INSERT INTO api_keys (user_id, name, key_hash, prefix, expires_at, role, scope) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		k.UserID, k.Name, k.KeyHash, k.Prefix, k.ExpiresAt, k.Role, k.Scope,
 	)
 	if err != nil {
 		return err
@@ -829,7 +829,7 @@ func (db *DB) CreateAPIKey(k *models.APIKey) error {
 
 func (db *DB) ListAPIKeys(userID int64) ([]models.APIKey, error) {
 	rows, err := db.conn.Query(
-		`SELECT k.id, k.user_id, k.name, k.prefix, k.last_used_at, k.expires_at, k.created_at, u.username
+		`SELECT k.id, k.user_id, k.name, k.prefix, k.last_used_at, k.expires_at, k.created_at, k.role, k.scope, u.username
 		 FROM api_keys k JOIN users u ON k.user_id = u.id WHERE k.user_id = ? ORDER BY k.created_at DESC`, userID,
 	)
 	if err != nil {
@@ -839,7 +839,7 @@ func (db *DB) ListAPIKeys(userID int64) ([]models.APIKey, error) {
 	keys := []models.APIKey{}
 	for rows.Next() {
 		var k models.APIKey
-		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.Prefix, &k.LastUsedAt, &k.ExpiresAt, &k.CreatedAt, &k.Username); err != nil {
+		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.Prefix, &k.LastUsedAt, &k.ExpiresAt, &k.CreatedAt, &k.Role, &k.Scope, &k.Username); err != nil {
 			return nil, err
 		}
 		keys = append(keys, k)
@@ -849,7 +849,7 @@ func (db *DB) ListAPIKeys(userID int64) ([]models.APIKey, error) {
 
 func (db *DB) ListAllAPIKeys() ([]models.APIKey, error) {
 	rows, err := db.conn.Query(
-		`SELECT k.id, k.user_id, k.name, k.prefix, k.last_used_at, k.expires_at, k.created_at, u.username
+		`SELECT k.id, k.user_id, k.name, k.prefix, k.last_used_at, k.expires_at, k.created_at, k.role, k.scope, u.username
 		 FROM api_keys k JOIN users u ON k.user_id = u.id ORDER BY k.created_at DESC`,
 	)
 	if err != nil {
@@ -859,7 +859,7 @@ func (db *DB) ListAllAPIKeys() ([]models.APIKey, error) {
 	keys := []models.APIKey{}
 	for rows.Next() {
 		var k models.APIKey
-		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.Prefix, &k.LastUsedAt, &k.ExpiresAt, &k.CreatedAt, &k.Username); err != nil {
+		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.Prefix, &k.LastUsedAt, &k.ExpiresAt, &k.CreatedAt, &k.Role, &k.Scope, &k.Username); err != nil {
 			return nil, err
 		}
 		keys = append(keys, k)
@@ -870,9 +870,9 @@ func (db *DB) ListAllAPIKeys() ([]models.APIKey, error) {
 func (db *DB) GetAPIKeyByPrefix(prefix string) (*models.APIKey, error) {
 	k := &models.APIKey{}
 	err := db.conn.QueryRow(
-		`SELECT k.id, k.user_id, k.name, k.key_hash, k.prefix, k.last_used_at, k.expires_at, k.created_at, u.username
+		`SELECT k.id, k.user_id, k.name, k.key_hash, k.prefix, k.last_used_at, k.expires_at, k.created_at, k.role, k.scope, u.username
 		 FROM api_keys k JOIN users u ON k.user_id = u.id WHERE k.prefix = ?`, prefix,
-	).Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.Prefix, &k.LastUsedAt, &k.ExpiresAt, &k.CreatedAt, &k.Username)
+	).Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.Prefix, &k.LastUsedAt, &k.ExpiresAt, &k.CreatedAt, &k.Role, &k.Scope, &k.Username)
 	if err != nil {
 		return nil, err
 	}
@@ -881,7 +881,7 @@ func (db *DB) GetAPIKeyByPrefix(prefix string) (*models.APIKey, error) {
 
 func (db *DB) GetAllAPIKeysByPrefix(prefix string) ([]models.APIKey, error) {
 	rows, err := db.conn.Query(
-		`SELECT k.id, k.user_id, k.name, k.key_hash, k.prefix, k.last_used_at, k.expires_at, k.created_at
+		`SELECT k.id, k.user_id, k.name, k.key_hash, k.prefix, k.last_used_at, k.expires_at, k.created_at, k.role, k.scope
 		 FROM api_keys k WHERE k.prefix = ?`, prefix,
 	)
 	if err != nil {
@@ -891,7 +891,7 @@ func (db *DB) GetAllAPIKeysByPrefix(prefix string) ([]models.APIKey, error) {
 	keys := []models.APIKey{}
 	for rows.Next() {
 		var k models.APIKey
-		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.Prefix, &k.LastUsedAt, &k.ExpiresAt, &k.CreatedAt); err != nil {
+		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.Prefix, &k.LastUsedAt, &k.ExpiresAt, &k.CreatedAt, &k.Role, &k.Scope); err != nil {
 			return nil, err
 		}
 		keys = append(keys, k)

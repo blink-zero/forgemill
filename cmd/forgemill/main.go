@@ -173,6 +173,11 @@ func main() {
 	})
 	buildScheduler.Start()
 
+	// Start the periodic target health checker. Reads
+	// target_check_interval_minutes from app_settings each cycle; 0 = disabled.
+	targetHealth := service.NewTargetHealthChecker(targetSvc)
+	targetHealth.Start()
+
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,
 		Handler:           router,
@@ -188,6 +193,7 @@ func main() {
 		sig := <-sigCh
 		slog.Info("shutting down", "signal", sig)
 		buildScheduler.Stop()
+		targetHealth.Stop()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := server.Shutdown(ctx); err != nil {

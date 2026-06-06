@@ -12,7 +12,8 @@ import { Select } from "@/components/ui/select";
 import { CheckCircle, Cpu, HardDrive, Search, Monitor, RefreshCw, Clock, AlertTriangle, History, Rocket, ShieldCheck, Trash2, X, AlertCircle, XCircle, Info, Power, Loader2, MoreHorizontal, Hammer, RotateCcw } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import ProviderIcon from "@/components/ProviderIcon";
-import { getErrorMessage } from "@/lib/utils";
+import { getErrorMessage, timeAgo } from "@/lib/utils";
+import { OSBadge } from "@/components/OSBadge";
 import { SkeletonTemplateCard, Skeleton } from "@/components/ui/skeleton";
 import { ViewToggle } from "@/components/ui/view-toggle";
 import { usePreference } from "@/context/PreferencesContext";
@@ -336,6 +337,38 @@ export default function Templates() {
         }
       />
 
+      {/* Filter-state row: clear-search chip + most-recent-sync readout */}
+      {templates.length > 0 && (search || templates.some((t) => t.last_synced_at || t.built_at)) && (
+        <div className="flex flex-wrap items-center gap-3">
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground border border-border rounded-md px-2 py-1 transition-colors"
+              title="Clear search"
+            >
+              <X className="h-3 w-3" />
+              Search: "{search}" · Clear
+            </button>
+          )}
+          {(() => {
+            let latest: number | null = null;
+            for (const t of templates) {
+              const ts = t.last_synced_at || t.built_at;
+              if (!ts) continue;
+              const v = new Date(ts).getTime();
+              if (!Number.isNaN(v) && (latest === null || v > latest)) latest = v;
+            }
+            if (!latest) return null;
+            const iso = new Date(latest).toISOString();
+            return (
+              <span className="ml-auto text-xs text-muted-foreground" title={new Date(iso).toLocaleString()}>
+                Synced {timeAgo(iso)}
+              </span>
+            );
+          })()}
+        </div>
+      )}
+
       {filtered.length === 0 ? (
         templates.length === 0 ? (
           // Truly empty — no templates at all
@@ -379,6 +412,7 @@ export default function Templates() {
                 <SortableTh label="Target" field="target_name" currentField={tSortField} currentDir={tSortDir} onSort={tToggleSort} className="hidden sm:table-cell" />
                 <th className="text-left px-4 py-2 font-medium hidden md:table-cell">Specs</th>
                 <SortableTh label="Status" field="_status" currentField={tSortField} currentDir={tSortDir} onSort={tToggleSort} className="hidden lg:table-cell" />
+                <th className="text-left px-4 py-2 font-medium hidden xl:table-cell">Updated</th>
                 <th className="text-right px-4 py-2 font-medium">Actions</th>
               </tr>
             </thead>
@@ -388,14 +422,16 @@ export default function Templates() {
                 const schedule = getScheduleForTemplate(t.id);
                 return (
                   <React.Fragment key={t.id}>
-                  <tr className={`border-b last:border-0 hover:bg-muted/30 transition-colors ${t.lifecycle_status === "superseded" ? "opacity-60" : ""}`}>
+                  <tr
+                    className={`border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer ${t.lifecycle_status === "superseded" ? "opacity-60" : ""}`}
+                    onClick={() => handleDetailClick(t)}
+                  >
                     <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         {targetObj && <ProviderIcon type={targetObj.type} size={18} />}
-                        <div>
-                          <span className="font-medium">{t.name}</span>
-                          {t.managed_by_forgemill && t.version ? <span className="ml-1.5 text-xs text-muted-foreground">v{t.version}</span> : null}
-                        </div>
+                        <span className="font-medium">{t.name}</span>
+                        <OSBadge osType={t.os_type} platform={t.platform} size="xs" />
+                        {t.managed_by_forgemill && t.version ? <span className="text-xs text-muted-foreground">v{t.version}</span> : null}
                       </div>
                     </td>
                     <td className="px-4 py-2.5 text-muted-foreground hidden sm:table-cell">{t.target_name}</td>
@@ -407,7 +443,10 @@ export default function Templates() {
                         {t._status}
                       </Badge>
                     </td>
-                    <td className="px-4 py-2.5 text-right">
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground hidden xl:table-cell" title={(t.built_at || t.last_synced_at) ? new Date((t.built_at || t.last_synced_at)!).toLocaleString() : undefined}>
+                      {timeAgo(t.built_at || t.last_synced_at)}
+                    </td>
+                    <td className="px-4 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1">
                         <Button size="sm" variant="ghost" onClick={() => navigate(`/deploy?template=${t.id}`)} title="Deploy">
                           <Rocket className="h-3.5 w-3.5" />
@@ -452,7 +491,7 @@ export default function Templates() {
                   {/* Expandable: Build History */}
                   {historyOpen === t.id && (
                     <tr className="border-b last:border-0">
-                      <td colSpan={5} className="px-4 py-3">
+                      <td colSpan={6} className="px-4 py-3">
                         <div className="border rounded-md p-3 space-y-2">
                           <h4 className="text-sm font-medium">Build History</h4>
                           {historyData.length === 0 ? (
@@ -478,7 +517,7 @@ export default function Templates() {
                   {/* Expandable: Schedule */}
                   {scheduleOpen === t.id && (
                     <tr className="border-b last:border-0">
-                      <td colSpan={5} className="px-4 py-3">
+                      <td colSpan={6} className="px-4 py-3">
                         <div className="border rounded-md p-3 space-y-3">
                           <div className="flex items-center justify-between">
                             <h4 className="text-sm font-medium">{schedule ? "Manage Schedule" : "Schedule Auto-Rebuild"}</h4>
@@ -545,13 +584,18 @@ export default function Templates() {
             const schedule = getScheduleForTemplate(t.id);
 
             return (
-              <Card key={t.id} className={`p-4 transition-colors ${t.lifecycle_status === "superseded" ? "opacity-70 border-dashed" : "hover:border-primary/50"}`}>
+              <Card
+                key={t.id}
+                onClick={() => handleDetailClick(t)}
+                className={`p-4 transition-colors cursor-pointer ${t.lifecycle_status === "superseded" ? "opacity-70 border-dashed" : "hover:border-primary/50"}`}
+              >
                 <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-3">
+                  <div className="flex items-start gap-3 min-w-0">
                     {targetObj && <ProviderIcon type={targetObj.type} size={28} />}
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-medium">{t.name}</h3>
+                        <h3 className="font-medium truncate">{t.name}</h3>
+                        <OSBadge osType={t.os_type} platform={t.platform} size="xs" />
                         {t.managed_by_forgemill && t.version && (
                           <Badge variant="outline" className="text-xs shrink-0">v{t.version}</Badge>
                         )}
@@ -564,7 +608,7 @@ export default function Templates() {
                           <Badge variant="warning" className="text-xs shrink-0">superseded</Badge>
                         )}
                       </div>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-sm text-muted-foreground truncate">
                         {t.target_name}
                         {t.managed_by_forgemill && (
                           <span className="inline-flex items-center gap-0.5 ml-2 text-green-500"><ShieldCheck className="h-3 w-3" /> Built by Forgemill</span>
@@ -634,12 +678,12 @@ export default function Templates() {
                     <Button
                       size="sm"
                       className="flex-1"
-                      onClick={() => navigate(`/deploy?template=${t.id}`)}
+                      onClick={(e) => { e.stopPropagation(); navigate(`/deploy?template=${t.id}`); }}
                     >
                       <Rocket className="h-3.5 w-3.5 mr-1" />
                       Deploy
                     </Button>
-                    <div className="relative">
+                    <div className="relative" onClick={(e) => e.stopPropagation()}>
                       <Button
                         variant="outline"
                         size="sm"
@@ -710,12 +754,12 @@ export default function Templates() {
                     <Button
                       size="sm"
                       className="flex-1"
-                      onClick={() => navigate(`/deploy?template=${t.id}`)}
+                      onClick={(e) => { e.stopPropagation(); navigate(`/deploy?template=${t.id}`); }}
                     >
                       <Rocket className="h-3.5 w-3.5 mr-1" />
                       Deploy
                     </Button>
-                    <div className="relative">
+                    <div className="relative" onClick={(e) => e.stopPropagation()}>
                       <Button
                         variant="outline"
                         size="sm"

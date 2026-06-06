@@ -134,6 +134,11 @@ type APIKey struct {
 	ExpiresAt  *time.Time `json:"expires_at"`
 	CreatedAt  time.Time  `json:"created_at"`
 	Username   string     `json:"username,omitempty"`
+	// Role and Scope are nullable per-key overrides. NULL Role means the
+	// key inherits the owning user's role. NULL Scope means "full" (no
+	// scope restriction beyond what the role permits).
+	Role  *string `json:"role,omitempty"`
+	Scope *string `json:"scope,omitempty"`
 }
 
 type Webhook struct {

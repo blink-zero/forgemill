@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon, Copy, Send, Pencil, Check, Info, UserCheck, UserX, LogOut as LogOutIcon, MoreHorizontal, Search } from "lucide-react";
+import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon, Copy, Send, Pencil, Check, Info, UserCheck, UserX, LogOut as LogOutIcon, MoreHorizontal, Search, Wifi } from "lucide-react";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { ForgemillLogo } from "@/components/ForgemillLogo";
 import { Select } from "@/components/ui/select";
@@ -60,7 +60,7 @@ export default function SettingsPage() {
   // API Keys state
   const [apiKeysList, setApiKeysList] = useState<APIKey[]>([]);
   const [showApiKeyForm, setShowApiKeyForm] = useState(false);
-  const [apiKeyForm, setApiKeyForm] = useState({ name: "", expires_at: "" });
+  const [apiKeyForm, setApiKeyForm] = useState({ name: "", expires_at: "", role: "", scope: "" });
   const [apiKeyFormError, setApiKeyFormError] = useState("");
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [keyCopied, setKeyCopied] = useState(false);
@@ -74,6 +74,8 @@ export default function SettingsPage() {
   const [auditUntil, setAuditUntil] = useState("");
   const [auditRetentionDays, setAuditRetentionDays] = useState<number>(90);
   const [auditRetentionSaving, setAuditRetentionSaving] = useState(false);
+  const [targetCheckMins, setTargetCheckMins] = useState<number>(0);
+  const [targetCheckSaving, setTargetCheckSaving] = useState(false);
 
   const refreshUsers = () => {
     usersApi.list().then((res) => setUsersList(res.data || [])).catch((e) => {
@@ -140,6 +142,15 @@ export default function SettingsPage() {
       });
     }
   }, [isAdmin, tab, auditPage]);
+
+  useEffect(() => {
+    if (isAdmin && tab === "preferences") {
+      settingsApi.get().then((res) => {
+        const v = (res.data as Record<string, string>)["target_check_interval_minutes"];
+        if (v !== undefined) setTargetCheckMins(Number(v));
+      }).catch(() => { /* non-critical */ });
+    }
+  }, [isAdmin, tab]);
 
   const handleCreate = async () => {
     setFormError("");
@@ -311,13 +322,17 @@ export default function SettingsPage() {
       return;
     }
     try {
-      const payload: { name: string; expires_at?: string } = { name: apiKeyForm.name };
+      const payload: { name: string; expires_at?: string; role?: string; scope?: string } = {
+        name: apiKeyForm.name,
+      };
       if (apiKeyForm.expires_at) payload.expires_at = new Date(apiKeyForm.expires_at).toISOString();
+      if (apiKeyForm.role) payload.role = apiKeyForm.role;
+      if (apiKeyForm.scope) payload.scope = apiKeyForm.scope;
       const res = await apiKeysApi.create(payload);
       setRevealedKey(res.data.key);
       setKeyCopied(false);
       setShowApiKeyForm(false);
-      setApiKeyForm({ name: "", expires_at: "" });
+      setApiKeyForm({ name: "", expires_at: "", role: "", scope: "" });
       refreshApiKeys();
     } catch (e: any) {
       setApiKeyFormError(e?.response?.data?.error || e?.message || "Failed to create API key");
@@ -815,7 +830,7 @@ export default function SettingsPage() {
           )}
 
           <div className="flex justify-end">
-            <Button onClick={() => { setShowApiKeyForm(!showApiKeyForm); setApiKeyFormError(""); setApiKeyForm({ name: "", expires_at: "" }); }}>
+            <Button onClick={() => { setShowApiKeyForm(!showApiKeyForm); setApiKeyFormError(""); setApiKeyForm({ name: "", expires_at: "", role: "", scope: "" }); }}>
               {showApiKeyForm ? <><X className="h-4 w-4 mr-2" />Cancel</> : <><Plus className="h-4 w-4 mr-2" />Create API Key</>}
             </Button>
           </div>
@@ -832,6 +847,36 @@ export default function SettingsPage() {
                   <div className="space-y-2">
                     <Label>Expires <span className="text-xs text-muted-foreground">(optional)</span></Label>
                     <Input type="date" value={apiKeyForm.expires_at} onChange={(e) => setApiKeyForm({ ...apiKeyForm, expires_at: e.target.value })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Role</Label>
+                    <Select
+                      value={apiKeyForm.role}
+                      onChange={(e) => setApiKeyForm({ ...apiKeyForm, role: e.target.value })}
+                    >
+                      <option value="">Inherit your role ({currentUser?.role || "user"})</option>
+                      <option value="viewer">Viewer — read-only data access</option>
+                      {(currentUser?.role === "user" || currentUser?.role === "admin") && (
+                        <option value="user">User — can deploy + run actions</option>
+                      )}
+                      {currentUser?.role === "admin" && (
+                        <option value="admin">Admin — full access</option>
+                      )}
+                    </Select>
+                    <p className="text-xs text-muted-foreground">A key can't be granted more than your own role.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Scope</Label>
+                    <Select
+                      value={apiKeyForm.scope}
+                      onChange={(e) => setApiKeyForm({ ...apiKeyForm, scope: e.target.value })}
+                    >
+                      <option value="">Full — anything the role allows (default)</option>
+                      <option value="read-only">Read-only — list/get endpoints only</option>
+                      <option value="action-only">Action-only — read + execute saved actions</option>
+                      <option value="deploy-only">Deploy-only — read + execute + deploy VMs</option>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">Narrows what the key can do, regardless of role. Browser sessions are always full.</p>
                   </div>
                   <div className="sm:col-span-2 space-y-2">
                     {apiKeyFormError && <p className="text-sm text-destructive">{apiKeyFormError}</p>}
@@ -856,9 +901,9 @@ export default function SettingsPage() {
                       <th className="text-left p-4 font-medium text-muted-foreground">Name</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Prefix</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Owner</th>
+                      <th className="text-left p-4 font-medium text-muted-foreground">Permissions</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Last Used</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Expires</th>
-                      <th className="text-left p-4 font-medium text-muted-foreground">Created</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Actions</th>
                     </tr>
                   </thead>
@@ -868,9 +913,18 @@ export default function SettingsPage() {
                         <td className="p-4 font-medium">{k.name}</td>
                         <td className="p-4 font-mono text-xs text-muted-foreground">{k.prefix}...</td>
                         <td className="p-4 text-muted-foreground">{k.username || "-"}</td>
+                        <td className="p-4">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge variant="secondary" className="capitalize" title={k.role ? "Key-specific role override" : "Inherits from owning user"}>
+                              {k.role || "inherit"}
+                            </Badge>
+                            <Badge variant="outline" className="text-[10px]" title="What this key is allowed to do">
+                              {k.scope || "full"}
+                            </Badge>
+                          </div>
+                        </td>
                         <td className="p-4 text-muted-foreground">{k.last_used_at ? formatDateTime(k.last_used_at) : "Never"}</td>
                         <td className="p-4 text-muted-foreground">{k.expires_at ? formatDateTime(k.expires_at) : "Never"}</td>
-                        <td className="p-4 text-muted-foreground">{formatDateTime(k.created_at)}</td>
                         <td className="p-4">
                           <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleDeleteApiKey(k)}>
                             <Trash2 className="h-3 w-3" />
@@ -914,6 +968,52 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+
+          {isAdmin && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Wifi className="h-5 w-5" />Target Health Checks</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Forgemill can periodically test every target's connection in the background and update their status. Useful for spotting credential rot or hypervisor outages without manually clicking Test on each one.
+                </p>
+                <div className="flex items-end gap-3">
+                  <div className="space-y-2 flex-1 max-w-xs">
+                    <Label>Check interval</Label>
+                    <Select
+                      value={String(targetCheckMins)}
+                      onChange={(e) => setTargetCheckMins(Number(e.target.value))}
+                    >
+                      <option value="0">Off — manual only</option>
+                      <option value="5">Every 5 minutes</option>
+                      <option value="10">Every 10 minutes</option>
+                      <option value="15">Every 15 minutes</option>
+                      <option value="30">Every 30 minutes</option>
+                      <option value="60">Every hour</option>
+                    </Select>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      setTargetCheckSaving(true);
+                      try {
+                        await settingsApi.update({ target_check_interval_minutes: String(targetCheckMins) });
+                        toast(targetCheckMins > 0 ? `Targets will be tested every ${targetCheckMins} minutes` : "Periodic target checks disabled");
+                      } catch (e) {
+                        toast(getErrorMessage(e, "Failed to save setting"), "error");
+                      } finally {
+                        setTargetCheckSaving(false);
+                      }
+                    }}
+                    disabled={targetCheckSaving}
+                  >
+                    {targetCheckSaving ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>

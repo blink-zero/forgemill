@@ -59,6 +59,7 @@ var migrations = []struct {
 	{33, migrationV33},
 	{34, migrationV34},
 	{35, migrationV35},
+	{36, migrationV36},
 }
 
 const migrationV1 = `
@@ -1277,6 +1278,19 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, is_read);
 INSERT INTO schema_version (version) VALUES (35);
+`
+
+// migrationV36: Per-API-key role override and scope. Both columns are
+// nullable for backwards-compatibility — existing keys keep behaving
+// exactly as before (inherit user's role, full scope) when these are
+// NULL. The CHECK constraints are intentionally permissive; the
+// handler layer does stricter validation (escalation rules, etc.).
+const migrationV36 = `
+ALTER TABLE api_keys ADD COLUMN role TEXT
+    CHECK(role IS NULL OR role IN ('viewer', 'user', 'admin'));
+ALTER TABLE api_keys ADD COLUMN scope TEXT
+    CHECK(scope IS NULL OR scope IN ('read-only', 'action-only', 'deploy-only', 'full'));
+INSERT INTO schema_version (version) VALUES (36);
 `
 
 // v34BuiltinActions defines the 2 new built-in actions added in V34.
