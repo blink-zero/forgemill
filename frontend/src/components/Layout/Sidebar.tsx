@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from "react-router-dom";
-import { ShieldCheck, ChevronLeft, ChevronRight, LogOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { navSections } from "@/config/navigation";
 import { useState, useEffect } from "react";
@@ -133,21 +133,15 @@ export function Sidebar() {
           </button>
         )}
 
-        {!collapsed && (
-          <div className="mb-2 space-y-1.5 px-1">
-            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-              <ShieldCheck className="h-3.5 w-3.5 text-success shrink-0" />
-              <span>AES-256 encrypted</span>
-            </div>
-            {appVersion && (
-              <button
-                onClick={() => navigate("/settings")}
-                className="text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors font-mono ml-5"
-                title="View version details in Settings"
-              >
-                {appVersion}
-              </button>
-            )}
+        {!collapsed && appVersion && (
+          <div className="mb-2 px-1">
+            <button
+              onClick={() => navigate("/settings")}
+              className="text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors font-mono"
+              title="View version details in Settings"
+            >
+              {appVersion}
+            </button>
           </div>
         )}
 
