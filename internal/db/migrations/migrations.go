@@ -60,6 +60,7 @@ var migrations = []struct {
 	{34, migrationV34},
 	{35, migrationV35},
 	{36, migrationV36},
+	{37, migrationV37},
 }
 
 const migrationV1 = `
@@ -1291,6 +1292,35 @@ ALTER TABLE api_keys ADD COLUMN role TEXT
 ALTER TABLE api_keys ADD COLUMN scope TEXT
     CHECK(scope IS NULL OR scope IN ('read-only', 'action-only', 'deploy-only', 'full'));
 INSERT INTO schema_version (version) VALUES (36);
+`
+
+// migrationV37: Action version history — reuses the same append-only,
+// forward-only pattern as template versioning (see TEMPLATE-VERSIONING-SPEC.md)
+// scaled down for actions, which have no physical hypervisor artifact.
+// `actions.version` is the live pointer; action_versions holds only
+// superseded (past) content, written just before an update or rollback
+// overwrites the live row — so existing actions get their "version 1"
+// captured retroactively on their first edit, with no backfill migration
+// needed.
+const migrationV37 = `
+ALTER TABLE actions ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
+CREATE TABLE IF NOT EXISTS action_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action_id INTEGER NOT NULL REFERENCES actions(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    category TEXT DEFAULT 'custom',
+    script TEXT NOT NULL,
+    script_type TEXT NOT NULL DEFAULT 'bash',
+    platform TEXT NOT NULL DEFAULT 'linux',
+    parameters TEXT DEFAULT NULL,
+    changed_by INTEGER REFERENCES users(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(action_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_action_versions_action_id ON action_versions(action_id);
+INSERT INTO schema_version (version) VALUES (37);
 `
 
 // v34BuiltinActions defines the 2 new built-in actions added in V34.
