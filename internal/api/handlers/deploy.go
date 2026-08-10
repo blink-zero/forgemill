@@ -107,6 +107,35 @@ func (h *DeployHandler) Manifest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, manifest)
 }
 
+func (h *DeployHandler) Timeline(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	deployment, err := h.svc.Get(id)
+	if err != nil {
+		writeError(w, "deployment not found", http.StatusNotFound)
+		return
+	}
+	// Same ownership rule as Status/Manifest: only the creator or an admin may view it.
+	user := middleware.UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if deployment.CreatedBy != user.ID && user.Role != "admin" {
+		writeError(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	timeline, err := h.svc.GetTimeline(id)
+	if err != nil {
+		writeErrorLog(w, "failed to build deployment timeline", http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, timeline)
+}
+
 func (h *DeployHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
