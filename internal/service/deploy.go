@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -452,6 +453,98 @@ func (s *DeployService) Get(id int64) (*models.Deployment, error) {
 	}
 	d.Logs = logs
 	return d, nil
+}
+
+// DeploymentManifest is a single receipt answering what a deployment did,
+// where, who triggered it, what inputs were used, what the outcome was,
+// where its credentials live, and how it can be undone — assembled at read
+// time from data Forgemill already records, not a new source of truth.
+type DeploymentManifest struct {
+	DeploymentID   int64                  `json:"deployment_id"`
+	What           string                 `json:"what"`
+	TargetID       int64                  `json:"target_id"`
+	TargetName     string                 `json:"target_name,omitempty"`
+	TemplateID     *int64                 `json:"template_id,omitempty"`
+	TemplateName   string                 `json:"template_name,omitempty"`
+	VMName         string                 `json:"vm_name"`
+	VMID           *int64                 `json:"vm_id,omitempty"`
+	TriggeredBy    string                 `json:"triggered_by,omitempty"`
+	Inputs         json.RawMessage        `json:"inputs,omitempty"`
+	Status         string                 `json:"status"`
+	StartedAt      *time.Time             `json:"started_at"`
+	CompletedAt    *time.Time             `json:"completed_at"`
+	ErrorMessage   string                 `json:"error_message,omitempty"`
+	HasCredentials bool                   `json:"has_credentials"`
+	CredentialsRef string                 `json:"credentials_ref,omitempty"`
+	UndoOptions    []string               `json:"undo_options,omitempty"`
+	AuditEvents    []models.AuditLog      `json:"audit_events,omitempty"`
+	Logs           []models.DeploymentLog `json:"logs,omitempty"`
+}
+
+// GetManifest builds a DeploymentManifest for a completed or in-progress
+// deployment. It never returns credential values — only a reference to
+// where they can be fetched (get_vm_credentials), consistent with how
+// Forgemill already gates that endpoint.
+func (s *DeployService) GetManifest(id int64) (*DeploymentManifest, error) {
+	d, err := s.db.GetDeployment(id)
+	if err != nil {
+		return nil, err
+	}
+	logs, err := s.db.GetDeploymentLogs(id)
+	if err != nil {
+		return nil, err
+	}
+	auditEvents, err := s.db.ListAuditLogsForResource("deployment", strconv.FormatInt(id, 10))
+	if err != nil {
+		return nil, err
+	}
+
+	triggeredBy := ""
+	if user, err := s.db.GetUserByID(d.CreatedBy); err == nil && user != nil {
+		triggeredBy = user.Username
+	}
+
+	what := fmt.Sprintf("Deploy VM %q", d.VMName)
+	if d.TemplateName != "" {
+		what += fmt.Sprintf(" from template %q", d.TemplateName)
+	}
+	if d.TargetName != "" {
+		what += fmt.Sprintf(" onto target %q", d.TargetName)
+	}
+
+	var undo []string
+	if d.VMID != nil {
+		undo = append(undo,
+			fmt.Sprintf("Preview delete: DELETE /vms/%d?dry_run=true", *d.VMID),
+			fmt.Sprintf("Delete VM from hypervisor: DELETE /vms/%d", *d.VMID),
+			fmt.Sprintf("Untrack only (leave VM running): DELETE /vms/%d?force=true", *d.VMID),
+		)
+	}
+
+	manifest := &DeploymentManifest{
+		DeploymentID:   d.ID,
+		What:           what,
+		TargetID:       d.TargetID,
+		TargetName:     d.TargetName,
+		TemplateID:     d.TemplateID,
+		TemplateName:   d.TemplateName,
+		VMName:         d.VMName,
+		VMID:           d.VMID,
+		TriggeredBy:    triggeredBy,
+		Inputs:         json.RawMessage(d.ConfigJSON),
+		Status:         d.Status,
+		StartedAt:      d.StartedAt,
+		CompletedAt:    d.CompletedAt,
+		ErrorMessage:   d.ErrorMessage,
+		HasCredentials: d.InitialUsername != "" && d.InitialPwdEnc != "",
+		UndoOptions:    undo,
+		AuditEvents:    auditEvents,
+		Logs:           logs,
+	}
+	if manifest.HasCredentials && d.VMID != nil {
+		manifest.CredentialsRef = fmt.Sprintf("GET /vms/%d/credentials", *d.VMID)
+	}
+	return manifest, nil
 }
 
 // V3-H8: Cancel uses context cancellation to stop the deploy goroutine.

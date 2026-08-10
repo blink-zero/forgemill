@@ -2172,6 +2172,33 @@ func (db *DB) CreateAuditLog(entry *models.AuditLog) error {
 	return err
 }
 
+// ListAuditLogsForResource returns audit entries for a single resource
+// (e.g. resourceType="deployment", resourceID="42"), oldest first, for
+// building a chronological trail of who did what to it.
+func (db *DB) ListAuditLogsForResource(resourceType, resourceID string) ([]models.AuditLog, error) {
+	rows, err := db.conn.Query(
+		`SELECT id, actor, actor_id, action, resource_type, resource_id, metadata, ip_address, created_at
+		 FROM audit_logs WHERE resource_type = ? AND resource_id = ? ORDER BY created_at ASC`,
+		resourceType, resourceID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	logs := []models.AuditLog{}
+	for rows.Next() {
+		var l models.AuditLog
+		var metadataStr string
+		if err := rows.Scan(&l.ID, &l.Actor, &l.ActorID, &l.Action, &l.ResourceType, &l.ResourceID, &metadataStr, &l.IPAddress, &l.CreatedAt); err != nil {
+			return nil, err
+		}
+		l.Metadata = json.RawMessage(metadataStr)
+		logs = append(logs, l)
+	}
+	return logs, rows.Err()
+}
+
 func (db *DB) ListAuditLogs(f AuditLogFilter) (*PaginatedAuditLogs, error) {
 	if f.PageSize <= 0 {
 		f.PageSize = 50
