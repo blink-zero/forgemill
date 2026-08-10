@@ -412,6 +412,7 @@ export interface Action {
   platform: "linux" | "windows" | "any";
   builtin: boolean;
   parameters?: ActionParameter[];
+  version?: number;
   created_at: string;
   updated_at: string;
 }

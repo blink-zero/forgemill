@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { actions as actionsApi } from "@/api/client";
+import type { ActionVersion } from "@/api/client";
 import type { Action, ActionParameter } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Edit2, Package, Terminal, Shield, Activity, Puzzle, Search, X, Code2, ChevronDown, ChevronUp, Info, Copy, Check, Loader2, ArrowUp, ArrowDown, Settings2 } from "lucide-react";
+import { Plus, Trash2, Edit2, Package, Terminal, Shield, Activity, Puzzle, Search, X, Code2, ChevronDown, ChevronUp, Info, Copy, Check, Loader2, ArrowUp, ArrowDown, Settings2, History, RotateCcw } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Pagination } from "@/components/ui/pagination";
 import { useAuth } from "@/hooks/useAuth";
@@ -59,6 +60,10 @@ export default function ActionsPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [versionsOpenId, setVersionsOpenId] = useState<number | null>(null);
+  const [versions, setVersions] = useState<ActionVersion[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [viewingVersion, setViewingVersion] = useState<number | null>(null);
 
   const fetchActions = async () => {
     try {
@@ -133,6 +138,48 @@ export default function ActionsPage() {
     }
   };
 
+  const loadVersions = async (actionId: number) => {
+    setVersionsLoading(true);
+    try {
+      const res = await actionsApi.listVersions(actionId);
+      setVersions(res.data || []);
+    } catch (e) {
+      toast(getErrorMessage(e, "Failed to load version history"), "error");
+      setVersions([]);
+    } finally {
+      setVersionsLoading(false);
+    }
+  };
+
+  const toggleVersions = (actionId: number) => {
+    if (versionsOpenId === actionId) {
+      setVersionsOpenId(null);
+      setViewingVersion(null);
+      return;
+    }
+    setVersionsOpenId(actionId);
+    setViewingVersion(null);
+    loadVersions(actionId);
+  };
+
+  const handleRollback = async (actionId: number, version: number) => {
+    const ok = await showConfirm({
+      title: "Roll Back Action",
+      message: `Restore this action to version ${version}? This creates a new version with that content — nothing already recorded is deleted or overwritten.`,
+      confirmLabel: "Roll Back",
+    });
+    if (!ok) return;
+    try {
+      await actionsApi.rollback(actionId, version);
+      toast(`Rolled back to version ${version}`);
+      fetchActions();
+      loadVersions(actionId);
+      setViewingVersion(null);
+    } catch (e) {
+      toast(getErrorMessage(e, "Failed to roll back"), "error");
+    }
+  };
+
   const filtered = actionList.filter((a) => {
     const matchSearch = !search || a.name.toLowerCase().includes(search.toLowerCase()) || (a.description || "").toLowerCase().includes(search.toLowerCase());
     const matchCategory = categoryFilter === "all" || a.category === categoryFilter;
@@ -159,6 +206,48 @@ export default function ActionsPage() {
   if (loading) {
     return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   }
+
+  const renderVersionsPanel = (action: Action) => (
+    <div className="border rounded-md p-3 bg-muted/30 space-y-2">
+      {versionsLoading ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading version history…
+        </div>
+      ) : versions.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No version history yet — this action hasn't been edited since it was created.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {versions.map((v) => {
+            const isCurrent = v.version === action.version;
+            return (
+              <li key={v.version} className="text-xs border rounded-md p-2 bg-background">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium">Version {v.version}</span>
+                    {isCurrent && <Badge variant="success" className="text-[10px]">Current</Badge>}
+                    <span className="text-muted-foreground">{v.created_at}{v.changed_by ? ` · User #${v.changed_by}` : ""}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => setViewingVersion(viewingVersion === v.version ? null : v.version)}>
+                      {viewingVersion === v.version ? "Hide" : "View"}
+                    </Button>
+                    {!isCurrent && isAdmin && (
+                      <Button variant="outline" size="sm" className="h-6 px-2 gap-1" onClick={() => handleRollback(action.id, v.version)}>
+                        <RotateCcw className="h-3 w-3" /> Roll back to this
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                {viewingVersion === v.version && (
+                  <pre className="text-xs bg-gray-950 text-green-400 p-2 rounded-md overflow-x-auto max-h-48 whitespace-pre-wrap mt-2">{v.script}</pre>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -480,7 +569,12 @@ export default function ActionsPage() {
               {paginated.map((action) => (
                 <React.Fragment key={action.id}>
                 <tr className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-2.5 font-medium">{action.name}</td>
+                  <td className="px-4 py-2.5 font-medium">
+                    {action.name}
+                    {!action.builtin && action.version && action.version > 1 && (
+                      <Badge variant="outline" className="ml-1.5 text-[10px]">v{action.version}</Badge>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 hidden sm:table-cell">
                     <span className={`text-xs px-1.5 py-0.5 rounded ${categoryColors[action.category] || categoryColors.custom}`}>
                       {action.category}
@@ -495,6 +589,11 @@ export default function ActionsPage() {
                       <Button variant="ghost" size="sm" onClick={() => setExpandedId(expandedId === action.id ? null : action.id)} title="View script">
                         <Code2 className="h-3.5 w-3.5" />
                       </Button>
+                      {!action.builtin && (
+                        <Button variant="ghost" size="sm" onClick={() => toggleVersions(action.id)} title="Version history">
+                          <History className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                       {isAdmin && !action.builtin && (
                         <>
                           <Button variant="ghost" size="sm" onClick={() => handleEdit(action)} title="Edit">
@@ -512,6 +611,13 @@ export default function ActionsPage() {
                   <tr className="border-b last:border-0">
                     <td colSpan={5} className="px-4 py-3">
                       <pre className="text-xs bg-gray-950 text-green-400 p-3 rounded-md overflow-x-auto max-h-64 whitespace-pre-wrap">{action.script}</pre>
+                    </td>
+                  </tr>
+                )}
+                {versionsOpenId === action.id && (
+                  <tr className="border-b last:border-0">
+                    <td colSpan={5} className="px-4 py-3">
+                      {renderVersionsPanel(action)}
                     </td>
                   </tr>
                 )}
@@ -537,6 +643,9 @@ export default function ActionsPage() {
                       <div className="flex items-start justify-between">
                         <div className="flex items-center gap-2">
                           <CardTitle className="text-base">{action.name}</CardTitle>
+                          {!action.builtin && action.version && action.version > 1 && (
+                            <Badge variant="outline" className="text-[10px]">v{action.version}</Badge>
+                          )}
                         </div>
                         <div className="flex items-center gap-1">
                           {action.builtin && <Badge variant="outline" className="text-xs">Built-in</Badge>}
@@ -576,6 +685,22 @@ export default function ActionsPage() {
                             {copiedId === action.id ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
                           </button>
                         </div>
+                      )}
+
+                      {!action.builtin && (
+                        <div className="flex gap-2 mt-2 pt-2 border-t">
+                          <button
+                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                            onClick={() => toggleVersions(action.id)}
+                          >
+                            <History className="h-3 w-3" />
+                            <span>Version History</span>
+                            {versionsOpenId === action.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                          </button>
+                        </div>
+                      )}
+                      {versionsOpenId === action.id && (
+                        <div className="mt-2">{renderVersionsPanel(action)}</div>
                       )}
 
                       {isAdmin && !action.builtin && (

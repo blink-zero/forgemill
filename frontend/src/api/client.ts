@@ -7,6 +7,7 @@ import type {
   TemplateFamily,
   Deployment,
   DeployResponse,
+  DeploymentLog,
   DashboardData,
   Resources,
   PaginatedResponse,
@@ -23,6 +24,7 @@ import type {
   TemplateHistory,
   UpdateCheckResult,
   Action,
+  ActionParameter,
   ActionExecution,
   ExecuteRequest,
   Webhook,
@@ -104,6 +106,10 @@ export const deploy = {
   start: (data: Record<string, unknown>) => api.post<DeployResponse>("/deploy", data),
   get: (id: number) => api.get<Deployment>(`/deploy/${id}`),
   cancel: (id: number) => api.post(`/deploy/${id}/cancel`),
+  // Checks whether `data` (same shape as start()) would be accepted, without deploying anything.
+  preflight: (data: Record<string, unknown>) => api.post<PreflightResult>("/deploy/preflight", data),
+  manifest: (id: number) => api.get<DeploymentManifest>(`/deployments/${id}/manifest`),
+  timeline: (id: number) => api.get<TimelineEvent[]>(`/deployments/${id}/timeline`),
 };
 
 export const history = {
@@ -141,10 +147,13 @@ export const vms = {
   register: (data: Partial<ManagedVM>) => api.post<ManagedVM>("/vms", data),
   delete: (id: number, force?: boolean) =>
     api.delete(`/vms/${id}${force ? "?force=true" : ""}`),
+  // Previews what delete(id, force) would do, without deleting anything.
+  previewDelete: (id: number, force?: boolean) =>
+    api.delete<DeletePreview>(`/vms/${id}?dry_run=true${force ? "&force=true" : ""}`),
   power: (id: number, action: string) =>
     api.post<{ status: string }>(`/vms/${id}/power/${action}`),
-  syncAll: () =>
-    api.post<{ synced: number; orphaned: number; errors?: string[] }>("/vms/sync-all"),
+  syncAll: (dryRun?: boolean) =>
+    api.post<SyncAllResult>(`/vms/sync-all${dryRun ? "?dry_run=true" : ""}`),
   sync: (id: number) => api.post<ManagedVM>(`/vms/${id}/sync`),
   listSnapshots: (id: number) => api.get<VMSnapshot[]>(`/vms/${id}/snapshots`),
   createSnapshot: (id: number, data: { name: string; description: string; memory: boolean }) =>
@@ -247,6 +256,9 @@ export const actions = {
   delete: (id: number) => api.delete(`/actions/${id}`),
   getForDeployment: (deploymentId: number) =>
     api.get<Action[]>(`/deployments/${deploymentId}/actions`),
+  listVersions: (id: number) => api.get<ActionVersion[]>(`/actions/${id}/versions`),
+  getVersion: (id: number, version: number) => api.get<ActionVersion>(`/actions/${id}/versions/${version}`),
+  rollback: (id: number, version: number) => api.post<Action>(`/actions/${id}/rollback`, { version }),
 };
 
 export const webhooks = {
@@ -289,6 +301,89 @@ export interface PaginatedAuditLogs {
   page: number;
   page_size: number;
   total_pages: number;
+}
+
+// --- Deployment receipts (manifest/timeline/preflight) ---
+
+export interface DeploymentManifest {
+  deployment_id: number;
+  what: string;
+  target_id: number;
+  target_name?: string;
+  template_id?: number | null;
+  template_name?: string;
+  vm_name: string;
+  vm_id?: number | null;
+  triggered_by?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  inputs?: any;
+  status: string;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message?: string;
+  has_credentials: boolean;
+  credentials_ref?: string;
+  undo_options?: string[];
+  audit_events?: AuditLog[];
+  logs?: DeploymentLog[];
+}
+
+export interface TimelineEvent {
+  timestamp: string;
+  source: "log" | "audit";
+  level?: string;
+  action?: string;
+  actor?: string;
+  message: string;
+}
+
+export interface PreflightResult {
+  valid: boolean;
+  blockers?: string[];
+  warnings?: string[];
+}
+
+// --- VM delete preview / sync-all orphan detail ---
+
+export interface DeletePreview {
+  vm_id: number;
+  vm_name: string;
+  force: boolean;
+  would_delete_on_hypervisor: boolean;
+  would_untrack_only: boolean;
+  dependent_snapshots: number;
+  dependent_executions: number;
+}
+
+export interface OrphanedVM {
+  id: number;
+  vm_name: string;
+  vm_ref: string;
+  target_id: number;
+}
+
+export interface SyncAllResult {
+  synced: number;
+  orphaned: number;
+  orphaned_vms?: OrphanedVM[];
+  errors?: string[];
+}
+
+// --- Action version history ---
+
+export interface ActionVersion {
+  id?: number;
+  action_id: number;
+  version: number;
+  name: string;
+  description: string;
+  category: string;
+  script: string;
+  script_type: string;
+  platform: string;
+  parameters?: ActionParameter[];
+  changed_by?: number | null;
+  created_at: string;
 }
 
 export const auditLogs = {
