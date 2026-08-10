@@ -166,6 +166,8 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 
 			// Read-only endpoints (viewer+)
 			r.Get("/actions", actionH.List)
+			r.Get("/actions/{id}/versions", actionH.ListVersions)
+			r.Get("/actions/{id}/versions/{version}", actionH.GetVersion)
 			r.Get("/targets", targetH.List)
 			r.Get("/targets/types", targetH.ListTypes)
 			r.Get("/targets/{id}", targetH.Get)
@@ -256,6 +258,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 				r.Post("/actions", actionH.Create)
 				r.Put("/actions/{id}", actionH.Update)
 				r.Delete("/actions/{id}", actionH.Delete)
+				r.Post("/actions/{id}/rollback", actionH.Rollback)
 
 				// Targets (mutating)
 				r.Post("/targets", targetH.Create)

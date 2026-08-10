@@ -321,8 +321,27 @@ type Action struct {
 	Platform    string            `json:"platform"`
 	Builtin     bool              `json:"builtin"`
 	Parameters  []ActionParameter `json:"parameters,omitempty"`
+	Version     int               `json:"version"`
 	CreatedAt   string            `json:"created_at"`
 	UpdatedAt   string            `json:"updated_at"`
+}
+
+// ActionVersion is a superseded snapshot of an Action's content — written
+// just before an update or rollback overwrites the live row. The live
+// Action row always holds the current version; this table holds history.
+type ActionVersion struct {
+	ID          int64             `json:"id"`
+	ActionID    int64             `json:"action_id"`
+	Version     int               `json:"version"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Category    string            `json:"category"`
+	Script      string            `json:"script"`
+	ScriptType  string            `json:"script_type"`
+	Platform    string            `json:"platform"`
+	Parameters  []ActionParameter `json:"parameters,omitempty"`
+	ChangedBy   *int64            `json:"changed_by,omitempty"`
+	CreatedAt   string            `json:"created_at"`
 }
 
 // --- Audit Logging ---

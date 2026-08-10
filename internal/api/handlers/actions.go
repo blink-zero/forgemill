@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/forgemill/forgemill/internal/api/middleware"
 	"github.com/forgemill/forgemill/internal/db"
@@ -178,14 +181,14 @@ func (h *ActionHandler) Update(w http.ResponseWriter, r *http.Request) {
 	existing.Script = req.Script
 	existing.Parameters = req.Parameters
 
-	if err := h.db.UpdateAction(existing); err != nil {
+	user := middleware.UserFromContext(r.Context())
+	if err := h.db.UpdateAction(existing, &user.ID); err != nil {
 		writeErrorLog(w, "failed to update action", http.StatusInternalServerError, err)
 		return
 	}
 
-	user := middleware.UserFromContext(r.Context())
 	h.audit.Log(user.Username, &user.ID, "action.update", "action", fmt.Sprintf("%d", id), service.IPFromRequest(r), map[string]interface{}{
-		"action_name": existing.Name,
+		"action_name": existing.Name, "new_version": existing.Version,
 	})
 
 	writeJSON(w, http.StatusOK, existing)
@@ -219,6 +222,103 @@ func (h *ActionHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// actionVersionFromCurrent adapts the live action into the same shape as a
+// stored ActionVersion, so callers see one consistent timeline regardless
+// of whether an entry is the current row or a superseded snapshot.
+func actionVersionFromCurrent(a *models.Action) models.ActionVersion {
+	return models.ActionVersion{
+		ActionID:    a.ID,
+		Version:     a.Version,
+		Name:        a.Name,
+		Description: a.Description,
+		Category:    a.Category,
+		Script:      a.Script,
+		ScriptType:  a.ScriptType,
+		Platform:    a.Platform,
+		Parameters:  a.Parameters,
+		CreatedAt:   a.UpdatedAt,
+	}
+}
+
+func (h *ActionHandler) ListVersions(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	current, err := h.db.GetAction(id)
+	if err != nil {
+		writeError(w, "action not found", http.StatusNotFound)
+		return
+	}
+	history, err := h.db.ListActionVersionHistory(id)
+	if err != nil {
+		writeErrorLog(w, "failed to list action versions", http.StatusInternalServerError, err)
+		return
+	}
+	versions := append([]models.ActionVersion{actionVersionFromCurrent(current)}, history...)
+	writeJSON(w, http.StatusOK, versions)
+}
+
+func (h *ActionHandler) GetVersion(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	version, err := strconv.Atoi(chi.URLParam(r, "version"))
+	if err != nil {
+		writeError(w, "invalid version", http.StatusBadRequest)
+		return
+	}
+
+	current, err := h.db.GetAction(id)
+	if err != nil {
+		writeError(w, "action not found", http.StatusNotFound)
+		return
+	}
+	if version == current.Version {
+		writeJSON(w, http.StatusOK, actionVersionFromCurrent(current))
+		return
+	}
+	v, err := h.db.GetActionVersion(id, version)
+	if err != nil {
+		writeError(w, "version not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+type rollbackActionRequest struct {
+	Version int `json:"version"`
+}
+
+func (h *ActionHandler) Rollback(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	var req rollbackActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Version < 1 {
+		writeError(w, "invalid request body: version is required", http.StatusBadRequest)
+		return
+	}
+
+	user := middleware.UserFromContext(r.Context())
+	restored, err := h.db.RollbackAction(id, req.Version, &user.ID)
+	if err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	h.audit.Log(user.Username, &user.ID, "action.rollback", "action", fmt.Sprintf("%d", id), service.IPFromRequest(r), map[string]interface{}{
+		"action_name": restored.Name, "rolled_back_to": req.Version, "new_version": restored.Version,
+	})
+
+	writeJSON(w, http.StatusOK, restored)
 }
 
 func (h *ActionHandler) GetDeploymentActions(w http.ResponseWriter, r *http.Request) {
