@@ -149,6 +149,76 @@ func validateDeployRequest(req *DeployRequest) error {
 	return nil
 }
 
+// PreflightResult reports whether a DeployRequest would be accepted, without
+// deploying anything. Blockers are problems that would make Start fail;
+// warnings are things worth a second look but wouldn't stop the deploy.
+type PreflightResult struct {
+	Valid    bool     `json:"valid"`
+	Blockers []string `json:"blockers,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// Preflight runs the same checks Start would, plus target-side resolution
+// (VM name collision against Forgemill-tracked VMs on this target, and
+// network/datastore/folder/cluster/datacenter name existence against the
+// target's resource inventory), without connecting to the hypervisor or
+// writing anything. It does not check datastore free space or other
+// capacity — Forgemill's provider abstraction doesn't expose that today.
+func (s *DeployService) Preflight(ctx context.Context, req *DeployRequest) (*PreflightResult, error) {
+	result := &PreflightResult{Valid: true}
+	addBlocker := func(format string, args ...interface{}) {
+		result.Valid = false
+		result.Blockers = append(result.Blockers, fmt.Sprintf(format, args...))
+	}
+
+	if err := validateDeployRequest(req); err != nil {
+		addBlocker("%s", err.Error())
+		return result, nil
+	}
+
+	if _, err := s.db.GetTemplate(req.TemplateID); err != nil {
+		addBlocker("template %d not found", req.TemplateID)
+	}
+
+	if req.TargetID != 0 {
+		allVMs, err := s.db.ListManagedVMs()
+		if err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("could not check for VM name collisions: %v", err))
+		} else {
+			for _, vm := range allVMs {
+				if vm.TargetID == req.TargetID && vm.VMName == req.VMName {
+					addBlocker("a VM named %q already exists on this target (tracked by Forgemill)", req.VMName)
+					break
+				}
+			}
+		}
+
+		resources, err := s.targets.GetResources(ctx, req.TargetID)
+		if err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("could not verify target resources (network/datastore/etc. will be checked at deploy time instead): %v", err))
+		} else {
+			checkExists := func(field, value string, items []provider.ResourceItem) {
+				if value == "" {
+					return
+				}
+				for _, item := range items {
+					if item.Name == value || item.ID == value {
+						return
+					}
+				}
+				addBlocker("%s %q was not found on this target", field, value)
+			}
+			checkExists("network", req.Network, resources.Networks)
+			checkExists("datastore", req.Datastore, resources.Datastores)
+			checkExists("folder", req.Folder, resources.Folders)
+			checkExists("cluster", req.Cluster, resources.Clusters)
+			checkExists("datacenter", req.Datacenter, resources.Datacenters)
+		}
+	}
+
+	return result, nil
+}
+
 func (s *DeployService) Start(req *DeployRequest, userID int64) (*DeployResponse, error) {
 	// V3-H11: Validate all deployment request fields
 	if err := validateDeployRequest(req); err != nil {

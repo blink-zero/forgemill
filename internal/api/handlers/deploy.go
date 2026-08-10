@@ -54,6 +54,25 @@ func (h *DeployHandler) Deploy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, resp)
 }
 
+func (h *DeployHandler) Preflight(w http.ResponseWriter, r *http.Request) {
+	var req service.DeployRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.VMName == "" || req.TemplateID == 0 || req.TargetID == 0 {
+		writeError(w, "vm_name, template_id, and target_id are required", http.StatusBadRequest)
+		return
+	}
+
+	result, err := h.svc.Preflight(r.Context(), &req)
+	if err != nil {
+		writeErrorLog(w, "preflight check failed", http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (h *DeployHandler) Status(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {

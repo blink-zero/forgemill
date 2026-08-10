@@ -229,6 +229,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 				r.Group(func(r chi.Router) {
 					r.Use(cfg.Auth.RequireScope("deploy"))
 					r.Post("/deploy", deployH.Deploy)
+					r.Post("/deploy/preflight", deployH.Preflight)
 					r.Post("/deploy/{id}/cancel", deployH.Cancel)
 					r.Post("/deploy/bulk", bulkH.Create)
 					r.Post("/blueprints/{id}/deploy", blueprintH.Deploy)
