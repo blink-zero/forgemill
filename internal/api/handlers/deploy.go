@@ -78,6 +78,35 @@ func (h *DeployHandler) Status(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, deployment)
 }
 
+func (h *DeployHandler) Manifest(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	deployment, err := h.svc.Get(id)
+	if err != nil {
+		writeError(w, "deployment not found", http.StatusNotFound)
+		return
+	}
+	// Same ownership rule as Status: only the creator or an admin may view it.
+	user := middleware.UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if deployment.CreatedBy != user.ID && user.Role != "admin" {
+		writeError(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	manifest, err := h.svc.GetManifest(id)
+	if err != nil {
+		writeErrorLog(w, "failed to build deployment manifest", http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, manifest)
+}
+
 func (h *DeployHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
