@@ -180,6 +180,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 			r.Get("/template-sources/{id}", templateSourceH.Get)
 			r.Get("/deploy/{id}", deployH.Status)
 			r.Get("/deployments/{id}/manifest", deployH.Manifest)
+			r.Get("/deployments/{id}/timeline", deployH.Timeline)
 			r.Get("/deployments/{id}/actions", actionH.GetDeploymentActions)
 			r.Get("/history", historyH.List)
 			r.Get("/history/{id}", historyH.Detail)

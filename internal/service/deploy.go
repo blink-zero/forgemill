@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -545,6 +546,65 @@ func (s *DeployService) GetManifest(id int64) (*DeploymentManifest, error) {
 		manifest.CredentialsRef = fmt.Sprintf("GET /vms/%d/credentials", *d.VMID)
 	}
 	return manifest, nil
+}
+
+// TimelineEvent is one chronological entry in a deployment's history —
+// either a provisioning log line or an audit-trail entry — normalized to a
+// single shape so a caller gets one ordered stream instead of two.
+type TimelineEvent struct {
+	Timestamp time.Time `json:"timestamp"`
+	Source    string    `json:"source"` // "log" or "audit"
+	Level     string    `json:"level,omitempty"`
+	Action    string    `json:"action,omitempty"`
+	Actor     string    `json:"actor,omitempty"`
+	Message   string    `json:"message"`
+}
+
+// deploymentAuditLabels maps known audit actions on deployments to a plain-
+// language message. Unrecognized actions fall back to the raw action string
+// rather than being dropped, so new audit events show up automatically.
+var deploymentAuditLabels = map[string]string{
+	"deployment.start":  "Deployment requested",
+	"deployment.cancel": "Deployment cancelled by user",
+}
+
+// GetTimeline returns a deployment's provisioning logs and audit trail
+// merged into a single chronological stream.
+func (s *DeployService) GetTimeline(id int64) ([]TimelineEvent, error) {
+	logs, err := s.db.GetDeploymentLogs(id)
+	if err != nil {
+		return nil, err
+	}
+	auditEvents, err := s.db.ListAuditLogsForResource("deployment", strconv.FormatInt(id, 10))
+	if err != nil {
+		return nil, err
+	}
+
+	events := make([]TimelineEvent, 0, len(logs)+len(auditEvents))
+	for _, l := range logs {
+		events = append(events, TimelineEvent{
+			Timestamp: l.Timestamp,
+			Source:    "log",
+			Level:     l.Level,
+			Message:   l.Message,
+		})
+	}
+	for _, a := range auditEvents {
+		message, ok := deploymentAuditLabels[a.Action]
+		if !ok {
+			message = a.Action
+		}
+		events = append(events, TimelineEvent{
+			Timestamp: a.CreatedAt,
+			Source:    "audit",
+			Action:    a.Action,
+			Actor:     a.Actor,
+			Message:   message,
+		})
+	}
+
+	sort.Slice(events, func(i, j int) bool { return events[i].Timestamp.Before(events[j].Timestamp) })
+	return events, nil
 }
 
 // V3-H8: Cancel uses context cancellation to stop the deploy goroutine.
