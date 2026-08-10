@@ -36,7 +36,7 @@ func (s *VMService) scheduleSyncAll(delay time.Duration) {
 	s.syncTimer = time.AfterFunc(delay, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		if _, err := s.SyncAll(ctx); err != nil {
+		if _, err := s.SyncAll(ctx, false); err != nil {
 			slog.Warn("auto-sync after mutation failed", "error", err)
 		} else {
 			slog.Info("auto-sync completed after VM mutation")
@@ -108,6 +108,44 @@ func (s *VMService) Create(vm *models.ManagedVM) error {
 		vm.PowerState = "unknown"
 	}
 	return s.db.CreateManagedVM(vm)
+}
+
+// DeletePreview describes what a Delete call would do, without doing it.
+type DeletePreview struct {
+	VMID                    int64  `json:"vm_id"`
+	VMName                  string `json:"vm_name"`
+	Force                   bool   `json:"force"`
+	WouldDeleteOnHypervisor bool   `json:"would_delete_on_hypervisor"`
+	WouldUntrackOnly        bool   `json:"would_untrack_only"`
+	DependentSnapshots      int    `json:"dependent_snapshots"`
+	DependentExecutions     int    `json:"dependent_executions"`
+}
+
+// PreviewDelete reports what Delete(id, force) would do without performing it.
+func (s *VMService) PreviewDelete(id int64, force bool) (*DeletePreview, error) {
+	vm, err := s.db.GetManagedVM(id)
+	if err != nil {
+		return nil, fmt.Errorf("VM not found: %w", err)
+	}
+
+	snaps, err := s.db.ListVMSnapshots(id)
+	if err != nil {
+		return nil, fmt.Errorf("list snapshots: %w", err)
+	}
+	execs, err := s.db.ListVMExecutions(id)
+	if err != nil {
+		return nil, fmt.Errorf("list executions: %w", err)
+	}
+
+	return &DeletePreview{
+		VMID:                    vm.ID,
+		VMName:                  vm.VMName,
+		Force:                   force,
+		WouldDeleteOnHypervisor: !force,
+		WouldUntrackOnly:        force,
+		DependentSnapshots:      len(snaps),
+		DependentExecutions:     len(execs),
+	}, nil
 }
 
 func (s *VMService) Delete(ctx context.Context, id int64, force bool) error {
@@ -243,8 +281,22 @@ func (s *VMService) SyncState(ctx context.Context, id int64) (*models.ManagedVM,
 	return vm, nil
 }
 
+// vmIsOrphaned reports whether a managed VM's ref is absent from the
+// hypervisor's current VM list. It's factored out as a pure function so the
+// orphan-detection logic is unit-testable without a live hypervisor connection.
+func vmIsOrphaned(vmRef string, hypervisorRefs map[string]provider.VMInfo, listErr error) bool {
+	if listErr != nil {
+		// Couldn't list the hypervisor's VMs this round — don't treat that as
+		// evidence of absence, or a transient API hiccup would delete records.
+		return false
+	}
+	_, exists := hypervisorRefs[vmRef]
+	return !exists
+}
+
 // SyncAll syncs all managed VMs with their hypervisors and cleans up orphans.
-func (s *VMService) SyncAll(ctx context.Context) (*SyncAllResult, error) {
+// When dryRun is true, orphaned VM records are reported but not deleted.
+func (s *VMService) SyncAll(ctx context.Context, dryRun bool) (*SyncAllResult, error) {
 	allVMs, err := s.db.ListManagedVMs()
 	if err != nil {
 		return nil, fmt.Errorf("list VMs: %w", err)
@@ -284,15 +336,19 @@ func (s *VMService) SyncAll(ctx context.Context) (*SyncAllResult, error) {
 
 		for _, vm := range targetVMs {
 			// Check if VM still exists on hypervisor
-			if listErr == nil {
-				if _, exists := hypervisorRefs[vm.VMRef]; !exists {
+			if vmIsOrphaned(vm.VMRef, hypervisorRefs, listErr) {
+				detail := OrphanedVM{ID: vm.ID, VMName: vm.VMName, VMRef: vm.VMRef, TargetID: vm.TargetID}
+				if dryRun {
+					slog.Info("sync-all: dry-run — would remove orphan VM", "vm_id", vm.ID, "vm_ref", vm.VMRef)
+				} else {
 					slog.Info("sync-all: removing orphan VM", "vm_id", vm.ID, "vm_ref", vm.VMRef)
 					if err := s.db.DeleteManagedVM(vm.ID); err != nil {
 						slog.Error("sync-all: failed to delete orphan", "vm_id", vm.ID, "error", err)
 					}
-					result.Orphaned++
-					continue
 				}
+				result.Orphaned++
+				result.OrphanedVMs = append(result.OrphanedVMs, detail)
+				continue
 			}
 
 			// Update vm_name from hypervisor if it differs from DB
@@ -335,9 +391,19 @@ func (s *VMService) SyncAll(ctx context.Context) (*SyncAllResult, error) {
 }
 
 type SyncAllResult struct {
-	Synced   int      `json:"synced"`
-	Orphaned int      `json:"orphaned"`
-	Errors   []string `json:"errors,omitempty"`
+	Synced      int          `json:"synced"`
+	Orphaned    int          `json:"orphaned"`
+	OrphanedVMs []OrphanedVM `json:"orphaned_vms,omitempty"`
+	Errors      []string     `json:"errors,omitempty"`
+}
+
+// OrphanedVM identifies a managed VM record that the hypervisor no longer
+// reports as present, so it was (or would be, under dry-run) untracked.
+type OrphanedVM struct {
+	ID       int64  `json:"id"`
+	VMName   string `json:"vm_name"`
+	VMRef    string `json:"vm_ref"`
+	TargetID int64  `json:"target_id"`
 }
 
 func (s *VMService) ListSnapshots(vmID int64) ([]models.VMSnapshot, error) {

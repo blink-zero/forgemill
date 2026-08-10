@@ -111,7 +111,7 @@ func main() {
 			time.Sleep(5 * time.Second)
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
-			if _, err := vmSvc.SyncAll(ctx); err != nil {
+			if _, err := vmSvc.SyncAll(ctx, false); err != nil {
 				slog.Warn("auto-sync after deploy failed", "error", err)
 			} else {
 				slog.Info("auto-sync completed after deployment")
