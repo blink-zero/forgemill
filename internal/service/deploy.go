@@ -158,6 +158,16 @@ type PreflightResult struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
+// resourceItemMatches reports whether value identifies item — matching on
+// Name, ID, or Path. The frontend's resource pickers don't all submit the
+// same field: for vCenter networks specifically the option value is the
+// inventory Path (to disambiguate portgroups with the same name in
+// different folders), not Name or ID. Factored out as a pure function so
+// this matching logic is unit-testable without a live target connection.
+func resourceItemMatches(value string, item provider.ResourceItem) bool {
+	return item.Name == value || item.ID == value || (item.Path != "" && item.Path == value)
+}
+
 // Preflight runs the same checks Start would, plus target-side resolution
 // (VM name collision against Forgemill-tracked VMs on this target, and
 // network/datastore/folder/cluster/datacenter name existence against the
@@ -202,7 +212,7 @@ func (s *DeployService) Preflight(ctx context.Context, req *DeployRequest) (*Pre
 					return
 				}
 				for _, item := range items {
-					if item.Name == value || item.ID == value {
+					if resourceItemMatches(value, item) {
 						return
 					}
 				}

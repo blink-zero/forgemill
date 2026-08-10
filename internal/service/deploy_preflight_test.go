@@ -7,7 +7,45 @@ import (
 	"time"
 
 	"github.com/forgemill/forgemill/internal/db/models"
+	"github.com/forgemill/forgemill/internal/provider"
 )
+
+func TestResourceItemMatchesOnNameIDOrPath(t *testing.T) {
+	// vCenter networks are submitted by the frontend as their inventory Path
+	// (not Name or ID) whenever one is available, to disambiguate portgroups
+	// that share a name across different folders. A real, correctly-selected
+	// network must not be flagged as "not found" just because the check only
+	// compared against Name/ID.
+	item := provider.ResourceItem{Name: "VM Network", ID: "network-17", Path: "/Datacenter/network/VM Network"}
+
+	cases := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{"matches by name", "VM Network", true},
+		{"matches by id", "network-17", true},
+		{"matches by path", "/Datacenter/network/VM Network", true},
+		{"does not match an unrelated value", "some-other-network", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resourceItemMatches(tc.value, item); got != tc.want {
+				t.Errorf("resourceItemMatches(%q) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResourceItemMatchesIgnoresEmptyPath(t *testing.T) {
+	// Providers that don't populate Path (e.g. Proxmox bridges) leave it "" —
+	// an empty submitted value must never accidentally match an item that
+	// also has an empty Path.
+	item := provider.ResourceItem{Name: "vmbr0", ID: "vmbr0", Path: ""}
+	if resourceItemMatches("", item) {
+		t.Error("an empty value must not match an item with an empty Path")
+	}
+}
 
 func TestPreflightRejectsBadFieldsWithoutTouchingTargetOrTemplate(t *testing.T) {
 	database := newTestDB(t)
