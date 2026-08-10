@@ -53,6 +53,15 @@ func (h *VMHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	force := r.URL.Query().Get("force") == "true"
+	if r.URL.Query().Get("dry_run") == "true" {
+		preview, err := h.svc.PreviewDelete(id, force)
+		if err != nil {
+			writeError(w, "VM not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, preview)
+		return
+	}
 	if err := h.svc.Delete(r.Context(), id, force); err != nil {
 		writeErrorLog(w, "failed to delete VM", http.StatusInternalServerError, err)
 		return
@@ -85,7 +94,8 @@ func (h *VMHandler) PowerAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *VMHandler) SyncAll(w http.ResponseWriter, r *http.Request) {
-	result, err := h.svc.SyncAll(r.Context())
+	dryRun := r.URL.Query().Get("dry_run") == "true"
+	result, err := h.svc.SyncAll(r.Context(), dryRun)
 	if err != nil {
 		writeErrorLog(w, "sync-all failed", http.StatusInternalServerError, err)
 		return
