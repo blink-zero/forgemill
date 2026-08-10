@@ -129,8 +129,21 @@ export default function VMs() {
   const doSyncAll = async () => {
     setSyncing(true);
     try {
-      await vmApi.syncAll();
+      const res = await vmApi.syncAll();
+      const orphaned = res.data.orphaned_vms || [];
+      if (orphaned.length > 0) {
+        const names = orphaned.slice(0, 3).map((v) => v.vm_name).join(", ");
+        const more = orphaned.length > 3 ? ` and ${orphaned.length - 3} more` : "";
+        toast(
+          `Sync complete — ${orphaned.length} VM${orphaned.length === 1 ? "" : "s"} untracked because the hypervisor no longer reports ${orphaned.length === 1 ? "it" : "them"}: ${names}${more}`,
+          "error"
+        );
+      } else {
+        toast("Sync complete — all tracked VMs are up to date");
+      }
       reload();
+    } catch (e) {
+      toast(getErrorMessage(e, "Sync failed"), "error");
     } finally {
       setSyncing(false);
     }

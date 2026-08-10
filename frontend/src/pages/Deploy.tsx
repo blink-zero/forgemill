@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { templates as templateApi, targets as targetApi, deploy as deployApi } from "@/api/client";
+import type { PreflightResult } from "@/api/client";
 import type { Template, Resources } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Rocket, Info, Settings2, Box, Loader2, Hammer, RotateCcw, Search } from "lucide-react";
+import { ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Rocket, Info, Settings2, Box, Loader2, Hammer, RotateCcw, Search, AlertTriangle, AlertCircle } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { getErrorMessage } from "@/lib/utils";
@@ -116,32 +117,51 @@ export default function Deploy() {
     setStep("configure");
   };
 
+  const [preflight, setPreflight] = useState<PreflightResult | null>(null);
+  const [preflightLoading, setPreflightLoading] = useState(false);
+
+  const buildDeployBody = () => ({
+    template_id: selectedTemplate!.id,
+    target_id: selectedTemplate!.target_id,
+    vm_name: config.vm_name,
+    datacenter: config.datacenter,
+    cluster: config.cluster,
+    host: (config as Record<string, unknown>).host as string || undefined,
+    datastore: config.datastore,
+    folder: config.folder,
+    network: config.network,
+    cpu: config.cpu,
+    memory_mb: config.memory_mb,
+    disk_gb: config.disk_gb,
+    disk_provisioning: config.disk_provisioning || undefined,
+    ip_address: config.ip_address,
+    netmask: config.netmask,
+    gateway: config.gateway,
+    dns: config.dns ? config.dns.split(",").map((s: string) => s.trim()) : [],
+    hostname: config.hostname || config.vm_name,
+    domain_name: config.domain_name,
+    ssh_public_key: config.ssh_public_key,
+  });
+
+  // Check whether this deploy would be accepted as soon as the user reaches
+  // the review step — catches a name collision or a typo'd network/datastore
+  // before they click Deploy, instead of only after.
+  useEffect(() => {
+    if (step !== "review" || !selectedTemplate) return;
+    setPreflight(null);
+    setPreflightLoading(true);
+    deployApi.preflight(buildDeployBody())
+      .then((res) => setPreflight(res.data))
+      .catch(() => setPreflight(null))
+      .finally(() => setPreflightLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
   const handleDeploy = async () => {
     if (!selectedTemplate) return;
     setDeploying(true);
     try {
-      const res = await deployApi.start({
-        template_id: selectedTemplate.id,
-        target_id: selectedTemplate.target_id,
-        vm_name: config.vm_name,
-        datacenter: config.datacenter,
-        cluster: config.cluster,
-        host: (config as Record<string, unknown>).host as string || undefined,
-        datastore: config.datastore,
-        folder: config.folder,
-        network: config.network,
-        cpu: config.cpu,
-        memory_mb: config.memory_mb,
-        disk_gb: config.disk_gb,
-        disk_provisioning: config.disk_provisioning || undefined,
-        ip_address: config.ip_address,
-        netmask: config.netmask,
-        gateway: config.gateway,
-        dns: config.dns ? config.dns.split(",").map((s: string) => s.trim()) : [],
-        hostname: config.hostname || config.vm_name,
-        domain_name: config.domain_name,
-        ssh_public_key: config.ssh_public_key,
-      });
+      const res = await deployApi.start(buildDeployBody());
       navigate(`/deploy/${res.data.id}`, {
         state: {
           credentials: {
@@ -419,6 +439,32 @@ export default function Deploy() {
             <CardTitle>Review Deployment</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {preflightLoading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Checking whether this deploy would succeed…</span>
+              </div>
+            )}
+            {preflight && preflight.blockers && preflight.blockers.length > 0 && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 space-y-1.5">
+                <div className="flex items-center gap-1.5 text-sm font-medium text-destructive">
+                  <AlertCircle className="h-4 w-4" /> This deploy would fail
+                </div>
+                <ul className="text-xs text-destructive/90 list-disc list-inside space-y-0.5">
+                  {preflight.blockers.map((b, i) => <li key={i}>{b}</li>)}
+                </ul>
+              </div>
+            )}
+            {preflight && preflight.warnings && preflight.warnings.length > 0 && (
+              <div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 p-3 space-y-1.5">
+                <div className="flex items-center gap-1.5 text-sm font-medium text-yellow-600 dark:text-yellow-400">
+                  <AlertTriangle className="h-4 w-4" /> Worth a second look
+                </div>
+                <ul className="text-xs text-yellow-600/90 dark:text-yellow-400/90 list-disc list-inside space-y-0.5">
+                  {preflight.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                </ul>
+              </div>
+            )}
             <div className="grid gap-3 sm:grid-cols-2 text-sm">
               <div><span className="text-muted-foreground">Template:</span> <span className="font-medium">{selectedTemplate.name}</span></div>
               <div><span className="text-muted-foreground">VM Name:</span> <span className="font-medium">{config.vm_name}</span></div>
@@ -439,7 +485,11 @@ export default function Deploy() {
             <p className="text-xs text-muted-foreground">A temporary password will be generated and shown after deployment starts.</p>
             <div className="flex gap-2 pt-4">
               <Button variant="outline" onClick={() => setStep("configure")}><ChevronLeft className="h-4 w-4 mr-1" /> Back</Button>
-              <Button onClick={handleDeploy} disabled={deploying}>
+              <Button
+                onClick={handleDeploy}
+                disabled={deploying || preflightLoading || Boolean(preflight?.blockers?.length)}
+                title={preflight?.blockers?.length ? "Resolve the issues above before deploying" : undefined}
+              >
                 <Rocket className="h-4 w-4 mr-2" />
                 {deploying ? "Deploying..." : "Deploy"}
               </Button>

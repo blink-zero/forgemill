@@ -2,6 +2,7 @@ import { useTimezone } from "@/hooks/useTimezone";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { vms as vmApi, executions as execApi, actions as actionsApi } from "@/api/client";
+import type { DeletePreview } from "@/api/client";
 import { usePageSize } from "@/hooks/usePageSize";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
@@ -60,6 +61,8 @@ export default function VMDetail() {
   // showDelete removed — replaced by deleteMode ("untrack" | "destroy")
   const [deleteMode, setDeleteMode] = useState<"untrack" | "destroy" | null>(null);
   const [destroyConfirmText, setDestroyConfirmText] = useState("");
+  const [deletePreview, setDeletePreview] = useState<DeletePreview | null>(null);
+  const [deletePreviewLoading, setDeletePreviewLoading] = useState(false);
   const [showResize, setShowResize] = useState(false);
   const [resizeCPU, setResizeCPU] = useState(0);
   const [resizeMem, setResizeMem] = useState(0);
@@ -209,6 +212,22 @@ export default function VMDetail() {
       setActing(false);
     }
   };
+
+  // Preview what a delete would actually affect before the user confirms —
+  // fetched fresh each time a panel opens, since dependent resources can
+  // change between visits.
+  useEffect(() => {
+    if (deleteMode === null) {
+      setDeletePreview(null);
+      return;
+    }
+    setDeletePreviewLoading(true);
+    setDeletePreview(null);
+    vmApi.previewDelete(vmId, deleteMode === "untrack")
+      .then((res) => setDeletePreview(res.data))
+      .catch(() => setDeletePreview(null))
+      .finally(() => setDeletePreviewLoading(false));
+  }, [deleteMode, vmId]);
 
   const doConsole = async () => {
     try {
@@ -476,6 +495,16 @@ export default function VMDetail() {
                     <div className="border border-yellow-500/30 rounded-md p-3 space-y-2 bg-yellow-500/5">
                       <p className="text-xs text-yellow-600 dark:text-yellow-400">Remove this VM from Forgemill only. The VM will continue running on the hypervisor — it just won't be tracked here anymore.</p>
                       <p className="text-xs text-yellow-600/70 dark:text-yellow-400/70">⚠ This cannot be reversed. Untracked VMs cannot currently be re-imported into Forgemill.</p>
+                      {deletePreviewLoading && (
+                        <p className="text-xs text-yellow-600/70 dark:text-yellow-400/70">Checking what else this affects…</p>
+                      )}
+                      {deletePreview && (deletePreview.dependent_snapshots > 0 || deletePreview.dependent_executions > 0) && (
+                        <p className="text-xs text-yellow-600/70 dark:text-yellow-400/70">
+                          Forgemill also has {deletePreview.dependent_snapshots > 0 && `${deletePreview.dependent_snapshots} snapshot${deletePreview.dependent_snapshots === 1 ? "" : "s"}`}
+                          {deletePreview.dependent_snapshots > 0 && deletePreview.dependent_executions > 0 && " and "}
+                          {deletePreview.dependent_executions > 0 && `${deletePreview.dependent_executions} execution record${deletePreview.dependent_executions === 1 ? "" : "s"}`} on file for this VM.
+                        </p>
+                      )}
                       <Button size="sm" variant="secondary" onClick={() => doDelete(true)} disabled={acting} className="w-full">
                         Confirm Untrack
                       </Button>
@@ -487,6 +516,16 @@ export default function VMDetail() {
                   {deleteMode === "destroy" && (
                     <div className="border border-destructive/30 rounded-md p-3 space-y-3 bg-destructive/5">
                       <p className="text-xs text-destructive">This will permanently destroy this VM on the hypervisor and remove it from Forgemill. This cannot be undone.</p>
+                      {deletePreviewLoading && (
+                        <p className="text-xs text-destructive/70">Checking what else this affects…</p>
+                      )}
+                      {deletePreview && (deletePreview.dependent_snapshots > 0 || deletePreview.dependent_executions > 0) && (
+                        <p className="text-xs text-destructive/70">
+                          Forgemill also has {deletePreview.dependent_snapshots > 0 && `${deletePreview.dependent_snapshots} snapshot${deletePreview.dependent_snapshots === 1 ? "" : "s"}`}
+                          {deletePreview.dependent_snapshots > 0 && deletePreview.dependent_executions > 0 && " and "}
+                          {deletePreview.dependent_executions > 0 && `${deletePreview.dependent_executions} execution record${deletePreview.dependent_executions === 1 ? "" : "s"}`} on file for this VM.
+                        </p>
+                      )}
                       <div className="space-y-1.5">
                         <Label className="text-xs text-destructive">Type <span className="font-mono font-bold">{vm?.vm_name}</span> to confirm:</Label>
                         <Input
