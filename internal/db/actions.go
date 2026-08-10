@@ -227,8 +227,24 @@ func (db *DB) RollbackAction(actionID int64, targetVersion int, changedBy *int64
 	return restored, nil
 }
 
+// DeleteAction removes a saved action. action_executions.action_id has no
+// ON DELETE CASCADE, so with foreign_keys=ON the plain DELETE would fail
+// whenever the action has execution history. Unlike VM deletion, execution
+// rows already carry their own denormalized action_name/script — so instead
+// of discarding that history, this soft-unlinks it (action_id set to NULL)
+// the same way DeleteTemplate soft-unlinks deployments from a deleted
+// template, and the execution stays fully readable afterward.
 func (db *DB) DeleteAction(id int64) error {
-	result, err := db.conn.Exec(`DELETE FROM actions WHERE id = ? AND builtin = 0`, id)
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`UPDATE action_executions SET action_id = NULL WHERE action_id = ?`, id); err != nil {
+		return fmt.Errorf("unlink action executions: %w", err)
+	}
+	result, err := tx.Exec(`DELETE FROM actions WHERE id = ? AND builtin = 0`, id)
 	if err != nil {
 		return fmt.Errorf("delete action: %w", err)
 	}
@@ -236,7 +252,7 @@ func (db *DB) DeleteAction(id int64) error {
 	if n == 0 {
 		return fmt.Errorf("action not found or is builtin")
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (db *DB) SetDeploymentActions(deploymentID int64, actionIDs []int64) error {

@@ -1102,9 +1102,25 @@ func (db *DB) UpdateManagedVMState(id int64, powerState string, ipAddress string
 	return err
 }
 
+// DeleteManagedVM removes a VM record and its execution run-log history.
+// action_executions.vm_id has no ON DELETE CASCADE (unlike vm_snapshots,
+// which does), so with foreign_keys=ON the plain DELETE would fail whenever
+// the VM has execution history. Explicitly clearing executions first mirrors
+// the same pattern DeleteTemplate already uses for the same class of problem.
 func (db *DB) DeleteManagedVM(id int64) error {
-	_, err := db.conn.Exec(`DELETE FROM managed_vms WHERE id = ?`, id)
-	return err
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM action_executions WHERE vm_id = ?`, id); err != nil {
+		return fmt.Errorf("delete action executions: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM managed_vms WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("delete managed vm: %w", err)
+	}
+	return tx.Commit()
 }
 
 func (db *DB) UpdateManagedVMResources(id int64, cpu, memoryMB, diskGB int) error {
