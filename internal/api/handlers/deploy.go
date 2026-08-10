@@ -54,6 +54,25 @@ func (h *DeployHandler) Deploy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, resp)
 }
 
+func (h *DeployHandler) Preflight(w http.ResponseWriter, r *http.Request) {
+	var req service.DeployRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.VMName == "" || req.TemplateID == 0 || req.TargetID == 0 {
+		writeError(w, "vm_name, template_id, and target_id are required", http.StatusBadRequest)
+		return
+	}
+
+	result, err := h.svc.Preflight(r.Context(), &req)
+	if err != nil {
+		writeErrorLog(w, "preflight check failed", http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (h *DeployHandler) Status(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
@@ -105,6 +124,35 @@ func (h *DeployHandler) Manifest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, manifest)
+}
+
+func (h *DeployHandler) Timeline(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	deployment, err := h.svc.Get(id)
+	if err != nil {
+		writeError(w, "deployment not found", http.StatusNotFound)
+		return
+	}
+	// Same ownership rule as Status/Manifest: only the creator or an admin may view it.
+	user := middleware.UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if deployment.CreatedBy != user.ID && user.Role != "admin" {
+		writeError(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	timeline, err := h.svc.GetTimeline(id)
+	if err != nil {
+		writeErrorLog(w, "failed to build deployment timeline", http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, timeline)
 }
 
 func (h *DeployHandler) Cancel(w http.ResponseWriter, r *http.Request) {

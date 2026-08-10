@@ -180,6 +180,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 			r.Get("/template-sources/{id}", templateSourceH.Get)
 			r.Get("/deploy/{id}", deployH.Status)
 			r.Get("/deployments/{id}/manifest", deployH.Manifest)
+			r.Get("/deployments/{id}/timeline", deployH.Timeline)
 			r.Get("/deployments/{id}/actions", actionH.GetDeploymentActions)
 			r.Get("/history", historyH.List)
 			r.Get("/history/{id}", historyH.Detail)
@@ -228,6 +229,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 				r.Group(func(r chi.Router) {
 					r.Use(cfg.Auth.RequireScope("deploy"))
 					r.Post("/deploy", deployH.Deploy)
+					r.Post("/deploy/preflight", deployH.Preflight)
 					r.Post("/deploy/{id}/cancel", deployH.Cancel)
 					r.Post("/deploy/bulk", bulkH.Create)
 					r.Post("/blueprints/{id}/deploy", blueprintH.Deploy)

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -146,6 +147,76 @@ func validateDeployRequest(req *DeployRequest) error {
 		}
 	}
 	return nil
+}
+
+// PreflightResult reports whether a DeployRequest would be accepted, without
+// deploying anything. Blockers are problems that would make Start fail;
+// warnings are things worth a second look but wouldn't stop the deploy.
+type PreflightResult struct {
+	Valid    bool     `json:"valid"`
+	Blockers []string `json:"blockers,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// Preflight runs the same checks Start would, plus target-side resolution
+// (VM name collision against Forgemill-tracked VMs on this target, and
+// network/datastore/folder/cluster/datacenter name existence against the
+// target's resource inventory), without connecting to the hypervisor or
+// writing anything. It does not check datastore free space or other
+// capacity — Forgemill's provider abstraction doesn't expose that today.
+func (s *DeployService) Preflight(ctx context.Context, req *DeployRequest) (*PreflightResult, error) {
+	result := &PreflightResult{Valid: true}
+	addBlocker := func(format string, args ...interface{}) {
+		result.Valid = false
+		result.Blockers = append(result.Blockers, fmt.Sprintf(format, args...))
+	}
+
+	if err := validateDeployRequest(req); err != nil {
+		addBlocker("%s", err.Error())
+		return result, nil
+	}
+
+	if _, err := s.db.GetTemplate(req.TemplateID); err != nil {
+		addBlocker("template %d not found", req.TemplateID)
+	}
+
+	if req.TargetID != 0 {
+		allVMs, err := s.db.ListManagedVMs()
+		if err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("could not check for VM name collisions: %v", err))
+		} else {
+			for _, vm := range allVMs {
+				if vm.TargetID == req.TargetID && vm.VMName == req.VMName {
+					addBlocker("a VM named %q already exists on this target (tracked by Forgemill)", req.VMName)
+					break
+				}
+			}
+		}
+
+		resources, err := s.targets.GetResources(ctx, req.TargetID)
+		if err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("could not verify target resources (network/datastore/etc. will be checked at deploy time instead): %v", err))
+		} else {
+			checkExists := func(field, value string, items []provider.ResourceItem) {
+				if value == "" {
+					return
+				}
+				for _, item := range items {
+					if item.Name == value || item.ID == value {
+						return
+					}
+				}
+				addBlocker("%s %q was not found on this target", field, value)
+			}
+			checkExists("network", req.Network, resources.Networks)
+			checkExists("datastore", req.Datastore, resources.Datastores)
+			checkExists("folder", req.Folder, resources.Folders)
+			checkExists("cluster", req.Cluster, resources.Clusters)
+			checkExists("datacenter", req.Datacenter, resources.Datacenters)
+		}
+	}
+
+	return result, nil
 }
 
 func (s *DeployService) Start(req *DeployRequest, userID int64) (*DeployResponse, error) {
@@ -545,6 +616,65 @@ func (s *DeployService) GetManifest(id int64) (*DeploymentManifest, error) {
 		manifest.CredentialsRef = fmt.Sprintf("GET /vms/%d/credentials", *d.VMID)
 	}
 	return manifest, nil
+}
+
+// TimelineEvent is one chronological entry in a deployment's history —
+// either a provisioning log line or an audit-trail entry — normalized to a
+// single shape so a caller gets one ordered stream instead of two.
+type TimelineEvent struct {
+	Timestamp time.Time `json:"timestamp"`
+	Source    string    `json:"source"` // "log" or "audit"
+	Level     string    `json:"level,omitempty"`
+	Action    string    `json:"action,omitempty"`
+	Actor     string    `json:"actor,omitempty"`
+	Message   string    `json:"message"`
+}
+
+// deploymentAuditLabels maps known audit actions on deployments to a plain-
+// language message. Unrecognized actions fall back to the raw action string
+// rather than being dropped, so new audit events show up automatically.
+var deploymentAuditLabels = map[string]string{
+	"deployment.start":  "Deployment requested",
+	"deployment.cancel": "Deployment cancelled by user",
+}
+
+// GetTimeline returns a deployment's provisioning logs and audit trail
+// merged into a single chronological stream.
+func (s *DeployService) GetTimeline(id int64) ([]TimelineEvent, error) {
+	logs, err := s.db.GetDeploymentLogs(id)
+	if err != nil {
+		return nil, err
+	}
+	auditEvents, err := s.db.ListAuditLogsForResource("deployment", strconv.FormatInt(id, 10))
+	if err != nil {
+		return nil, err
+	}
+
+	events := make([]TimelineEvent, 0, len(logs)+len(auditEvents))
+	for _, l := range logs {
+		events = append(events, TimelineEvent{
+			Timestamp: l.Timestamp,
+			Source:    "log",
+			Level:     l.Level,
+			Message:   l.Message,
+		})
+	}
+	for _, a := range auditEvents {
+		message, ok := deploymentAuditLabels[a.Action]
+		if !ok {
+			message = a.Action
+		}
+		events = append(events, TimelineEvent{
+			Timestamp: a.CreatedAt,
+			Source:    "audit",
+			Action:    a.Action,
+			Actor:     a.Actor,
+			Message:   message,
+		})
+	}
+
+	sort.Slice(events, func(i, j int) bool { return events[i].Timestamp.Before(events[j].Timestamp) })
+	return events, nil
 }
 
 // V3-H8: Cancel uses context cancellation to stop the deploy goroutine.
