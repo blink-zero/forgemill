@@ -1004,6 +1004,15 @@ func (p *Provider) GetVMStatus(ctx context.Context, vmID string) (*provider.VMSt
 	return status, nil
 }
 
+// ValidateDeploySpec is a no-op for Proxmox: unlike vCenter/ESXi, DeployVM
+// passes Network/Datastore straight through as literal API field values
+// (bridge=X, storage=Y) rather than resolving them via an inventory-path
+// finder, so GetResources' Name-based list is already exactly what the
+// real deploy uses — no separate resolver to fall out of sync with.
+func (p *Provider) ValidateDeploySpec(ctx context.Context, spec *provider.DeploySpec) []error {
+	return nil
+}
+
 // PV-P14: Use cluster-level /storage for resource discovery instead of node-specific.
 func (p *Provider) GetResources(ctx context.Context) (*provider.Resources, error) {
 	resources := &provider.Resources{
