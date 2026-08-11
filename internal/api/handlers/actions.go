@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -44,6 +45,33 @@ func validateParameters(params []models.ActionParameter) error {
 	return nil
 }
 
+// normalizeTags trims, lowercases, dedupes, and caps the tag list so search
+// stays consistent regardless of how a tag was typed ("Docker" and "docker"
+// collapse to one). Capped at 10 tags / 30 chars each — plenty for
+// discoverability without turning tags into a second description field.
+func normalizeTags(tags []string) ([]string, error) {
+	if len(tags) > 10 {
+		return nil, fmt.Errorf("at most 10 tags allowed, got %d", len(tags))
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(tags))
+	for _, t := range tags {
+		t = strings.ToLower(strings.TrimSpace(t))
+		if t == "" {
+			continue
+		}
+		if len(t) > 30 {
+			return nil, fmt.Errorf("tag %q exceeds 30 characters", t)
+		}
+		if seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	return out, nil
+}
+
 type ActionHandler struct {
 	db    *db.DB
 	audit *service.AuditService
@@ -66,11 +94,12 @@ func (h *ActionHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 type createActionRequest struct {
-	Name        string                  `json:"name"`
-	Description string                  `json:"description"`
-	Category    string                  `json:"category"`
-	Script      string                  `json:"script"`
+	Name        string                   `json:"name"`
+	Description string                   `json:"description"`
+	Category    string                   `json:"category"`
+	Script      string                   `json:"script"`
 	Parameters  []models.ActionParameter `json:"parameters,omitempty"`
+	Tags        []string                 `json:"tags,omitempty"`
 }
 
 func (h *ActionHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -106,12 +135,19 @@ func (h *ActionHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	tags, err := normalizeTags(req.Tags)
+	if err != nil {
+		writeError(w, "invalid tags: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	action := &models.Action{
 		Name:        req.Name,
 		Description: req.Description,
 		Category:    req.Category,
 		Script:      req.Script,
 		Parameters:  req.Parameters,
+		Tags:        tags,
 	}
 	if err := h.db.CreateAction(action); err != nil {
 		writeErrorLog(w, "failed to create action", http.StatusInternalServerError, err)
@@ -175,11 +211,18 @@ func (h *ActionHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	tags, err := normalizeTags(req.Tags)
+	if err != nil {
+		writeError(w, "invalid tags: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	existing.Name = req.Name
 	existing.Description = req.Description
 	existing.Category = req.Category
 	existing.Script = req.Script
 	existing.Parameters = req.Parameters
+	existing.Tags = tags
 
 	user := middleware.UserFromContext(r.Context())
 	if err := h.db.UpdateAction(existing, &user.ID); err != nil {
@@ -238,6 +281,7 @@ func actionVersionFromCurrent(a *models.Action) models.ActionVersion {
 		ScriptType:  a.ScriptType,
 		Platform:    a.Platform,
 		Parameters:  a.Parameters,
+		Tags:        a.Tags,
 		CreatedAt:   a.UpdatedAt,
 	}
 }

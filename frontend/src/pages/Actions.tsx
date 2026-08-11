@@ -54,7 +54,7 @@ export default function ActionsPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState<{ name: string; description: string; category: Action["category"]; script: string; parameters: ActionParameter[] }>({ name: "", description: "", category: "custom", script: "", parameters: [] });
+  const [form, setForm] = useState<{ name: string; description: string; category: Action["category"]; script: string; parameters: ActionParameter[]; tags: string[] }>({ name: "", description: "", category: "custom", script: "", parameters: [], tags: [] });
   const [configError, setConfigError] = useState("");
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -106,7 +106,7 @@ export default function ActionsPage() {
       }
       setShowForm(false);
       setEditingId(null);
-      setForm({ name: "", description: "", category: "custom" as Action["category"], script: "", parameters: [] });
+      setForm({ name: "", description: "", category: "custom" as Action["category"], script: "", parameters: [], tags: [] });
       fetchActions();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || "Failed to save action";
@@ -121,6 +121,7 @@ export default function ActionsPage() {
       category: action.category,
       script: action.script || "",
       parameters: action.parameters || [],
+      tags: action.tags || [],
     });
     setEditingId(action.id);
     setShowForm(true);
@@ -181,7 +182,11 @@ export default function ActionsPage() {
   };
 
   const filtered = actionList.filter((a) => {
-    const matchSearch = !search || a.name.toLowerCase().includes(search.toLowerCase()) || (a.description || "").toLowerCase().includes(search.toLowerCase());
+    const q = search.toLowerCase();
+    const matchSearch = !search ||
+      a.name.toLowerCase().includes(q) ||
+      (a.description || "").toLowerCase().includes(q) ||
+      (a.tags || []).some((t) => t.toLowerCase().includes(q));
     const matchCategory = categoryFilter === "all" || a.category === categoryFilter;
     return matchSearch && matchCategory;
   });
@@ -279,7 +284,7 @@ export default function ActionsPage() {
             )}
             <ViewToggle />
             {isAdmin && (
-              <Button onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ name: "", description: "", category: "custom" as Action["category"], script: "", parameters: [] }); setConfigError(""); }}>
+              <Button onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ name: "", description: "", category: "custom" as Action["category"], script: "", parameters: [], tags: [] }); setConfigError(""); }}>
                 <Plus className="h-4 w-4 mr-2" /> Create Action
               </Button>
             )}
@@ -346,6 +351,15 @@ export default function ActionsPage() {
                   <option value="monitoring">Monitoring</option>
                   <option value="custom">Custom</option>
                 </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Tags (comma separated)</Label>
+                <Input
+                  value={form.tags.join(", ")}
+                  onChange={(e) => setForm({ ...form, tags: e.target.value.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean) })}
+                  placeholder="docker, containers, packages"
+                />
+                <p className="text-xs text-muted-foreground">Searchable keywords, e.g. "docker", "database", "security".</p>
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label>Script *</Label>
@@ -542,7 +556,7 @@ export default function ActionsPage() {
               Create reusable automation snippets to run on your VMs. Install packages, configure services, or run custom scripts.
             </p>
             {isAdmin && (
-              <Button onClick={() => { setShowForm(true); setEditingId(null); setForm({ name: "", description: "", category: "custom" as Action["category"], script: "", parameters: [] }); }}>
+              <Button onClick={() => { setShowForm(true); setEditingId(null); setForm({ name: "", description: "", category: "custom" as Action["category"], script: "", parameters: [], tags: [] }); }}>
                 <Plus className="h-4 w-4 mr-2" /> Create Your First Action
               </Button>
             )}
@@ -660,7 +674,22 @@ export default function ActionsPage() {
                     </CardHeader>
                     <CardContent>
                       <p className="text-sm text-muted-foreground mb-3">{action.description || "No description"}</p>
-                      
+
+                      {action.tags && action.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-3">
+                          {action.tags.map((tag) => (
+                            <button
+                              key={tag}
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground hover:bg-muted/70 transition-colors"
+                              onClick={() => setSearch(tag)}
+                              title={`Search for "${tag}"`}
+                            >
+                              #{tag}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
                       {/* Collapsible config preview */}
                       <button
                         className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-1"

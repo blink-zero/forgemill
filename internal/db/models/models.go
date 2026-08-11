@@ -321,6 +321,7 @@ type Action struct {
 	Platform    string            `json:"platform"`
 	Builtin     bool              `json:"builtin"`
 	Parameters  []ActionParameter `json:"parameters,omitempty"`
+	Tags        []string          `json:"tags,omitempty"`
 	Version     int               `json:"version"`
 	CreatedAt   string            `json:"created_at"`
 	UpdatedAt   string            `json:"updated_at"`
@@ -340,6 +341,7 @@ type ActionVersion struct {
 	ScriptType  string            `json:"script_type"`
 	Platform    string            `json:"platform"`
 	Parameters  []ActionParameter `json:"parameters,omitempty"`
+	Tags        []string          `json:"tags,omitempty"`
 	ChangedBy   *int64            `json:"changed_by,omitempty"`
 	CreatedAt   string            `json:"created_at"`
 }
