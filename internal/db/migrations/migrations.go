@@ -61,6 +61,7 @@ var migrations = []struct {
 	{35, migrationV35},
 	{36, migrationV36},
 	{37, migrationV37},
+	{38, migrationV38},
 }
 
 const migrationV1 = `
@@ -729,6 +730,25 @@ func runMigrations(db *sql.DB, dbPath string) error {
 			}
 		}
 
+		// V38 post-migration: insert the new action-library built-in actions
+		if m.version == 38 {
+			for _, a := range v38BuiltinActions {
+				var params, tags interface{}
+				if a.parameters != "" {
+					params = a.parameters
+				}
+				if a.tags != "" {
+					tags = a.tags
+				}
+				if _, err := db.Exec(
+					`INSERT INTO actions (name, description, category, script, script_type, platform, builtin, parameters, tags, created_at, updated_at) VALUES (?, ?, ?, ?, 'bash', 'linux', 1, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+					a.name, a.description, a.category, a.script, params, tags,
+				); err != nil {
+					slog.Warn("failed to insert V38 builtin action", "name", a.name, "error", err)
+				}
+			}
+		}
+
 		// V22 post-migration: insert "Collect VM Info" built-in action
 		if m.version == 22 {
 			if _, err := db.Exec(
@@ -1323,6 +1343,33 @@ CREATE INDEX IF NOT EXISTS idx_action_versions_action_id ON action_versions(acti
 INSERT INTO schema_version (version) VALUES (37);
 `
 
+// migrationV38: Action library — tags for search/discovery, plus a batch of
+// new built-in actions covering common ops tasks not represented before
+// (databases, web server, runtime install, disk/swap, patching, health
+// check). Tags are additive metadata only, versioned alongside the rest of
+// an action's content (see migrationV37) so history stays a complete
+// snapshot. Existing built-ins are backfilled with tags here; the new
+// actions themselves are inserted by the post-migration Go hook below
+// (v38BuiltinActions) since they carry JSON parameter/tag payloads.
+const migrationV38 = `
+ALTER TABLE actions ADD COLUMN tags TEXT DEFAULT NULL;
+ALTER TABLE action_versions ADD COLUMN tags TEXT DEFAULT NULL;
+
+UPDATE actions SET tags = '["ssh","security","access"]' WHERE name = 'Add SSH Authorized Key' AND builtin = 1;
+UPDATE actions SET tags = '["security","password","access"]' WHERE name = 'Change VM Password' AND builtin = 1;
+UPDATE actions SET tags = '["security","ssh","firewall","fail2ban","hardening"]' WHERE name = 'Security Hardening' AND builtin = 1;
+UPDATE actions SET tags = '["security","users","access","sudo"]' WHERE name = 'User & Access Provisioning' AND builtin = 1;
+UPDATE actions SET tags = '["system","timezone"]' WHERE name = 'Set Timezone (UTC)' AND builtin = 1;
+UPDATE actions SET tags = '["logging","syslog","monitoring"]' WHERE name = 'Configure Log Forwarding' AND builtin = 1;
+UPDATE actions SET tags = '["diagnostics","system-info"]' WHERE name = 'Collect VM Info' AND builtin = 1;
+UPDATE actions SET tags = '["monitoring","prometheus","node-exporter"]' WHERE name = 'Deploy Monitoring Agent' AND builtin = 1;
+UPDATE actions SET tags = '["network","diagnostics","monitoring"]' WHERE name = 'Network Connectivity Validation' AND builtin = 1;
+UPDATE actions SET tags = '["packages","updates","maintenance"]' WHERE name = 'Update System Packages' AND builtin = 1;
+UPDATE actions SET tags = '["docker","containers","packages"]' WHERE name = 'Install Docker' AND builtin = 1;
+
+INSERT INTO schema_version (version) VALUES (38);
+`
+
 // v34BuiltinActions defines the 2 new built-in actions added in V34.
 var v34BuiltinActions = []struct {
 	name, description, category, script, parameters string
@@ -1340,5 +1387,85 @@ var v34BuiltinActions = []struct {
 		category:    "security",
 		script:      v34AddSSHKeyScript,
 		parameters:  `[{"name":"USERNAME","label":"Username","type":"string","required":true,"default":"","placeholder":"forgemill","options":null,"description":"The user account to add the SSH key to"},{"name":"SSH_PUBLIC_KEY","label":"SSH Public Key","type":"string","required":true,"default":"","placeholder":"ssh-ed25519 AAAA... user@host","options":null,"description":"The full SSH public key string to add to authorized_keys"}]`,
+	},
+}
+
+// v38BuiltinActions defines the 10 new built-in actions added in V38,
+// filling gaps the earlier built-in set didn't cover: databases, a web
+// server, a JS runtime, disk/swap management, patching, and a health check.
+var v38BuiltinActions = []struct {
+	name, description, category, script, parameters, tags string
+}{
+	{
+		name:        "Install Nginx",
+		description: "Install and enable the Nginx web server.",
+		category:    "packages",
+		script:      v38InstallNginxScript,
+		tags:        `["nginx","web-server","packages"]`,
+	},
+	{
+		name:        "Install PostgreSQL",
+		description: "Install and enable PostgreSQL from the distro's default repositories.",
+		category:    "packages",
+		script:      v38InstallPostgresScript,
+		tags:        `["postgres","postgresql","database","packages"]`,
+	},
+	{
+		name:        "Install Redis",
+		description: "Install and enable the Redis in-memory data store.",
+		category:    "packages",
+		script:      v38InstallRedisScript,
+		tags:        `["redis","cache","database","packages"]`,
+	},
+	{
+		name:        "Install Node.js",
+		description: "Install Node.js and npm via NodeSource for a chosen major version.",
+		category:    "packages",
+		script:      v38InstallNodeScript,
+		parameters:  `[{"name":"NODE_VERSION","label":"Node.js Version","type":"select","required":false,"default":"20","placeholder":"","options":["18","20","22"],"description":"Major Node.js version to install via NodeSource"}]`,
+		tags:        `["nodejs","node","javascript","runtime","packages"]`,
+	},
+	{
+		name:        "Install MariaDB",
+		description: "Install and enable MariaDB (MySQL-compatible) from the distro's default repositories.",
+		category:    "packages",
+		script:      v38InstallMariaDBScript,
+		tags:        `["mysql","mariadb","database","packages"]`,
+	},
+	{
+		name:        "Expand Root Filesystem",
+		description: "Grow the root partition and filesystem to use newly-available disk space after a VM disk resize. Does not support LVM.",
+		category:    "scripts",
+		script:      v38ExpandRootFSScript,
+		tags:        `["disk","resize","filesystem","storage"]`,
+	},
+	{
+		name:        "Configure Swap File",
+		description: "Create and enable a swap file of a given size, persisted across reboots via fstab.",
+		category:    "scripts",
+		script:      v38ConfigureSwapScript,
+		parameters:  `[{"name":"SWAP_SIZE_MB","label":"Swap Size (MB)","type":"number","required":false,"default":"2048","placeholder":"2048","options":null,"description":"Size of the swap file to create, in megabytes"}]`,
+		tags:        `["swap","memory","performance"]`,
+	},
+	{
+		name:        "Enable Unattended Security Updates",
+		description: "Configure automatic installation of security patches (unattended-upgrades on Debian/Ubuntu, dnf-automatic on RHEL family).",
+		category:    "security",
+		script:      v38UnattendedUpgradesScript,
+		tags:        `["updates","patching","security","maintenance"]`,
+	},
+	{
+		name:        "System Health Check",
+		description: "Check disk usage, memory usage, and load average against warning/failure thresholds and report a PASS/WARN/FAIL summary.",
+		category:    "monitoring",
+		script:      v38HealthCheckScript,
+		tags:        `["health","monitoring","disk","memory","cpu"]`,
+	},
+	{
+		name:        "Install Docker Compose",
+		description: "Install the Docker Compose plugin. Requires Docker to already be installed.",
+		category:    "packages",
+		script:      v38InstallDockerComposeScript,
+		tags:        `["docker","compose","containers","packages"]`,
 	},
 }
