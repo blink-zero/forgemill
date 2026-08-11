@@ -20,8 +20,30 @@ func scanActionParameters(raw sql.NullString) []models.ActionParameter {
 	return params
 }
 
+func scanTags(raw sql.NullString) []string {
+	if !raw.Valid || raw.String == "" {
+		return nil
+	}
+	var tags []string
+	if err := json.Unmarshal([]byte(raw.String), &tags); err != nil {
+		return nil
+	}
+	return tags
+}
+
+func marshalTags(tags []string) sql.NullString {
+	if len(tags) == 0 {
+		return sql.NullString{}
+	}
+	data, err := json.Marshal(tags)
+	if err != nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: string(data), Valid: true}
+}
+
 func (db *DB) ListActions() ([]models.Action, error) {
-	rows, err := db.conn.Query(`SELECT id, name, description, category, script, script_type, platform, builtin, parameters, version, created_at, updated_at FROM actions ORDER BY category, name`)
+	rows, err := db.conn.Query(`SELECT id, name, description, category, script, script_type, platform, builtin, parameters, tags, version, created_at, updated_at FROM actions ORDER BY category, name`)
 	if err != nil {
 		return nil, fmt.Errorf("list actions: %w", err)
 	}
@@ -31,12 +53,13 @@ func (db *DB) ListActions() ([]models.Action, error) {
 	for rows.Next() {
 		var a models.Action
 		var builtin int
-		var paramsRaw sql.NullString
-		if err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.Category, &a.Script, &a.ScriptType, &a.Platform, &builtin, &paramsRaw, &a.Version, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		var paramsRaw, tagsRaw sql.NullString
+		if err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.Category, &a.Script, &a.ScriptType, &a.Platform, &builtin, &paramsRaw, &tagsRaw, &a.Version, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan action: %w", err)
 		}
 		a.Builtin = builtin == 1
 		a.Parameters = scanActionParameters(paramsRaw)
+		a.Tags = scanTags(tagsRaw)
 		actions = append(actions, a)
 	}
 	return actions, nil
@@ -45,14 +68,15 @@ func (db *DB) ListActions() ([]models.Action, error) {
 func (db *DB) GetAction(id int64) (*models.Action, error) {
 	var a models.Action
 	var builtin int
-	var paramsRaw sql.NullString
-	err := db.conn.QueryRow(`SELECT id, name, description, category, script, script_type, platform, builtin, parameters, version, created_at, updated_at FROM actions WHERE id = ?`, id).
-		Scan(&a.ID, &a.Name, &a.Description, &a.Category, &a.Script, &a.ScriptType, &a.Platform, &builtin, &paramsRaw, &a.Version, &a.CreatedAt, &a.UpdatedAt)
+	var paramsRaw, tagsRaw sql.NullString
+	err := db.conn.QueryRow(`SELECT id, name, description, category, script, script_type, platform, builtin, parameters, tags, version, created_at, updated_at FROM actions WHERE id = ?`, id).
+		Scan(&a.ID, &a.Name, &a.Description, &a.Category, &a.Script, &a.ScriptType, &a.Platform, &builtin, &paramsRaw, &tagsRaw, &a.Version, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("get action: %w", err)
 	}
 	a.Builtin = builtin == 1
 	a.Parameters = scanActionParameters(paramsRaw)
+	a.Tags = scanTags(tagsRaw)
 	return &a, nil
 }
 
@@ -76,9 +100,10 @@ func (db *DB) CreateAction(a *models.Action) error {
 		a.Platform = "linux"
 	}
 	paramsJSON := marshalParameters(a.Parameters)
+	tagsJSON := marshalTags(a.Tags)
 	result, err := db.conn.Exec(
-		`INSERT INTO actions (name, description, category, script, script_type, platform, builtin, parameters, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, 1, ?, ?)`,
-		a.Name, a.Description, a.Category, a.Script, a.ScriptType, a.Platform, paramsJSON, now, now,
+		`INSERT INTO actions (name, description, category, script, script_type, platform, builtin, parameters, tags, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, 1, ?, ?)`,
+		a.Name, a.Description, a.Category, a.Script, a.ScriptType, a.Platform, paramsJSON, tagsJSON, now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("create action: %w", err)
@@ -107,17 +132,18 @@ func (db *DB) UpdateAction(a *models.Action, changedBy *int64) error {
 	defer tx.Rollback()
 
 	var current models.Action
-	var paramsRaw sql.NullString
-	err = tx.QueryRow(`SELECT name, description, category, script, script_type, platform, parameters, version FROM actions WHERE id = ? AND builtin = 0`, a.ID).
-		Scan(&current.Name, &current.Description, &current.Category, &current.Script, &current.ScriptType, &current.Platform, &paramsRaw, &current.Version)
+	var paramsRaw, tagsRaw sql.NullString
+	err = tx.QueryRow(`SELECT name, description, category, script, script_type, platform, parameters, tags, version FROM actions WHERE id = ? AND builtin = 0`, a.ID).
+		Scan(&current.Name, &current.Description, &current.Category, &current.Script, &current.ScriptType, &current.Platform, &paramsRaw, &tagsRaw, &current.Version)
 	if err != nil {
 		return fmt.Errorf("load current action: %w", err)
 	}
 	current.Parameters = scanActionParameters(paramsRaw)
+	current.Tags = scanTags(tagsRaw)
 
 	if _, err := tx.Exec(
-		`INSERT INTO action_versions (action_id, version, name, description, category, script, script_type, platform, parameters, changed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.ID, current.Version, current.Name, current.Description, current.Category, current.Script, current.ScriptType, current.Platform, marshalParameters(current.Parameters), changedBy,
+		`INSERT INTO action_versions (action_id, version, name, description, category, script, script_type, platform, parameters, tags, changed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, current.Version, current.Name, current.Description, current.Category, current.Script, current.ScriptType, current.Platform, marshalParameters(current.Parameters), marshalTags(current.Tags), changedBy,
 	); err != nil {
 		return fmt.Errorf("snapshot superseded action version: %w", err)
 	}
@@ -131,9 +157,10 @@ func (db *DB) UpdateAction(a *models.Action, changedBy *int64) error {
 	}
 	newVersion := current.Version + 1
 	paramsJSON := marshalParameters(a.Parameters)
+	tagsJSON := marshalTags(a.Tags)
 	if _, err := tx.Exec(
-		`UPDATE actions SET name = ?, description = ?, category = ?, script = ?, script_type = ?, platform = ?, parameters = ?, version = ?, updated_at = ? WHERE id = ? AND builtin = 0`,
-		a.Name, a.Description, a.Category, a.Script, a.ScriptType, a.Platform, paramsJSON, newVersion, now, a.ID,
+		`UPDATE actions SET name = ?, description = ?, category = ?, script = ?, script_type = ?, platform = ?, parameters = ?, tags = ?, version = ?, updated_at = ? WHERE id = ? AND builtin = 0`,
+		a.Name, a.Description, a.Category, a.Script, a.ScriptType, a.Platform, paramsJSON, tagsJSON, newVersion, now, a.ID,
 	); err != nil {
 		return fmt.Errorf("update action: %w", err)
 	}
@@ -151,7 +178,7 @@ func (db *DB) UpdateAction(a *models.Action, changedBy *int64) error {
 // callers that want the full history should combine this with GetAction.
 func (db *DB) ListActionVersionHistory(actionID int64) ([]models.ActionVersion, error) {
 	rows, err := db.conn.Query(
-		`SELECT id, action_id, version, name, description, category, script, script_type, platform, parameters, changed_by, created_at
+		`SELECT id, action_id, version, name, description, category, script, script_type, platform, parameters, tags, changed_by, created_at
 		 FROM action_versions WHERE action_id = ? ORDER BY version DESC`,
 		actionID,
 	)
@@ -163,11 +190,12 @@ func (db *DB) ListActionVersionHistory(actionID int64) ([]models.ActionVersion, 
 	versions := []models.ActionVersion{}
 	for rows.Next() {
 		var v models.ActionVersion
-		var paramsRaw sql.NullString
-		if err := rows.Scan(&v.ID, &v.ActionID, &v.Version, &v.Name, &v.Description, &v.Category, &v.Script, &v.ScriptType, &v.Platform, &paramsRaw, &v.ChangedBy, &v.CreatedAt); err != nil {
+		var paramsRaw, tagsRaw sql.NullString
+		if err := rows.Scan(&v.ID, &v.ActionID, &v.Version, &v.Name, &v.Description, &v.Category, &v.Script, &v.ScriptType, &v.Platform, &paramsRaw, &tagsRaw, &v.ChangedBy, &v.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan action version: %w", err)
 		}
 		v.Parameters = scanActionParameters(paramsRaw)
+		v.Tags = scanTags(tagsRaw)
 		versions = append(versions, v)
 	}
 	return versions, rows.Err()
@@ -176,16 +204,17 @@ func (db *DB) ListActionVersionHistory(actionID int64) ([]models.ActionVersion, 
 // GetActionVersion returns one specific past version's content.
 func (db *DB) GetActionVersion(actionID int64, version int) (*models.ActionVersion, error) {
 	var v models.ActionVersion
-	var paramsRaw sql.NullString
+	var paramsRaw, tagsRaw sql.NullString
 	err := db.conn.QueryRow(
-		`SELECT id, action_id, version, name, description, category, script, script_type, platform, parameters, changed_by, created_at
+		`SELECT id, action_id, version, name, description, category, script, script_type, platform, parameters, tags, changed_by, created_at
 		 FROM action_versions WHERE action_id = ? AND version = ?`,
 		actionID, version,
-	).Scan(&v.ID, &v.ActionID, &v.Version, &v.Name, &v.Description, &v.Category, &v.Script, &v.ScriptType, &v.Platform, &paramsRaw, &v.ChangedBy, &v.CreatedAt)
+	).Scan(&v.ID, &v.ActionID, &v.Version, &v.Name, &v.Description, &v.Category, &v.Script, &v.ScriptType, &v.Platform, &paramsRaw, &tagsRaw, &v.ChangedBy, &v.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("get action version: %w", err)
 	}
 	v.Parameters = scanActionParameters(paramsRaw)
+	v.Tags = scanTags(tagsRaw)
 	return &v, nil
 }
 
@@ -219,6 +248,7 @@ func (db *DB) RollbackAction(actionID int64, targetVersion int, changedBy *int64
 		ScriptType:  target.ScriptType,
 		Platform:    target.Platform,
 		Parameters:  target.Parameters,
+		Tags:        target.Tags,
 	}
 	if err := db.UpdateAction(restored, changedBy); err != nil {
 		return nil, fmt.Errorf("apply rollback: %w", err)
@@ -277,7 +307,7 @@ func (db *DB) SetDeploymentActions(deploymentID int64, actionIDs []int64) error 
 
 func (db *DB) GetDeploymentActions(deploymentID int64) ([]models.Action, error) {
 	rows, err := db.conn.Query(
-		`SELECT a.id, a.name, a.description, a.category, a.script, a.script_type, a.platform, a.builtin, a.parameters, a.created_at, a.updated_at
+		`SELECT a.id, a.name, a.description, a.category, a.script, a.script_type, a.platform, a.builtin, a.parameters, a.tags, a.created_at, a.updated_at
 		 FROM actions a
 		 JOIN deployment_actions da ON da.action_id = a.id
 		 WHERE da.deployment_id = ?
@@ -293,12 +323,13 @@ func (db *DB) GetDeploymentActions(deploymentID int64) ([]models.Action, error) 
 	for rows.Next() {
 		var a models.Action
 		var builtin int
-		var paramsRaw sql.NullString
-		if err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.Category, &a.Script, &a.ScriptType, &a.Platform, &builtin, &paramsRaw, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		var paramsRaw, tagsRaw sql.NullString
+		if err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.Category, &a.Script, &a.ScriptType, &a.Platform, &builtin, &paramsRaw, &tagsRaw, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan deployment action: %w", err)
 		}
 		a.Builtin = builtin == 1
 		a.Parameters = scanActionParameters(paramsRaw)
+		a.Tags = scanTags(tagsRaw)
 		actions = append(actions, a)
 	}
 	return actions, nil

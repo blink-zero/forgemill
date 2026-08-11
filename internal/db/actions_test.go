@@ -36,6 +36,107 @@ func TestCreateActionStartsAtVersion1(t *testing.T) {
 	}
 }
 
+func TestActionTagsRoundTripThroughCreateGetAndVersionHistory(t *testing.T) {
+	database := newTestDB(t)
+	userID := int64(9)
+
+	a := &models.Action{
+		Name: "install-nginx", Category: "packages", Script: "apt-get install -y nginx",
+		Tags: []string{"nginx", "web-server"},
+	}
+	if err := database.CreateAction(a); err != nil {
+		t.Fatalf("create action: %v", err)
+	}
+
+	got, err := database.GetAction(a.ID)
+	if err != nil {
+		t.Fatalf("get action: %v", err)
+	}
+	if len(got.Tags) != 2 || got.Tags[0] != "nginx" || got.Tags[1] != "web-server" {
+		t.Errorf("expected tags [nginx web-server], got %v", got.Tags)
+	}
+
+	// Edit the tags — the OLD tag set should be retrievable from version history.
+	got.Tags = []string{"nginx", "reverse-proxy"}
+	if err := database.UpdateAction(got, &userID); err != nil {
+		t.Fatalf("update action: %v", err)
+	}
+
+	v1, err := database.GetActionVersion(a.ID, 1)
+	if err != nil {
+		t.Fatalf("get version 1: %v", err)
+	}
+	if len(v1.Tags) != 2 || v1.Tags[1] != "web-server" {
+		t.Errorf("expected version 1 to retain the original tags, got %v", v1.Tags)
+	}
+
+	current, err := database.GetAction(a.ID)
+	if err != nil {
+		t.Fatalf("get action after update: %v", err)
+	}
+	if len(current.Tags) != 2 || current.Tags[1] != "reverse-proxy" {
+		t.Errorf("expected current tags to reflect the edit, got %v", current.Tags)
+	}
+}
+
+func TestActionWithNoTagsRoundTripsAsNil(t *testing.T) {
+	database := newTestDB(t)
+	a := &models.Action{Name: "no-tags-action", Category: "custom", Script: "true"}
+	if err := database.CreateAction(a); err != nil {
+		t.Fatalf("create action: %v", err)
+	}
+	got, err := database.GetAction(a.ID)
+	if err != nil {
+		t.Fatalf("get action: %v", err)
+	}
+	if len(got.Tags) != 0 {
+		t.Errorf("expected no tags, got %v", got.Tags)
+	}
+}
+
+// TestV38SeedsExpandedActionLibrary confirms migration V38 both backfilled
+// tags onto the pre-existing built-in actions and inserted the new
+// built-in actions with their own tags — a fresh DB (which runs every
+// migration, including V38) is the only way to exercise the seed data.
+func TestV38SeedsExpandedActionLibrary(t *testing.T) {
+	database := newTestDB(t)
+
+	all, err := database.ListActions()
+	if err != nil {
+		t.Fatalf("list actions: %v", err)
+	}
+
+	byName := map[string]models.Action{}
+	for _, a := range all {
+		byName[a.Name] = a
+	}
+
+	newAction, ok := byName["Install Nginx"]
+	if !ok {
+		t.Fatal("expected V38 to have seeded \"Install Nginx\" as a built-in action")
+	}
+	if !newAction.Builtin {
+		t.Error("expected the seeded action to be marked builtin")
+	}
+	if len(newAction.Tags) == 0 {
+		t.Error("expected the seeded action to have tags")
+	}
+
+	preExisting, ok := byName["Install Docker"]
+	if !ok {
+		t.Fatal("expected the pre-existing \"Install Docker\" built-in to still exist")
+	}
+	found := false
+	for _, tag := range preExisting.Tags {
+		if tag == "docker" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected the pre-existing \"Install Docker\" action to be backfilled with a \"docker\" tag, got %v", preExisting.Tags)
+	}
+}
+
 func TestUpdateActionSnapshotsPriorVersionRetroactively(t *testing.T) {
 	database := newTestDB(t)
 	userID := int64(7)
