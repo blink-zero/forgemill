@@ -391,6 +391,67 @@ func (p *Provider) GetDeployProgress(ctx context.Context, taskID string) (*provi
 	return progress, nil
 }
 
+// ValidateDeploySpec resolves each named resource in spec using the same
+// govmomi Finder calls DeployVM uses (see below), stopping short of
+// actually cloning anything. It deliberately does NOT reuse GetResources'
+// list — that list's Name field is a cosmetic display string that isn't
+// always sufficient input for the Finder on its own (a network nested
+// under a non-default folder, for instance, only resolves by its full
+// inventory Path), so checking against it can accept a value the real
+// deploy would then reject.
+func (p *Provider) ValidateDeploySpec(ctx context.Context, spec *provider.DeploySpec) []error {
+	client, err := p.getClient(ctx)
+	if err != nil {
+		return []error{fmt.Errorf("connect: %w", err)}
+	}
+	finder := find.NewFinder(client.Client, true)
+
+	dcName := spec.Datacenter
+	if p.esxiMode && dcName == "" {
+		dcName = "ha-datacenter"
+	}
+	dc, err := finder.Datacenter(ctx, dcName)
+	if err != nil {
+		// Nothing else can resolve without a datacenter context.
+		return []error{fmt.Errorf("datacenter %q: %w", dcName, err)}
+	}
+	finder.SetDatacenter(dc)
+
+	var errs []error
+
+	if spec.Folder != "" {
+		if _, err := finder.Folder(ctx, spec.Folder); err != nil {
+			errs = append(errs, fmt.Errorf("folder %q: %w", spec.Folder, err))
+		}
+	}
+
+	if !p.esxiMode && spec.Cluster != "" {
+		if _, err := finder.ClusterComputeResource(ctx, spec.Cluster); err != nil {
+			errs = append(errs, fmt.Errorf("cluster %q: %w", spec.Cluster, err))
+		}
+	}
+
+	if spec.Datastore != "" {
+		if _, err := finder.Datastore(ctx, spec.Datastore); err != nil {
+			errs = append(errs, fmt.Errorf("datastore %q: %w", spec.Datastore, err))
+		}
+	}
+
+	if spec.Network != "" {
+		if _, err := finder.Network(ctx, spec.Network); err != nil {
+			errs = append(errs, fmt.Errorf("network %q: %w", spec.Network, err))
+		}
+	}
+
+	if spec.Host != "" && !p.esxiMode {
+		if _, err := finder.HostSystem(ctx, spec.Host); err != nil {
+			errs = append(errs, fmt.Errorf("host %q: %w", spec.Host, err))
+		}
+	}
+
+	return errs
+}
+
 func (p *Provider) findResourcePool(ctx context.Context, finder *find.Finder, cluster string) (*object.ResourcePool, error) {
 	if p.esxiMode {
 		pool, err := finder.ResourcePool(ctx, "*/Resources")

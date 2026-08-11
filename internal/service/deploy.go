@@ -158,22 +158,38 @@ type PreflightResult struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-// resourceItemMatches reports whether value identifies item — matching on
-// Name, ID, or Path. The frontend's resource pickers don't all submit the
-// same field: for vCenter networks specifically the option value is the
-// inventory Path (to disambiguate portgroups with the same name in
-// different folders), not Name or ID. Factored out as a pure function so
-// this matching logic is unit-testable without a live target connection.
-func resourceItemMatches(value string, item provider.ResourceItem) bool {
-	return item.Name == value || item.ID == value || (item.Path != "" && item.Path == value)
+// deploySpecForValidation builds the minimal DeploySpec ValidateDeploySpec
+// needs (just the named-resource fields it resolves) from a DeployRequest.
+// Factored out as a pure function so this field mapping — easy to typo
+// without any test catching it, since the live-connection path it feeds
+// can't be exercised in CI — is unit-testable on its own.
+func deploySpecForValidation(req *DeployRequest) *provider.DeploySpec {
+	return &provider.DeploySpec{
+		Datacenter: req.Datacenter,
+		Cluster:    req.Cluster,
+		Datastore:  req.Datastore,
+		Folder:     req.Folder,
+		Network:    req.Network,
+		Host:       req.Host,
+	}
 }
 
 // Preflight runs the same checks Start would, plus target-side resolution
 // (VM name collision against Forgemill-tracked VMs on this target, and
-// network/datastore/folder/cluster/datacenter name existence against the
-// target's resource inventory), without connecting to the hypervisor or
-// writing anything. It does not check datastore free space or other
-// capacity — Forgemill's provider abstraction doesn't expose that today.
+// network/datastore/folder/cluster/datacenter/host resolution against the
+// target itself), without actually deploying anything. It does not check
+// datastore free space or other capacity — Forgemill's provider abstraction
+// doesn't expose that today.
+//
+// Resource resolution goes through the provider's ValidateDeploySpec, which
+// runs the exact same lookups DeployVM does — deliberately NOT a check
+// against GetResources' listing. That list's display names aren't always
+// sufficient on their own (a vCenter network nested under a non-default
+// folder only resolves by its full inventory path, for instance), so an
+// earlier version of this check could report a value as valid when the
+// real deploy would then reject it. Sharing the resolver makes that class
+// of false positive structurally impossible instead of requiring the two
+// checks to be kept in sync by hand.
 func (s *DeployService) Preflight(ctx context.Context, req *DeployRequest) (*PreflightResult, error) {
 	result := &PreflightResult{Valid: true}
 	addBlocker := func(format string, args ...interface{}) {
@@ -203,26 +219,18 @@ func (s *DeployService) Preflight(ctx context.Context, req *DeployRequest) (*Pre
 			}
 		}
 
-		resources, err := s.targets.GetResources(ctx, req.TargetID)
+		p, err := s.targets.GetProvider(req.TargetID)
 		if err != nil {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("could not verify target resources (network/datastore/etc. will be checked at deploy time instead): %v", err))
 		} else {
-			checkExists := func(field, value string, items []provider.ResourceItem) {
-				if value == "" {
-					return
+			defer p.Disconnect()
+			if err := p.Connect(ctx); err != nil {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("could not verify target resources (network/datastore/etc. will be checked at deploy time instead): %v", err))
+			} else {
+				for _, verr := range p.ValidateDeploySpec(ctx, deploySpecForValidation(req)) {
+					addBlocker("%s", verr.Error())
 				}
-				for _, item := range items {
-					if resourceItemMatches(value, item) {
-						return
-					}
-				}
-				addBlocker("%s %q was not found on this target", field, value)
 			}
-			checkExists("network", req.Network, resources.Networks)
-			checkExists("datastore", req.Datastore, resources.Datastores)
-			checkExists("folder", req.Folder, resources.Folders)
-			checkExists("cluster", req.Cluster, resources.Clusters)
-			checkExists("datacenter", req.Datacenter, resources.Datacenters)
 		}
 	}
 

@@ -34,6 +34,17 @@ type Provider interface {
 
 	ListVMs(ctx context.Context) ([]VMInfo, error)
 	GetResources(ctx context.Context) (*Resources, error)
+
+	// ValidateDeploySpec resolves every named resource in spec (datacenter,
+	// cluster, folder, datastore, network, host) using the exact same
+	// lookup DeployVM uses, without creating or reserving anything. It
+	// exists so pre-flight validation can never give a false "would
+	// succeed" for a value that a looser, list-based check would accept
+	// but the real deploy's resolver would reject — e.g. vCenter networks,
+	// where a bare display name only resolves if the object happens to sit
+	// directly under the default inventory folder; nested ones need the
+	// full path. Returns one error per resource that failed to resolve.
+	ValidateDeploySpec(ctx context.Context, spec *DeploySpec) []error
 }
 
 // PV-X3: Canonical progress state constants for cross-provider consistency.

@@ -7,43 +7,43 @@ import (
 	"time"
 
 	"github.com/forgemill/forgemill/internal/db/models"
-	"github.com/forgemill/forgemill/internal/provider"
 )
 
-func TestResourceItemMatchesOnNameIDOrPath(t *testing.T) {
-	// vCenter networks are submitted by the frontend as their inventory Path
-	// (not Name or ID) whenever one is available, to disambiguate portgroups
-	// that share a name across different folders. A real, correctly-selected
-	// network must not be flagged as "not found" just because the check only
-	// compared against Name/ID.
-	item := provider.ResourceItem{Name: "VM Network", ID: "network-17", Path: "/Datacenter/network/VM Network"}
-
-	cases := []struct {
-		name  string
-		value string
-		want  bool
-	}{
-		{"matches by name", "VM Network", true},
-		{"matches by id", "network-17", true},
-		{"matches by path", "/Datacenter/network/VM Network", true},
-		{"does not match an unrelated value", "some-other-network", false},
+func TestDeploySpecForValidationMapsFieldsCorrectly(t *testing.T) {
+	// This mapping feeds ValidateDeploySpec, whose live-connection path
+	// can't be exercised in CI — a typo'd field here (e.g. Cluster:
+	// req.Datacenter) would otherwise only surface against a real target.
+	req := &DeployRequest{
+		VMName:     "web-01",
+		TemplateID: 1,
+		TargetID:   1,
+		Datacenter: "DC1",
+		Cluster:    "Cluster1",
+		Datastore:  "ds1",
+		Folder:     "folder1",
+		Network:    "/DC1/network/VLAN 150",
+		Host:       "esxi01.example.com",
+		CPU:        2,
+		MemoryMB:   2048,
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := resourceItemMatches(tc.value, item); got != tc.want {
-				t.Errorf("resourceItemMatches(%q) = %v, want %v", tc.value, got, tc.want)
-			}
-		})
+	spec := deploySpecForValidation(req)
+	if spec.Datacenter != req.Datacenter {
+		t.Errorf("Datacenter: got %q, want %q", spec.Datacenter, req.Datacenter)
 	}
-}
-
-func TestResourceItemMatchesIgnoresEmptyPath(t *testing.T) {
-	// Providers that don't populate Path (e.g. Proxmox bridges) leave it "" —
-	// an empty submitted value must never accidentally match an item that
-	// also has an empty Path.
-	item := provider.ResourceItem{Name: "vmbr0", ID: "vmbr0", Path: ""}
-	if resourceItemMatches("", item) {
-		t.Error("an empty value must not match an item with an empty Path")
+	if spec.Cluster != req.Cluster {
+		t.Errorf("Cluster: got %q, want %q", spec.Cluster, req.Cluster)
+	}
+	if spec.Datastore != req.Datastore {
+		t.Errorf("Datastore: got %q, want %q", spec.Datastore, req.Datastore)
+	}
+	if spec.Folder != req.Folder {
+		t.Errorf("Folder: got %q, want %q", spec.Folder, req.Folder)
+	}
+	if spec.Network != req.Network {
+		t.Errorf("Network: got %q, want %q", spec.Network, req.Network)
+	}
+	if spec.Host != req.Host {
+		t.Errorf("Host: got %q, want %q", spec.Host, req.Host)
 	}
 }
 
