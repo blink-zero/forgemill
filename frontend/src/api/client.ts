@@ -382,6 +382,7 @@ export interface ActionVersion {
   script_type: string;
   platform: string;
   parameters?: ActionParameter[];
+  tags?: string[];
   changed_by?: number | null;
   created_at: string;
 }
