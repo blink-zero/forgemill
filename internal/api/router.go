@@ -258,6 +258,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 
 				// Actions (mutating)
 				r.Post("/actions", actionH.Create)
+				r.Post("/actions/import", actionH.Import)
 				r.Put("/actions/{id}", actionH.Update)
 				r.Delete("/actions/{id}", actionH.Delete)
 				r.Post("/actions/{id}/rollback", actionH.Rollback)

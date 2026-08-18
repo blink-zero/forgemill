@@ -25,6 +25,8 @@ import type {
   UpdateCheckResult,
   Action,
   ActionParameter,
+  ActionExportEntry,
+  ActionImportResponse,
   ActionExecution,
   ExecuteRequest,
   Webhook,
@@ -259,6 +261,8 @@ export const actions = {
   listVersions: (id: number) => api.get<ActionVersion[]>(`/actions/${id}/versions`),
   getVersion: (id: number, version: number) => api.get<ActionVersion>(`/actions/${id}/versions/${version}`),
   rollback: (id: number, version: number) => api.post<Action>(`/actions/${id}/rollback`, { version }),
+  import: (actionsToImport: ActionExportEntry[]) =>
+    api.post<ActionImportResponse>("/actions/import", { actions: actionsToImport }),
 };
 
 export const webhooks = {
