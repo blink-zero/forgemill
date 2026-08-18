@@ -418,6 +418,45 @@ export interface Action {
   updated_at: string;
 }
 
+// --- Action import/export ---
+//
+// The exported JSON intentionally excludes id/builtin/version/timestamps —
+// those are instance-specific and re-derived on import. script_type/platform
+// are included for readability only; the import API ignores them (imported
+// actions are always plain bash actions, same as anything made through the
+// "Create Action" form).
+export interface ActionExportEntry {
+  name: string;
+  description: string;
+  category: Action["category"];
+  script: string;
+  script_type: Action["script_type"];
+  platform: Action["platform"];
+  parameters?: ActionParameter[];
+  tags?: string[];
+}
+
+export interface ActionExportFile {
+  schema_version: 1;
+  exported_at: string;
+  source: "forgemill";
+  actions: ActionExportEntry[];
+}
+
+export interface ActionImportResult {
+  index: number;
+  name: string;
+  status: "created" | "failed";
+  id?: number;
+  error?: string;
+}
+
+export interface ActionImportResponse {
+  created: number;
+  failed: number;
+  results: ActionImportResult[];
+}
+
 // --- Phase 2: SSH Action Execution ---
 
 export interface ActionExecution {

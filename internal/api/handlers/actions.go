@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 
 var validParamName = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 var validParamTypes = map[string]bool{"string": true, "number": true, "select": true, "boolean": true, "password": true}
+var validActionCategories = map[string]bool{"packages": true, "scripts": true, "security": true, "monitoring": true, "custom": true}
 
 func validateParameters(params []models.ActionParameter) error {
 	seen := map[string]bool{}
@@ -119,11 +121,10 @@ func (h *ActionHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	validCategories := map[string]bool{"packages": true, "scripts": true, "security": true, "monitoring": true, "custom": true}
 	if req.Category == "" {
 		req.Category = "custom"
 	}
-	if !validCategories[req.Category] {
+	if !validActionCategories[req.Category] {
 		writeError(w, "invalid category; must be one of: packages, scripts, security, monitoring, custom", http.StatusBadRequest)
 		return
 	}
@@ -195,11 +196,10 @@ func (h *ActionHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	validCategories := map[string]bool{"packages": true, "scripts": true, "security": true, "monitoring": true, "custom": true}
 	if req.Category == "" {
 		req.Category = "custom"
 	}
-	if !validCategories[req.Category] {
+	if !validActionCategories[req.Category] {
 		writeError(w, "invalid category", http.StatusBadRequest)
 		return
 	}
@@ -265,6 +265,143 @@ func (h *ActionHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// maxImportActions bounds the number of actions accepted in a single import
+// request, independent of the global request body size limit — this keeps
+// worst-case work (validation + DB writes) per request bounded even for a
+// payload built from many small entries.
+const maxImportActions = 100
+
+// actionImportItem mirrors createActionRequest deliberately: importing an
+// action must not be able to do anything a manual "Create" through the UI
+// couldn't already do (e.g. it can't set script_type/platform or mark an
+// action builtin).
+type actionImportItem struct {
+	Name        string                   `json:"name"`
+	Description string                   `json:"description"`
+	Category    string                   `json:"category"`
+	Script      string                   `json:"script"`
+	Parameters  []models.ActionParameter `json:"parameters,omitempty"`
+	Tags        []string                 `json:"tags,omitempty"`
+}
+
+type actionImportRequest struct {
+	Actions []actionImportItem `json:"actions"`
+}
+
+type actionImportResult struct {
+	Index  int    `json:"index"`
+	Name   string `json:"name"`
+	Status string `json:"status"` // "created" or "failed"
+	ID     int64  `json:"id,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+type actionImportResponse struct {
+	Created int                  `json:"created"`
+	Failed  int                  `json:"failed"`
+	Results []actionImportResult `json:"results"`
+}
+
+// buildImportedAction validates a single import entry and turns it into an
+// Action ready to persist. It applies exactly the same rules as Create, so
+// an import can't create anything a manual "Create" through the UI couldn't.
+func buildImportedAction(item actionImportItem) (*models.Action, error) {
+	if item.Name == "" || item.Script == "" {
+		return nil, fmt.Errorf("name and script are required")
+	}
+	if err := service.ValidateActionScript(item.Script); err != nil {
+		return nil, fmt.Errorf("invalid script: %w", err)
+	}
+
+	category := item.Category
+	if category == "" {
+		category = "custom"
+	}
+	if !validActionCategories[category] {
+		return nil, fmt.Errorf("invalid category; must be one of: packages, scripts, security, monitoring, custom")
+	}
+
+	if len(item.Parameters) > 0 {
+		if err := validateParameters(item.Parameters); err != nil {
+			return nil, fmt.Errorf("invalid parameters: %w", err)
+		}
+	}
+
+	tags, err := normalizeTags(item.Tags)
+	if err != nil {
+		return nil, fmt.Errorf("invalid tags: %w", err)
+	}
+
+	return &models.Action{
+		Name:        item.Name,
+		Description: item.Description,
+		Category:    category,
+		Script:      item.Script,
+		Parameters:  item.Parameters,
+		Tags:        tags,
+	}, nil
+}
+
+// Import creates one or more actions from a previously exported JSON file.
+// Each entry runs through the same validation as Create, and a bad entry
+// only fails that entry — the rest of the batch still imports. Imported
+// actions are always plain (non-builtin, "bash") actions, same as anything
+// created through the UI.
+func (h *ActionHandler) Import(w http.ResponseWriter, r *http.Request) {
+	var req actionImportRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if len(req.Actions) == 0 {
+		writeError(w, "no actions to import", http.StatusBadRequest)
+		return
+	}
+	if len(req.Actions) > maxImportActions {
+		writeError(w, fmt.Sprintf("too many actions in one import (max %d)", maxImportActions), http.StatusBadRequest)
+		return
+	}
+
+	user := middleware.UserFromContext(r.Context())
+	resp := actionImportResponse{Results: make([]actionImportResult, 0, len(req.Actions))}
+
+	for i, item := range req.Actions {
+		result := actionImportResult{Index: i, Name: item.Name}
+
+		action, err := buildImportedAction(item)
+		if err != nil {
+			result.Status = "failed"
+			result.Error = err.Error()
+			resp.Results = append(resp.Results, result)
+			resp.Failed++
+			continue
+		}
+
+		if err := h.db.CreateAction(action); err != nil {
+			slog.Error("failed to create imported action", "name", item.Name, "error", err)
+			result.Status = "failed"
+			result.Error = "failed to save action"
+			resp.Results = append(resp.Results, result)
+			resp.Failed++
+			continue
+		}
+
+		h.audit.Log(user.Username, &user.ID, "action.import", "action", fmt.Sprintf("%d", action.ID), service.IPFromRequest(r), map[string]interface{}{
+			"action_name": action.Name, "category": action.Category,
+		})
+
+		result.Status = "created"
+		result.ID = action.ID
+		resp.Results = append(resp.Results, result)
+		resp.Created++
+	}
+
+	// Always 200: the request itself was well-formed, so per-item outcomes
+	// (some or all of which may have failed validation) belong in the body,
+	// not the status code — callers read resp.Created/resp.Failed/resp.Results.
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // actionVersionFromCurrent adapts the live action into the same shape as a

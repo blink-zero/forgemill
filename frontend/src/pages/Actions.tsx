@@ -1,13 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { actions as actionsApi } from "@/api/client";
 import type { ActionVersion } from "@/api/client";
-import type { Action, ActionParameter } from "@/types";
+import type { Action, ActionParameter, ActionExportEntry, ActionExportFile } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Edit2, Package, Terminal, Shield, Activity, Puzzle, Search, X, Code2, ChevronDown, ChevronUp, Info, Copy, Check, Loader2, ArrowUp, ArrowDown, Settings2, History, RotateCcw } from "lucide-react";
+import { Plus, Trash2, Edit2, Package, Terminal, Shield, Activity, Puzzle, Search, X, Code2, ChevronDown, ChevronUp, Info, Copy, Check, Loader2, ArrowUp, ArrowDown, Settings2, History, RotateCcw, Download, Upload } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Pagination } from "@/components/ui/pagination";
 import { useAuth } from "@/hooks/useAuth";
@@ -45,6 +45,44 @@ const categoryColors: Record<string, string> = {
   custom: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
 };
 
+function actionToExportEntry(action: Action): ActionExportEntry {
+  return {
+    name: action.name,
+    description: action.description,
+    category: action.category,
+    script: action.script,
+    script_type: action.script_type,
+    platform: action.platform,
+    parameters: action.parameters,
+    tags: action.tags,
+  };
+}
+
+function slugify(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "action";
+}
+
+// Triggers a browser download of the given actions as a single JSON file.
+// Export runs entirely client-side against data the page already has
+// loaded — nothing new is fetched from the server just to download it.
+function downloadActionsFile(entries: ActionExportEntry[], filename: string) {
+  const file: ActionExportFile = {
+    schema_version: 1,
+    exported_at: new Date().toISOString(),
+    source: "forgemill",
+    actions: entries,
+  };
+  const blob = new Blob([JSON.stringify(file, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function ActionsPage() {
   const { toast } = useToast();
   const { confirm: showConfirm } = useConfirm();
@@ -64,6 +102,8 @@ export default function ActionsPage() {
   const [versions, setVersions] = useState<ActionVersion[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [viewingVersion, setViewingVersion] = useState<number | null>(null);
+  const [importing, setImporting] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const fetchActions = async () => {
     try {
@@ -181,6 +221,54 @@ export default function ActionsPage() {
     }
   };
 
+  const handleExportOne = (action: Action) => {
+    downloadActionsFile([actionToExportEntry(action)], `forgemill-action-${slugify(action.name)}.json`);
+  };
+
+  const handleExportAll = () => {
+    downloadActionsFile(filtered.map(actionToExportEntry), `forgemill-actions-${new Date().toISOString().slice(0, 10)}.json`);
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // reset so re-selecting the same file fires onChange again
+
+    if (!file) return;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      toast("That file isn't valid JSON", "error");
+      return;
+    }
+
+    const entries = (parsed as Partial<ActionExportFile> | null)?.actions;
+    if (!Array.isArray(entries) || entries.length === 0) {
+      toast('No actions found — expected a file exported from this page (with an "actions" array)', "error");
+      return;
+    }
+
+    setImporting(true);
+    try {
+      const res = await actionsApi.import(entries);
+      const { created, failed, results } = res.data;
+      const firstError = results.find((r) => r.status === "failed");
+      if (created > 0 && failed === 0) {
+        toast(`Imported ${created} action${created === 1 ? "" : "s"}`);
+      } else if (created > 0 && failed > 0) {
+        toast(`Imported ${created}, ${failed} failed${firstError ? ` — ${firstError.name || "unnamed"}: ${firstError.error}` : ""}`, "error");
+      } else {
+        toast(`Import failed${firstError ? `: ${firstError.error}` : ""}`, "error");
+      }
+      if (created > 0) fetchActions();
+    } catch (err: unknown) {
+      toast(getErrorMessage(err, "Failed to import actions"), "error");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const filtered = actionList.filter((a) => {
     const q = search.toLowerCase();
     const matchSearch = !search ||
@@ -283,10 +371,33 @@ export default function ActionsPage() {
               </div>
             )}
             <ViewToggle />
-            {isAdmin && (
-              <Button onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ name: "", description: "", category: "custom" as Action["category"], script: "", parameters: [], tags: [] }); setConfigError(""); }}>
-                <Plus className="h-4 w-4 mr-2" /> Create Action
+            {actionList.length > 0 && (
+              <Button variant="outline" onClick={handleExportAll} title="Download the actions currently shown as a JSON file">
+                <Download className="h-4 w-4 mr-2" /> Export
               </Button>
+            )}
+            {isAdmin && (
+              <>
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept="application/json"
+                  className="hidden"
+                  onChange={handleImportFile}
+                />
+                <Button
+                  variant="outline"
+                  onClick={() => importInputRef.current?.click()}
+                  disabled={importing}
+                  title="Import actions from a JSON file exported from this page"
+                >
+                  {importing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                  Import
+                </Button>
+                <Button onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ name: "", description: "", category: "custom" as Action["category"], script: "", parameters: [], tags: [] }); setConfigError(""); }}>
+                  <Plus className="h-4 w-4 mr-2" /> Create Action
+                </Button>
+              </>
             )}
           </>
         }
@@ -603,6 +714,9 @@ export default function ActionsPage() {
                       <Button variant="ghost" size="sm" onClick={() => setExpandedId(expandedId === action.id ? null : action.id)} title="View script">
                         <Code2 className="h-3.5 w-3.5" />
                       </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleExportOne(action)} title="Download as JSON">
+                        <Download className="h-3.5 w-3.5" />
+                      </Button>
                       {!action.builtin && (
                         <Button variant="ghost" size="sm" onClick={() => toggleVersions(action.id)} title="Version history">
                           <History className="h-3.5 w-3.5" />
@@ -691,14 +805,23 @@ export default function ActionsPage() {
                       )}
 
                       {/* Collapsible config preview */}
-                      <button
-                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-1"
-                        onClick={() => setExpandedId(expandedId === action.id ? null : action.id)}
-                      >
-                        <Code2 className="h-3 w-3" />
-                        <span>Script</span>
-                        {expandedId === action.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                      </button>
+                      <div className="flex items-center justify-between mb-1">
+                        <button
+                          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => setExpandedId(expandedId === action.id ? null : action.id)}
+                        >
+                          <Code2 className="h-3 w-3" />
+                          <span>Script</span>
+                          {expandedId === action.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                        </button>
+                        <button
+                          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => handleExportOne(action)}
+                          title="Download as JSON"
+                        >
+                          <Download className="h-3 w-3" />
+                        </button>
+                      </div>
                       {expandedId === action.id && (
                         <div className="relative mb-3">
                           <pre className="text-xs bg-gray-950 text-green-400 p-3 pr-10 rounded-md overflow-x-auto max-h-64 whitespace-pre-wrap">{action.script}</pre>
