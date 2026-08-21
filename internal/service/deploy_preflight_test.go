@@ -47,6 +47,33 @@ func TestDeploySpecForValidationMapsFieldsCorrectly(t *testing.T) {
 	}
 }
 
+func TestValidateDeployRequestVLANTagBounds(t *testing.T) {
+	base := func(vlan int) *DeployRequest {
+		return &DeployRequest{
+			VMName:   "web-01",
+			CPU:      2,
+			MemoryMB: 2048,
+			VLANTag:  vlan,
+		}
+	}
+
+	if err := validateDeployRequest(base(0)); err != nil {
+		t.Errorf("0 (untagged) must be valid, got %v", err)
+	}
+	if err := validateDeployRequest(base(1)); err != nil {
+		t.Errorf("1 (min valid VLAN) must be valid, got %v", err)
+	}
+	if err := validateDeployRequest(base(4094)); err != nil {
+		t.Errorf("4094 (max valid VLAN) must be valid, got %v", err)
+	}
+	if err := validateDeployRequest(base(4095)); err == nil {
+		t.Error("expected an error for VLAN tag above the valid range")
+	}
+	if err := validateDeployRequest(base(-1)); err == nil {
+		t.Error("expected an error for a negative VLAN tag")
+	}
+}
+
 func TestPreflightRejectsBadFieldsWithoutTouchingTargetOrTemplate(t *testing.T) {
 	database := newTestDB(t)
 	svc := NewDeployService(database, NewTargetService(database, nil), nil, nil, nil)
