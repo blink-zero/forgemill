@@ -19,3 +19,29 @@ func TestValidateDeploySpecIsANoOp(t *testing.T) {
 		t.Errorf("expected no errors, got %v", errs)
 	}
 }
+
+func TestBuildNet0ConfigUntaggedWhenNoVLAN(t *testing.T) {
+	got := buildNet0Config("vmbr0", 0)
+	want := "virtio,bridge=vmbr0"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestBuildNet0ConfigAppendsTagWhenVLANSet(t *testing.T) {
+	got := buildNet0Config("vmbr0", 150)
+	want := "virtio,bridge=vmbr0,tag=150"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestBuildNet0ConfigIgnoresNegativeVLAN(t *testing.T) {
+	// Defense in depth: validateDeployRequest already rejects this before it
+	// gets here, but the builder itself should never emit a nonsensical tag.
+	got := buildNet0Config("vmbr0", -1)
+	want := "virtio,bridge=vmbr0"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

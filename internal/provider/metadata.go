@@ -34,6 +34,7 @@ type ProviderFeatures struct {
 	Clusters         bool `json:"clusters"`
 	DiskProvisioning bool `json:"disk_provisioning"`
 	LinkedClones     bool `json:"linked_clones"`
+	VLANTagging      bool `json:"vlan_tagging"`
 }
 
 // DeployField defines a field shown in the deploy form for this provider.

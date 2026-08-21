@@ -38,6 +38,7 @@ func init() {
 			Clusters:         true,
 			DiskProvisioning: true,
 			LinkedClones:     true,
+			VLANTagging:      false,
 		},
 		DeployFields: []provider.DeployField{
 			{Key: "datacenter", Label: "Datacenter", Resource: "datacenters"},
@@ -72,6 +73,7 @@ func init() {
 			Clusters:         false,
 			DiskProvisioning: true,
 			LinkedClones:     false,
+			VLANTagging:      false,
 		},
 		DeployFields: []provider.DeployField{
 			{Key: "datastore", Label: "Datastore", Resource: "datastores"},

@@ -124,6 +124,7 @@ type DeploySpec struct {
 	UserDataOverride string // Pre-merged cloud-init userdata (when actions are selected)
 	DiskProvisioning string // "thin", "thick", "thick_eager_zero", or "" (inherit from template)
 	Host             string // Optional: specific ESXi host within a vCenter cluster for placement
+	VLANTag          int    // Optional 802.1Q VLAN tag (1-4094), 0 = untagged. Proxmox-only.
 }
 
 type DeployResult struct {
