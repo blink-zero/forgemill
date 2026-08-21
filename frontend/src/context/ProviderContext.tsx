@@ -14,6 +14,7 @@ export interface ProviderFeatures {
   clusters: boolean;
   disk_provisioning: boolean;
   linked_clones: boolean;
+  vlan_tagging: boolean;
 }
 
 export interface DeployField {

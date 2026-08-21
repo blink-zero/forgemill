@@ -61,7 +61,7 @@ export default function Deploy() {
   const [templateSearch, setTemplateSearch] = useState("");
   const [config, setConfig] = useState({
     vm_name: "", datacenter: "", cluster: "", datastore: "", folder: "", network: "",
-    cpu: 0, memory_mb: 0, disk_gb: 0, disk_provisioning: "",
+    cpu: 0, memory_mb: 0, disk_gb: 0, disk_provisioning: "", vlan_tag: "",
     ip_address: "", netmask: "", gateway: "", dns: "", hostname: "", domain_name: "",
     ssh_public_key: "",
   });
@@ -70,6 +70,7 @@ export default function Deploy() {
   const providerMeta = useProvider(platform);
   const platformFields = providerMeta?.deploy_fields || [];
   const showDiskProvisioning = Boolean(providerMeta?.features?.disk_provisioning);
+  const showVlanTag = Boolean(providerMeta?.features?.vlan_tagging);
 
   const preselect = searchParams.get("template");
   useEffect(() => {
@@ -130,6 +131,7 @@ export default function Deploy() {
     datastore: config.datastore,
     folder: config.folder,
     network: config.network,
+    vlan_tag: config.vlan_tag ? Number(config.vlan_tag) : undefined,
     cpu: config.cpu,
     memory_mb: config.memory_mb,
     disk_gb: config.disk_gb,
@@ -181,6 +183,7 @@ export default function Deploy() {
   // Build the hint text for collapsed advanced options
   const advancedHintParts = platformFields.map((f) => f.label);
   if (showDiskProvisioning) advancedHintParts.push("Provisioning");
+  if (showVlanTag) advancedHintParts.push("VLAN Tag");
   const advancedHint = advancedHintParts.join(", ");
 
   if (loading) {
@@ -378,6 +381,19 @@ export default function Deploy() {
                       </Select>
                     </div>
                   )}
+                  {showVlanTag && (
+                    <div className="space-y-2">
+                      <Label>VLAN Tag</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={4094}
+                        value={config.vlan_tag}
+                        onChange={(e) => setConfig({ ...config, vlan_tag: e.target.value })}
+                        placeholder="Untagged if empty"
+                      />
+                    </div>
+                  )}
                 </>
               )}
 
@@ -472,6 +488,7 @@ export default function Deploy() {
               <div><span className="text-muted-foreground">Memory:</span> <span className="font-medium">{config.memory_mb}MB</span></div>
               {config.disk_gb > 0 && <div><span className="text-muted-foreground">Disk:</span> <span className="font-medium">{config.disk_gb}GB</span></div>}
               {showDiskProvisioning && config.disk_provisioning && <div><span className="text-muted-foreground">Disk Provisioning:</span> <span className="font-medium">{DISK_PROVISIONING_OPTIONS.find((o) => o.value === config.disk_provisioning)?.label}</span></div>}
+              {showVlanTag && config.vlan_tag && <div><span className="text-muted-foreground">VLAN Tag:</span> <span className="font-medium">{config.vlan_tag}</span></div>}
               {platformFields.map((field) => {
                 const val = (config as Record<string, unknown>)[field.key] as string;
                 if (!val) return null;

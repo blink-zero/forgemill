@@ -79,6 +79,7 @@ type DeployRequest struct {
 	Datastore        string   `json:"datastore"`
 	Folder           string   `json:"folder"`
 	Network          string   `json:"network"`
+	VLANTag          int      `json:"vlan_tag,omitempty"`
 	CPU              int      `json:"cpu"`
 	MemoryMB         int      `json:"memory_mb"`
 	DiskGB           int      `json:"disk_gb"`
@@ -115,6 +116,9 @@ func validateDeployRequest(req *DeployRequest) error {
 	}
 	if req.DiskGB != 0 && (req.DiskGB < 1 || req.DiskGB > 65536) {
 		return fmt.Errorf("disk must be between 1GB and 64TB")
+	}
+	if req.VLANTag != 0 && (req.VLANTag < 1 || req.VLANTag > 4094) {
+		return fmt.Errorf("VLAN tag must be between 1 and 4094")
 	}
 	if req.IPAddress != "" && net.ParseIP(req.IPAddress) == nil {
 		return fmt.Errorf("invalid IP address")
@@ -314,6 +318,7 @@ func (s *DeployService) Start(req *DeployRequest, userID int64) (*DeployResponse
 		Datastore:    req.Datastore,
 		Folder:       req.Folder,
 		Network:      req.Network,
+		VLANTag:      req.VLANTag,
 		CPU:          req.CPU,
 		MemoryMB:     req.MemoryMB,
 		DiskGB:       req.DiskGB,

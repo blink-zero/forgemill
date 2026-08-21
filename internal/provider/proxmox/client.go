@@ -50,6 +50,7 @@ func init() {
 			Clusters:         false,
 			DiskProvisioning: false,
 			LinkedClones:     true,
+			VLANTagging:      true,
 		},
 		DeployFields: []provider.DeployField{
 			{Key: "datastore", Label: "Storage", Resource: "datastores"},
@@ -530,6 +531,17 @@ func intFromJSON(v interface{}) int {
 	return 0
 }
 
+// buildNet0Config builds the Proxmox net0 device config string for a
+// cloned VM. vlanTag <= 0 means untagged (no "tag=" segment) — Proxmox
+// interprets an untagged net0 as a regular access-port NIC on the bridge.
+func buildNet0Config(bridge string, vlanTag int) string {
+	net0 := fmt.Sprintf("virtio,bridge=%s", bridge)
+	if vlanTag > 0 {
+		net0 += fmt.Sprintf(",tag=%d", vlanTag)
+	}
+	return net0
+}
+
 func (p *Provider) DeployVM(ctx context.Context, spec *provider.DeploySpec) (*provider.DeployResult, error) {
 	// Find the template VMID by name
 	tmplID, tmplNode, err := p.findVMIDByName(ctx, spec.TemplateName)
@@ -589,7 +601,7 @@ func (p *Provider) DeployVM(ctx context.Context, spec *provider.DeploySpec) (*pr
 		configData.Set("memory", strconv.Itoa(spec.MemoryMB))
 	}
 	if spec.Network != "" {
-		configData.Set("net0", fmt.Sprintf("virtio,bridge=%s", spec.Network))
+		configData.Set("net0", buildNet0Config(spec.Network, spec.VLANTag))
 	}
 
 	// When UserDataOverride is set (actions selected), upload a snippet and
