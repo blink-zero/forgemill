@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { InfoTip } from "@/components/ui/tooltip";
 import {
   Power, Play, Square, RotateCcw, Pause, Trash2,
   Camera, Undo2, ExternalLink, Cpu, MemoryStick, HardDrive, ArrowLeft,
@@ -432,12 +433,15 @@ export default function VMDetail() {
                 </div>
 
                 <div className="border-t pt-3 space-y-2">
-                  <Button size="sm" variant="outline" className="w-full gap-1.5" onClick={async () => {
-                    if (!showExpandDisk) await loadDisks();
-                    setShowExpandDisk(!showExpandDisk);
-                  }}>
-                    <HardDrive className="h-3.5 w-3.5" /> Expand Disk
-                  </Button>
+                  <div className="flex items-center gap-1.5">
+                    <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={async () => {
+                      if (!showExpandDisk) await loadDisks();
+                      setShowExpandDisk(!showExpandDisk);
+                    }}>
+                      <HardDrive className="h-3.5 w-3.5" /> Expand Disk
+                    </Button>
+                    <InfoTip text="Grows the virtual disk only — it does not resize the partition or filesystem inside the guest OS, and it can't shrink a disk. Run the built-in “Expand Root Filesystem” action afterward to actually make the extra space usable." />
+                  </div>
                   {showExpandDisk && (
                     <div className="space-y-2 border rounded-md p-3 bg-muted/30">
                       {disks.length === 0 ? (
