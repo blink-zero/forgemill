@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { InfoTip } from "@/components/ui/tooltip";
 import { ArrowLeft, ArrowRight, Loader2, Play, Info } from "lucide-react";
 import { Select } from "@/components/ui/select";
 
@@ -531,7 +532,10 @@ export default function FactoryBuild() {
                     )}
                   </div>
                   <div>
-                    <Label>ISO Storage <span className="text-xs text-muted-foreground">(directory-type only)</span></Label>
+                    <div className="flex items-center gap-1.5">
+                      <Label>ISO Storage <span className="text-xs text-muted-foreground">(directory-type only)</span></Label>
+                      <InfoTip text="Proxmox storage backends like LVM or ZFS can hold VM disks but not raw ISO files — only directory-type storage (e.g. local, NFS) supports the “ISO image” content type. That's why block-based storage pools won't show up in this list." />
+                    </div>
                     {(resources?.iso_storages && resources.iso_storages.length > 0) ? (
                       <Select
                         value={isoStorage}

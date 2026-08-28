@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { InfoTip } from "@/components/ui/tooltip";
 import { ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Rocket, Info, Settings2, Box, Loader2, Hammer, RotateCcw, Search, AlertTriangle, AlertCircle } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
@@ -375,7 +376,10 @@ export default function Deploy() {
                   })}
                   {showDiskProvisioning && (
                     <div className="space-y-2">
-                      <Label>Disk Provisioning</Label>
+                      <div className="flex items-center gap-1.5">
+                        <Label>Disk Provisioning</Label>
+                        <InfoTip text="Thin: space allocated on the datastore only as data is written — smaller footprint, slight write overhead the first time each block is touched. Thick Lazy Zero: full size reserved up front, but old data on disk isn't wiped until first write. Thick Eager Zero: full size reserved and zeroed immediately — slowest to create, best write performance, required for some clustering features." />
+                      </div>
                       <Select value={config.disk_provisioning} onChange={(e) => setConfig({ ...config, disk_provisioning: e.target.value })}>
                         {DISK_PROVISIONING_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                       </Select>
@@ -383,7 +387,10 @@ export default function Deploy() {
                   )}
                   {showVlanTag && (
                     <div className="space-y-2">
-                      <Label>VLAN Tag</Label>
+                      <div className="flex items-center gap-1.5">
+                        <Label>VLAN Tag</Label>
+                        <InfoTip text="Tags this VM's NIC with an 802.1Q VLAN ID (1-4094), same as setting it in the Proxmox UI. The bridge you picked above must be configured as VLAN-aware in Proxmox itself, or the tag will be set but traffic won't actually be isolated to that VLAN — Forgemill can't verify that from here." />
+                      </div>
                       <Input
                         type="number"
                         min={1}
