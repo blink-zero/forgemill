@@ -25,7 +25,6 @@ import { useNowTick } from "@/hooks/useNowTick";
 import { OSBadge } from "@/components/OSBadge";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/toast";
-import { InfoTip } from "@/components/ui/tooltip";
 import { TimeWithTooltip } from "@/components/ui/time-with-tooltip";
 import { vmLifecycleLabel, parseVMQuery, matchesUptimeQuery, matchesAgeQuery } from "@/lib/vmLifecycle";
 
@@ -319,17 +318,14 @@ export default function VMs() {
         description="Tracked virtual machines across your targets."
         actions={
           <>
-            <div className="relative w-full sm:w-64 flex items-center gap-1.5">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search, or state:stopped uptime>30d..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-              <InfoTip text="Qualifiers work alongside plain text search: state:running|stopped|suspended, uptime>30d (running VMs only), age>14d (also accepts < and h/m units, e.g. uptime<12h)." />
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search, or state:stopped uptime>30d..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+              />
             </div>
             <ViewToggle />
             <Link to="/deploy">
