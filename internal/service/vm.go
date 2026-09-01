@@ -103,10 +103,85 @@ func (s *VMService) Get(ctx context.Context, id int64) (*models.ManagedVM, error
 	return vm, nil
 }
 
+// vmLifecycleState is the subset of a ManagedVM's lifecycle-tracking fields
+// applyPowerStateTransition reads and writes. Kept separate from
+// models.ManagedVM so the pure transition logic doesn't depend on the DB
+// model shape.
+type vmLifecycleState struct {
+	PowerState          string
+	StateChangedAt      *time.Time
+	LastPoweredOnAt     *time.Time
+	LastPoweredOffAt    *time.Time
+	TotalRuntimeSeconds int64
+}
+
+// applyPowerStateTransition computes the lifecycle fields for a VM that's
+// just been observed in newState, given its previously stored state. The
+// second return value is false when newState matches the already-stored
+// state — a routine sync re-observing the same state must not reset
+// state_changed_at, so callers should still persist prev's IP/last-synced
+// fields but the returned lifecycle fields are simply prev unchanged.
+//
+// total_runtime_seconds is a cumulative lifetime total that only grows
+// while the VM is poweredOn; it's frozen (never reset) whenever the VM
+// isn't poweredOn, including while suspended — "freeze the counter at
+// suspend, don't reset to zero." Resuming from suspended (or powered off)
+// starts counting a fresh poweredOn stretch (a new LastPoweredOnAt) rather
+// than continuing the stretch that was running before the interruption;
+// the cumulative total itself is unaffected by that distinction either way.
+func applyPowerStateTransition(prev vmLifecycleState, newState string, now time.Time) (vmLifecycleState, bool) {
+	if newState == prev.PowerState {
+		return prev, false
+	}
+	next := prev
+	next.PowerState = newState
+	changedAt := now
+	next.StateChangedAt = &changedAt
+	if prev.PowerState == "poweredOn" && prev.LastPoweredOnAt != nil {
+		next.TotalRuntimeSeconds += int64(now.Sub(*prev.LastPoweredOnAt).Seconds())
+	}
+	if newState == "poweredOn" {
+		next.LastPoweredOnAt = &changedAt
+	}
+	if newState == "poweredOff" {
+		next.LastPoweredOffAt = &changedAt
+	}
+	return next, true
+}
+
+// updateVMPowerState persists a newly-observed power state for vm,
+// computing the lifecycle bookkeeping fields alongside it. vm must reflect
+// the state as currently stored (i.e. loaded before this observation) —
+// every call site already has such a vm in hand from GetManagedVM or
+// ListManagedVMs. Returns the computed lifecycle state so callers that hand
+// the same *models.ManagedVM back to their own caller (SyncState) can
+// mirror it onto the in-memory struct, matching how CPU/MemoryMB/DiskGB are
+// already mirrored after their own DB writes below.
+func (s *VMService) updateVMPowerState(vm *models.ManagedVM, newPowerState, ipAddress string) (vmLifecycleState, error) {
+	next, _ := applyPowerStateTransition(vmLifecycleState{
+		PowerState:          vm.PowerState,
+		StateChangedAt:      vm.StateChangedAt,
+		LastPoweredOnAt:     vm.LastPoweredOnAt,
+		LastPoweredOffAt:    vm.LastPoweredOffAt,
+		TotalRuntimeSeconds: vm.TotalRuntimeSeconds,
+	}, newPowerState, time.Now())
+	err := s.db.UpdateManagedVMState(vm.ID, next.PowerState, ipAddress, next.StateChangedAt, next.LastPoweredOnAt, next.LastPoweredOffAt, next.TotalRuntimeSeconds)
+	return next, err
+}
+
 func (s *VMService) Create(vm *models.ManagedVM) error {
 	if vm.PowerState == "" {
 		vm.PowerState = "unknown"
 	}
+	// Seed lifecycle fields from a zero state so a freshly-deployed VM
+	// (typically created already "poweredOn") gets a correct
+	// LastPoweredOnAt/StateChangedAt immediately, via the same logic that
+	// handles every later transition — not a separate special case.
+	initial, _ := applyPowerStateTransition(vmLifecycleState{PowerState: "unknown"}, vm.PowerState, time.Now())
+	vm.StateChangedAt = initial.StateChangedAt
+	vm.LastPoweredOnAt = initial.LastPoweredOnAt
+	vm.LastPoweredOffAt = initial.LastPoweredOffAt
+	vm.TotalRuntimeSeconds = 0
 	return s.db.CreateManagedVM(vm)
 }
 
@@ -202,28 +277,28 @@ func (s *VMService) PowerAction(ctx context.Context, id int64, action string) er
 		if err := p.PowerOn(ctx, vm.VMRef); err != nil {
 			return fmt.Errorf("power on: %w", err)
 		}
-		if err := s.db.UpdateManagedVMState(id, "poweredOn", vm.IPAddress); err != nil {
+		if _, err := s.updateVMPowerState(vm, "poweredOn", vm.IPAddress); err != nil {
 			slog.Error("failed to update VM state", "vm_id", id, "state", "poweredOn", "error", err)
 		}
 	case "stop":
 		if err := p.PowerOff(ctx, vm.VMRef); err != nil {
 			return fmt.Errorf("power off: %w", err)
 		}
-		if err := s.db.UpdateManagedVMState(id, "poweredOff", vm.IPAddress); err != nil {
+		if _, err := s.updateVMPowerState(vm, "poweredOff", vm.IPAddress); err != nil {
 			slog.Error("failed to update VM state", "vm_id", id, "state", "poweredOff", "error", err)
 		}
 	case "restart":
 		if err := p.Restart(ctx, vm.VMRef); err != nil {
 			return fmt.Errorf("restart: %w", err)
 		}
-		if err := s.db.UpdateManagedVMState(id, "poweredOn", vm.IPAddress); err != nil {
+		if _, err := s.updateVMPowerState(vm, "poweredOn", vm.IPAddress); err != nil {
 			slog.Error("failed to update VM state", "vm_id", id, "state", "poweredOn", "error", err)
 		}
 	case "suspend":
 		if err := p.Suspend(ctx, vm.VMRef); err != nil {
 			return fmt.Errorf("suspend: %w", err)
 		}
-		if err := s.db.UpdateManagedVMState(id, "suspended", vm.IPAddress); err != nil {
+		if _, err := s.updateVMPowerState(vm, "suspended", vm.IPAddress); err != nil {
 			slog.Error("failed to update VM state", "vm_id", id, "state", "suspended", "error", err)
 		}
 	default:
@@ -256,7 +331,8 @@ func (s *VMService) SyncState(ctx context.Context, id int64) (*models.ManagedVM,
 		return nil, fmt.Errorf("get VM status: %w", err)
 	}
 
-	if err := s.db.UpdateManagedVMState(id, status.PowerState, status.IPAddress); err != nil {
+	lifecycle, err := s.updateVMPowerState(vm, status.PowerState, status.IPAddress)
+	if err != nil {
 		slog.Error("failed to update VM state", "vm_id", id, "state", status.PowerState, "error", err)
 	}
 	// Update resource info if available from provider
@@ -274,7 +350,11 @@ func (s *VMService) SyncState(ctx context.Context, id int64) (*models.ManagedVM,
 		}
 		vm.OSType = status.GuestID
 	}
-	vm.PowerState = status.PowerState
+	vm.PowerState = lifecycle.PowerState
+	vm.StateChangedAt = lifecycle.StateChangedAt
+	vm.LastPoweredOnAt = lifecycle.LastPoweredOnAt
+	vm.LastPoweredOffAt = lifecycle.LastPoweredOffAt
+	vm.TotalRuntimeSeconds = lifecycle.TotalRuntimeSeconds
 	vm.IPAddress = status.IPAddress
 	now := time.Now()
 	vm.LastSyncedAt = &now
@@ -367,7 +447,7 @@ func (s *VMService) SyncAll(ctx context.Context, dryRun bool) (*SyncAllResult, e
 				continue
 			}
 
-			if err := s.db.UpdateManagedVMState(vm.ID, status.PowerState, status.IPAddress); err != nil {
+			if _, err := s.updateVMPowerState(&vm, status.PowerState, status.IPAddress); err != nil {
 				slog.Error("sync-all: failed to update state", "vm_id", vm.ID, "error", err)
 			}
 			// Update resource info if available

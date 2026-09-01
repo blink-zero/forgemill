@@ -14,11 +14,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InfoTip } from "@/components/ui/tooltip";
+import { TimeWithTooltip } from "@/components/ui/time-with-tooltip";
+import { useNowTick } from "@/hooks/useNowTick";
+import { vmLifecycleLabel, totalLifetimeRuntimeMs, formatDuration } from "@/lib/vmLifecycle";
+import { timeAgo } from "@/lib/utils";
 import {
   Power, Play, Square, RotateCcw, Pause, Trash2,
   Camera, Undo2, ExternalLink, Cpu, MemoryStick, HardDrive, ArrowLeft,
   RefreshCw, KeyRound, Eye, EyeOff, Copy, Terminal, X,
   CheckCircle, XCircle, Loader2, AlertTriangle, Settings2,
+  CalendarPlus, Clock, History,
 } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { getErrorMessage } from "@/lib/utils";
@@ -49,6 +54,7 @@ type Tab = "overview" | "snapshots" | "actions";
 
 export default function VMDetail() {
   const { formatDateTime } = useTimezone();
+  const now = useNowTick();
   const { confirm: showConfirm } = useConfirm();
   const { toast } = useToast();
   const { id } = useParams<{ id: string }>();
@@ -322,6 +328,47 @@ export default function VMDetail() {
                 <div>
                   <p className="text-2xl font-bold">{vm.disk_gb ? `${vm.disk_gb} GB` : "—"}</p>
                   <p className="text-xs text-muted-foreground">Disk</p>
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          {/* Lifecycle Stats */}
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Card className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-slate-500/10 flex items-center justify-center">
+                  <CalendarPlus className="h-5 w-5 text-slate-500" />
+                </div>
+                <div>
+                  <TimeWithTooltip iso={vm.created_at}>
+                    <p className="text-2xl font-bold">{timeAgo(vm.created_at)}</p>
+                  </TimeWithTooltip>
+                  <p className="text-xs text-muted-foreground">Created</p>
+                </div>
+              </div>
+            </Card>
+            <Card className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                  <Clock className="h-5 w-5 text-amber-500" />
+                </div>
+                <div>
+                  <TimeWithTooltip iso={vm.state_changed_at}>
+                    <p className="text-2xl font-bold">{vmLifecycleLabel(vm, now).label || "—"}</p>
+                  </TimeWithTooltip>
+                  <p className="text-xs text-muted-foreground">Current Session</p>
+                </div>
+              </div>
+            </Card>
+            <Card className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-teal-500/10 flex items-center justify-center">
+                  <History className="h-5 w-5 text-teal-500" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{formatDuration(totalLifetimeRuntimeMs(vm, now))}</p>
+                  <p className="text-xs text-muted-foreground">Total Lifetime Runtime</p>
                 </div>
               </div>
             </Card>

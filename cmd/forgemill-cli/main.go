@@ -197,6 +197,26 @@ func printTable(headers []string, rows [][]string) {
 	}
 }
 
+// humanDuration formats a duration compactly (e.g. "3d14h", "45m", "12s"),
+// matching the relative-time style used in the web UI. Used for the vms
+// list table's AGE/UPTIME columns — the raw ISO-8601 timestamps (created_at,
+// state_changed_at, last_powered_on_at, last_powered_off_at) and
+// total_runtime_seconds are still present in full in --json output.
+func humanDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	if days > 0 {
+		return fmt.Sprintf("%dd%dh", days, hours)
+	}
+	return fmt.Sprintf("%dh%dm", hours, int(d.Minutes())%60)
+}
+
 // --- Login ---
 
 func loginCmd() *cobra.Command {
@@ -486,27 +506,46 @@ func vmsCmd() *cobra.Command {
 			}
 
 			var vms []struct {
-				ID         int64  `json:"id"`
-				VMName     string `json:"vm_name"`
-				PowerState string `json:"power_state"`
-				IPAddress  string `json:"ip_address"`
-				CPU        int    `json:"cpu"`
-				MemoryMB   int    `json:"memory_mb"`
-				TargetName string `json:"target_name"`
+				ID              int64      `json:"id"`
+				VMName          string     `json:"vm_name"`
+				PowerState      string     `json:"power_state"`
+				IPAddress       string     `json:"ip_address"`
+				CPU             int        `json:"cpu"`
+				MemoryMB        int        `json:"memory_mb"`
+				TargetName      string     `json:"target_name"`
+				CreatedAt       time.Time  `json:"created_at"`
+				StateChangedAt  *time.Time `json:"state_changed_at"`
+				LastPoweredOnAt *time.Time `json:"last_powered_on_at"`
 			}
 			if err := json.Unmarshal(body, &vms); err != nil {
 				return fmt.Errorf("failed to parse response: %w", err)
 			}
 
+			now := time.Now()
 			rows := [][]string{}
 			for _, vm := range vms {
+				age := "-"
+				if !vm.CreatedAt.IsZero() {
+					age = humanDuration(now.Sub(vm.CreatedAt))
+				}
+				// UPTIME shows how long the VM has been in its current
+				// state (poweredOn: still ticking; anything else: frozen
+				// since state_changed_at, per the same "freeze on suspend"
+				// rule the web UI uses) — not the cumulative lifetime total.
+				stateDuration := "-"
+				if vm.PowerState == "poweredOn" && vm.LastPoweredOnAt != nil {
+					stateDuration = humanDuration(now.Sub(*vm.LastPoweredOnAt))
+				} else if vm.StateChangedAt != nil {
+					stateDuration = humanDuration(now.Sub(*vm.StateChangedAt))
+				}
 				rows = append(rows, []string{
 					fmt.Sprintf("%d", vm.ID), vm.VMName, vm.PowerState,
 					vm.IPAddress, fmt.Sprintf("%d", vm.CPU),
 					fmt.Sprintf("%d", vm.MemoryMB), vm.TargetName,
+					age, stateDuration,
 				})
 			}
-			printTable([]string{"ID", "NAME", "STATE", "IP", "CPU", "MEMORY_MB", "TARGET"}, rows)
+			printTable([]string{"ID", "NAME", "STATE", "IP", "CPU", "MEMORY_MB", "TARGET", "AGE", "STATE_DURATION"}, rows)
 			return nil
 		},
 	}
