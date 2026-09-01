@@ -62,6 +62,7 @@ var migrations = []struct {
 	{36, migrationV36},
 	{37, migrationV37},
 	{38, migrationV38},
+	{39, migrationV39},
 }
 
 const migrationV1 = `
@@ -1368,6 +1369,34 @@ UPDATE actions SET tags = '["packages","updates","maintenance"]' WHERE name = 'U
 UPDATE actions SET tags = '["docker","containers","packages"]' WHERE name = 'Install Docker' AND builtin = 1;
 
 INSERT INTO schema_version (version) VALUES (38);
+`
+
+// migrationV39: VM lifecycle tracking — when a VM's power state last
+// changed, when it was last powered on/off, and its cumulative lifetime
+// runtime. All four columns are nullable/zero-defaulted so every existing
+// row parses cleanly with no history.
+//
+// Backfill note: we have no real transition history for VMs that already
+// existed before this migration, so the least-wrong assumption is "has been
+// in its currently-observed state since it was created." This may
+// overstate uptime for a VM that's actually power-cycled since creation —
+// the next real transition (a power action, or a sync that detects an
+// actual state change) corrects it going forward. total_runtime_seconds
+// intentionally starts at 0 rather than being backfilled from this same
+// guess, since compounding an already-approximate "since creation" uptime
+// into a second derived number felt like overstating a number we can't
+// actually vouch for; it starts accumulating cleanly from this migration.
+const migrationV39 = `
+ALTER TABLE managed_vms ADD COLUMN state_changed_at DATETIME;
+ALTER TABLE managed_vms ADD COLUMN last_powered_on_at DATETIME;
+ALTER TABLE managed_vms ADD COLUMN last_powered_off_at DATETIME;
+ALTER TABLE managed_vms ADD COLUMN total_runtime_seconds INTEGER NOT NULL DEFAULT 0;
+
+UPDATE managed_vms SET state_changed_at = created_at WHERE state_changed_at IS NULL;
+UPDATE managed_vms SET last_powered_on_at = created_at WHERE power_state = 'poweredOn' AND last_powered_on_at IS NULL;
+UPDATE managed_vms SET last_powered_off_at = created_at WHERE power_state = 'poweredOff' AND last_powered_off_at IS NULL;
+
+INSERT INTO schema_version (version) VALUES (39);
 `
 
 // v34BuiltinActions defines the 2 new built-in actions added in V34.

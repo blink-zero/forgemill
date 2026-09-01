@@ -245,6 +245,15 @@ export interface ManagedVM {
   created_at: string;
   target_name: string;
   template_name?: string;
+
+  // Lifecycle tracking — state_changed_at/last_powered_on_at/last_powered_off_at
+  // are null until the first observed power-state transition. total_runtime_seconds
+  // is cumulative and only grows while poweredOn (frozen otherwise, including
+  // while suspended — never reset to zero).
+  state_changed_at: string | null;
+  last_powered_on_at: string | null;
+  last_powered_off_at: string | null;
+  total_runtime_seconds: number;
 }
 
 export interface VMSnapshot {
