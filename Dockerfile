@@ -24,7 +24,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /forgemill ./cmd/forgemill
 
 # Stage 3: Final image
-FROM alpine:3.20
+FROM alpine:3.24
 
 # Install Packer for Template Factory builds (with checksum verification)
 RUN apk add --no-cache ca-certificates tzdata curl unzip xorriso openssl && \
