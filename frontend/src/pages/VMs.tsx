@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import {
   Search, Monitor, Cpu, MemoryStick, HardDrive, Power, RefreshCw,
   Play, Square, Rocket, MoreHorizontal, ExternalLink, Terminal,
-  Camera, RotateCw, X, Box,
+  Camera, RotateCw, X, Box, Clock, CalendarDays,
 } from "lucide-react";
 import { cn, getErrorMessage, timeAgo, copyText } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
@@ -21,9 +21,12 @@ import { usePreference } from "@/context/PreferencesContext";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableSort } from "@/hooks/useTableSort";
 import { usePageSize } from "@/hooks/usePageSize";
+import { useNowTick } from "@/hooks/useNowTick";
 import { OSBadge } from "@/components/OSBadge";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/toast";
+import { TimeWithTooltip } from "@/components/ui/time-with-tooltip";
+import { vmLifecycleLabel, parseVMQuery, matchesUptimeQuery, matchesAgeQuery } from "@/lib/vmLifecycle";
 
 const powerVariant = (state: string) => {
   if (state === "poweredOn" || state === "running") return "success" as const;
@@ -92,9 +95,18 @@ export default function VMs() {
     return latest ? new Date(latest).toISOString() : null;
   }, [vmList]);
 
+  // Single shared clock for every relative-time display on this page — one
+  // 60s tick re-renders the whole list, instead of each row polling on its own.
+  const now = useNowTick();
+
+  // Search box doubles as a qualifier parser: "state:stopped", "uptime>30d",
+  // "age>14d" are stripped out and matched separately, the rest is plain
+  // substring search exactly as before.
+  const parsedQuery = useMemo(() => parseVMQuery(search), [search]);
+
   // Filters + sort share a single sorted array used by both views.
   const filtered = useMemo(() => {
-    const q = search.toLowerCase();
+    const q = parsedQuery.text;
     return vmList.filter((v) => {
       const matchesSearch =
         !q ||
@@ -105,9 +117,12 @@ export default function VMs() {
         (v.template_name || "").toLowerCase().includes(q);
       const matchesStatus = statusFilter === "all" || v.power_state === statusFilter;
       const matchesTarget = targetFilter === "all" || v.target_name === targetFilter;
-      return matchesSearch && matchesStatus && matchesTarget;
+      const matchesQueryState = !parsedQuery.state || v.power_state === parsedQuery.state;
+      const matchesUptime = !parsedQuery.uptime || matchesUptimeQuery(v, parsedQuery.uptime, now);
+      const matchesAge = !parsedQuery.age || matchesAgeQuery(v, parsedQuery.age, now);
+      return matchesSearch && matchesStatus && matchesTarget && matchesQueryState && matchesUptime && matchesAge;
     });
-  }, [vmList, search, statusFilter, targetFilter]);
+  }, [vmList, parsedQuery, statusFilter, targetFilter, now]);
 
   const viewMode = usePreference("view_mode", "cards");
   const { sorted, sortField, sortDir, toggleSort } = useTableSort(filtered, "vm_name");
@@ -306,7 +321,7 @@ export default function VMs() {
             <div className="relative w-full sm:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search name, IP, target, OS..."
+                placeholder="Search, or state:stopped uptime>30d..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-9"
@@ -395,6 +410,8 @@ export default function VMs() {
                     <th className="text-left px-4 py-2 font-medium hidden md:table-cell">Specs</th>
                     <SortableTh label="Target" field="target_name" currentField={sortField} currentDir={sortDir} onSort={toggleSort} className="hidden lg:table-cell" />
                     <SortableTh label="Status" field="power_state" currentField={sortField} currentDir={sortDir} onSort={toggleSort} />
+                    <SortableTh label="Created" field="created_at" currentField={sortField} currentDir={sortDir} onSort={toggleSort} className="hidden xl:table-cell" />
+                    <SortableTh label="State Duration" field="state_changed_at" currentField={sortField} currentDir={sortDir} onSort={toggleSort} className="hidden xl:table-cell" />
                     <th className="text-right px-4 py-2 font-medium w-24">Actions</th>
                   </tr>
                 </thead>
@@ -429,6 +446,21 @@ export default function VMs() {
                           <Power className="h-3 w-3 mr-1" />
                           {powerLabel(vm.power_state)}
                         </Badge>
+                        {vmLifecycleLabel(vm, now).label && (
+                          <div className="mt-0.5">
+                            <TimeWithTooltip iso={vm.state_changed_at} className="text-[11px] text-muted-foreground">
+                              {vmLifecycleLabel(vm, now).label}
+                            </TimeWithTooltip>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-muted-foreground hidden xl:table-cell whitespace-nowrap">
+                        <TimeWithTooltip iso={vm.created_at}>{timeAgo(vm.created_at)}</TimeWithTooltip>
+                      </td>
+                      <td className="px-4 py-2.5 text-muted-foreground hidden xl:table-cell whitespace-nowrap">
+                        <TimeWithTooltip iso={vm.state_changed_at}>
+                          {vmLifecycleLabel(vm, now).label || "—"}
+                        </TimeWithTooltip>
                       </td>
                       <td className="px-2 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-0.5">
@@ -528,6 +560,20 @@ export default function VMs() {
                         <span className="text-sm font-mono">{vm.disk_gb ? `${vm.disk_gb}G` : "?"}</span>
                       </div>
                     </div>
+
+                    {/* Lifecycle strip */}
+                    {(vmLifecycleLabel(vm, now).label || vm.created_at) && (
+                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground pt-1 border-t border-border" onClick={(e) => e.stopPropagation()}>
+                        {vmLifecycleLabel(vm, now).label && (
+                          <TimeWithTooltip iso={vm.state_changed_at} className="inline-flex items-center gap-1">
+                            <Clock className="h-3 w-3" /> {vmLifecycleLabel(vm, now).label}
+                          </TimeWithTooltip>
+                        )}
+                        <TimeWithTooltip iso={vm.created_at} className="inline-flex items-center gap-1">
+                          <CalendarDays className="h-3 w-3" /> Age: {timeAgo(vm.created_at)}
+                        </TimeWithTooltip>
+                      </div>
+                    )}
 
                     {/* Footer */}
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 border-t border-border">

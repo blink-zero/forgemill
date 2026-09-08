@@ -1007,9 +1007,10 @@ func (db *DB) DeleteWebhook(id int64) error {
 
 func (db *DB) CreateManagedVM(vm *models.ManagedVM) error {
 	res, err := db.conn.Exec(
-		`INSERT INTO managed_vms (deployment_id, target_id, vm_name, vm_ref, power_state, ip_address, cpu, memory_mb, disk_gb, os_type, last_synced_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO managed_vms (deployment_id, target_id, vm_name, vm_ref, power_state, ip_address, cpu, memory_mb, disk_gb, os_type, last_synced_at, state_changed_at, last_powered_on_at, last_powered_off_at, total_runtime_seconds)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		vm.DeploymentID, vm.TargetID, vm.VMName, vm.VMRef, vm.PowerState, vm.IPAddress, vm.CPU, vm.MemoryMB, vm.DiskGB, vm.OSType, vm.LastSyncedAt,
+		vm.StateChangedAt, vm.LastPoweredOnAt, vm.LastPoweredOffAt, vm.TotalRuntimeSeconds,
 	)
 	if err != nil {
 		if isUniqueConstraintError(err) {
@@ -1029,8 +1030,8 @@ func (db *DB) CreateManagedVM(vm *models.ManagedVM) error {
 // the (vm_ref, target_id) pair already exists (e.g. Proxmox reuses a VMID).
 func (db *DB) UpsertManagedVM(vm *models.ManagedVM) error {
 	_, err := db.conn.Exec(
-		`INSERT INTO managed_vms (deployment_id, target_id, vm_name, vm_ref, power_state, ip_address, cpu, memory_mb, disk_gb, os_type, last_synced_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO managed_vms (deployment_id, target_id, vm_name, vm_ref, power_state, ip_address, cpu, memory_mb, disk_gb, os_type, last_synced_at, state_changed_at, last_powered_on_at, last_powered_off_at, total_runtime_seconds)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(vm_ref, target_id) DO UPDATE SET
 		   deployment_id = excluded.deployment_id,
 		   vm_name = excluded.vm_name,
@@ -1040,8 +1041,13 @@ func (db *DB) UpsertManagedVM(vm *models.ManagedVM) error {
 		   memory_mb = excluded.memory_mb,
 		   disk_gb = excluded.disk_gb,
 		   os_type = excluded.os_type,
-		   last_synced_at = excluded.last_synced_at`,
+		   last_synced_at = excluded.last_synced_at,
+		   state_changed_at = excluded.state_changed_at,
+		   last_powered_on_at = excluded.last_powered_on_at,
+		   last_powered_off_at = excluded.last_powered_off_at,
+		   total_runtime_seconds = excluded.total_runtime_seconds`,
 		vm.DeploymentID, vm.TargetID, vm.VMName, vm.VMRef, vm.PowerState, vm.IPAddress, vm.CPU, vm.MemoryMB, vm.DiskGB, vm.OSType, vm.LastSyncedAt,
+		vm.StateChangedAt, vm.LastPoweredOnAt, vm.LastPoweredOffAt, vm.TotalRuntimeSeconds,
 	)
 	if err != nil {
 		return err
@@ -1058,13 +1064,14 @@ func (db *DB) GetManagedVM(id int64) (*models.ManagedVM, error) {
 	vm := &models.ManagedVM{}
 	err := db.conn.QueryRow(
 		`SELECT v.id, v.deployment_id, v.target_id, v.vm_name, v.vm_ref, v.power_state, v.ip_address, v.cpu, v.memory_mb, v.disk_gb, v.os_type, COALESCE(v.platform, 'linux'), v.last_synced_at, v.created_at, COALESCE(t.name, ''),
-		        COALESCE(d.template_name, tmpl.name, '')
+		        COALESCE(d.template_name, tmpl.name, ''), v.state_changed_at, v.last_powered_on_at, v.last_powered_off_at, v.total_runtime_seconds
 		 FROM managed_vms v
 		 LEFT JOIN targets t ON v.target_id = t.id
 		 LEFT JOIN deployments d ON v.deployment_id = d.id
 		 LEFT JOIN templates tmpl ON d.template_id = tmpl.id
 		 WHERE v.id = ?`, id,
-	).Scan(&vm.ID, &vm.DeploymentID, &vm.TargetID, &vm.VMName, &vm.VMRef, &vm.PowerState, &vm.IPAddress, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSType, &vm.Platform, &vm.LastSyncedAt, &vm.CreatedAt, &vm.TargetName, &vm.TemplateName)
+	).Scan(&vm.ID, &vm.DeploymentID, &vm.TargetID, &vm.VMName, &vm.VMRef, &vm.PowerState, &vm.IPAddress, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSType, &vm.Platform, &vm.LastSyncedAt, &vm.CreatedAt, &vm.TargetName, &vm.TemplateName,
+		&vm.StateChangedAt, &vm.LastPoweredOnAt, &vm.LastPoweredOffAt, &vm.TotalRuntimeSeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -1074,7 +1081,7 @@ func (db *DB) GetManagedVM(id int64) (*models.ManagedVM, error) {
 func (db *DB) ListManagedVMs() ([]models.ManagedVM, error) {
 	rows, err := db.conn.Query(
 		`SELECT v.id, v.deployment_id, v.target_id, v.vm_name, v.vm_ref, v.power_state, v.ip_address, v.cpu, v.memory_mb, v.disk_gb, v.os_type, COALESCE(v.platform, 'linux'), v.last_synced_at, v.created_at, COALESCE(t.name, ''),
-		        COALESCE(d.template_name, tmpl.name, '')
+		        COALESCE(d.template_name, tmpl.name, ''), v.state_changed_at, v.last_powered_on_at, v.last_powered_off_at, v.total_runtime_seconds
 		 FROM managed_vms v
 		 LEFT JOIN targets t ON v.target_id = t.id
 		 LEFT JOIN deployments d ON v.deployment_id = d.id
@@ -1088,7 +1095,8 @@ func (db *DB) ListManagedVMs() ([]models.ManagedVM, error) {
 	vms := []models.ManagedVM{}
 	for rows.Next() {
 		var vm models.ManagedVM
-		if err := rows.Scan(&vm.ID, &vm.DeploymentID, &vm.TargetID, &vm.VMName, &vm.VMRef, &vm.PowerState, &vm.IPAddress, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSType, &vm.Platform, &vm.LastSyncedAt, &vm.CreatedAt, &vm.TargetName, &vm.TemplateName); err != nil {
+		if err := rows.Scan(&vm.ID, &vm.DeploymentID, &vm.TargetID, &vm.VMName, &vm.VMRef, &vm.PowerState, &vm.IPAddress, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSType, &vm.Platform, &vm.LastSyncedAt, &vm.CreatedAt, &vm.TargetName, &vm.TemplateName,
+			&vm.StateChangedAt, &vm.LastPoweredOnAt, &vm.LastPoweredOffAt, &vm.TotalRuntimeSeconds); err != nil {
 			return nil, err
 		}
 		vms = append(vms, vm)
@@ -1096,9 +1104,16 @@ func (db *DB) ListManagedVMs() ([]models.ManagedVM, error) {
 	return vms, rows.Err()
 }
 
-func (db *DB) UpdateManagedVMState(id int64, powerState string, ipAddress string) error {
+// UpdateManagedVMState persists a VM's power state and, alongside it, the
+// lifecycle bookkeeping fields the caller has already computed (see
+// service.applyPowerStateTransition) — this method just writes what it's
+// given, it doesn't decide whether a transition occurred.
+func (db *DB) UpdateManagedVMState(id int64, powerState string, ipAddress string, stateChangedAt, lastPoweredOnAt, lastPoweredOffAt *time.Time, totalRuntimeSeconds int64) error {
 	now := time.Now()
-	_, err := db.conn.Exec(`UPDATE managed_vms SET power_state=?, ip_address=?, last_synced_at=? WHERE id=?`, powerState, ipAddress, now, id)
+	_, err := db.conn.Exec(
+		`UPDATE managed_vms SET power_state=?, ip_address=?, last_synced_at=?, state_changed_at=?, last_powered_on_at=?, last_powered_off_at=?, total_runtime_seconds=? WHERE id=?`,
+		powerState, ipAddress, now, stateChangedAt, lastPoweredOnAt, lastPoweredOffAt, totalRuntimeSeconds, id,
+	)
 	return err
 }
 

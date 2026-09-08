@@ -186,6 +186,16 @@ type ManagedVM struct {
 	CreatedAt    time.Time  `json:"created_at"`
 	TargetName   string     `json:"target_name,omitempty"`
 	TemplateName string     `json:"template_name,omitempty"`
+
+	// Lifecycle tracking. StateChangedAt/LastPoweredOnAt/LastPoweredOffAt are
+	// nil until the first observed power-state transition (e.g. a VM
+	// registered by ref before its first sync). TotalRuntimeSeconds is a
+	// cumulative lifetime total that only grows while poweredOn — frozen
+	// (never reset) whenever the VM isn't poweredOn, including suspended.
+	StateChangedAt      *time.Time `json:"state_changed_at"`
+	LastPoweredOnAt     *time.Time `json:"last_powered_on_at"`
+	LastPoweredOffAt    *time.Time `json:"last_powered_off_at"`
+	TotalRuntimeSeconds int64      `json:"total_runtime_seconds"`
 }
 
 type VMSnapshot struct {

@@ -448,6 +448,14 @@ func (s *DeployService) runDeploy(ctx context.Context, deploymentID, targetID in
 				OSType:       "linux",
 				TemplateName: spec.TemplateName,
 			}
+			// Seed lifecycle fields the same way VMService.Create does — a
+			// freshly-deployed VM starts "poweredOn", so this records its
+			// first LastPoweredOnAt/StateChangedAt immediately rather than
+			// leaving them nil until the next sync happens to run.
+			initial, _ := applyPowerStateTransition(vmLifecycleState{PowerState: "unknown"}, vm.PowerState, time.Now())
+			vm.StateChangedAt = initial.StateChangedAt
+			vm.LastPoweredOnAt = initial.LastPoweredOnAt
+			vm.LastPoweredOffAt = initial.LastPoweredOffAt
 			if err := s.db.UpsertManagedVM(vm); err != nil {
 				slog.Error("failed to register managed VM", "deployment_id", deploymentID, "error", err)
 			}
