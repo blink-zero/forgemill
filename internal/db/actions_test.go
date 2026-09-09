@@ -17,6 +17,20 @@ func newTestDB(t *testing.T) *DB {
 	return database
 }
 
+// newTestUser creates a real user row and returns its ID. Action version
+// snapshots carry changed_by, which is a foreign key into users — with
+// foreign keys actually enforced (modernc.org/sqlite honours
+// _foreign_keys=ON as of v1.58; older versions silently ignored it), a
+// fabricated user ID makes the snapshot insert fail.
+func newTestUser(t *testing.T, database *DB) int64 {
+	t.Helper()
+	u := &models.User{Username: "tester", PasswordHash: "x", DisplayName: "Tester", Role: "admin", IsActive: true}
+	if err := database.CreateUser(u); err != nil {
+		t.Fatalf("create test user: %v", err)
+	}
+	return u.ID
+}
+
 func TestCreateActionStartsAtVersion1(t *testing.T) {
 	database := newTestDB(t)
 	a := &models.Action{Name: "install-nginx", Category: "packages", Script: "apt-get install -y nginx"}
@@ -38,7 +52,7 @@ func TestCreateActionStartsAtVersion1(t *testing.T) {
 
 func TestActionTagsRoundTripThroughCreateGetAndVersionHistory(t *testing.T) {
 	database := newTestDB(t)
-	userID := int64(9)
+	userID := newTestUser(t, database)
 
 	a := &models.Action{
 		Name: "install-nginx", Category: "packages", Script: "apt-get install -y nginx",
@@ -139,7 +153,7 @@ func TestV38SeedsExpandedActionLibrary(t *testing.T) {
 
 func TestUpdateActionSnapshotsPriorVersionRetroactively(t *testing.T) {
 	database := newTestDB(t)
-	userID := int64(7)
+	userID := newTestUser(t, database)
 
 	a := &models.Action{Name: "install-nginx", Category: "packages", Script: "apt-get install -y nginx"}
 	if err := database.CreateAction(a); err != nil {
@@ -190,7 +204,7 @@ func TestUpdateActionSnapshotsPriorVersionRetroactively(t *testing.T) {
 
 func TestRollbackActionCreatesNewVersionInsteadOfRewritingHistory(t *testing.T) {
 	database := newTestDB(t)
-	userID := int64(3)
+	userID := newTestUser(t, database)
 
 	a := &models.Action{Name: "configure-firewall", Category: "security", Script: "ufw allow 22"}
 	if err := database.CreateAction(a); err != nil {
@@ -229,7 +243,7 @@ func TestRollbackActionCreatesNewVersionInsteadOfRewritingHistory(t *testing.T) 
 
 func TestRollbackActionRejectsCurrentVersionAndBuiltins(t *testing.T) {
 	database := newTestDB(t)
-	userID := int64(1)
+	userID := newTestUser(t, database)
 
 	a := &models.Action{Name: "noop", Category: "custom", Script: "true"}
 	if err := database.CreateAction(a); err != nil {
