@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -199,7 +200,10 @@ func (s *LDAPService) TestConnection(sourceID int64) error {
 
 // 5.10: LDAP connection with timeout to prevent hanging on unreachable servers
 func (s *LDAPService) connect(cfg LDAPConfig) (*ldapv3.Conn, error) {
-	addr := fmt.Sprintf("%s:%d", cfg.Server, cfg.Port)
+	// net.JoinHostPort rather than Sprintf("%s:%d"): an IPv6 literal server
+	// address needs bracketing, which plain concatenation doesn't do — it
+	// yields "2001:db8::1:389", which won't dial. Go 1.26's vet flags this.
+	addr := net.JoinHostPort(cfg.Server, strconv.Itoa(cfg.Port))
 	timeout := 10 * time.Second
 
 	if cfg.UseTLS {
