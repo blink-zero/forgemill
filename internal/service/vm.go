@@ -811,3 +811,28 @@ func (s *VMService) AddNIC(ctx context.Context, id int64, req AddNICRequest) (*p
 	}
 	return nic, nil
 }
+
+// ListNICs returns the VM's network adapters live from the hypervisor,
+// like ListDisks — nothing is persisted.
+func (s *VMService) ListNICs(ctx context.Context, id int64) ([]provider.NIC, error) {
+	vm, err := s.db.GetManagedVM(id)
+	if err != nil {
+		return nil, fmt.Errorf("%w: id %d", ErrVMNotFound, id)
+	}
+	p, err := s.targets.GetProvider(vm.TargetID)
+	if err != nil {
+		return nil, fmt.Errorf("get provider: %w", err)
+	}
+	defer p.Disconnect()
+	if err := p.Connect(ctx); err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+	nics, err := p.ListNICs(ctx, vm.VMRef)
+	if err != nil {
+		return nil, err
+	}
+	if nics == nil {
+		nics = []provider.NIC{}
+	}
+	return nics, nil
+}

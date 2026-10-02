@@ -503,4 +503,7 @@ export interface VMNIC {
   vlan_tag?: number;
   // Proxmox with network hot-plug disabled: saved, attaches at next power cycle.
   pending?: boolean;
+  // Guest-reported IPs on this adapter (IPv4 first); empty when guest
+  // tools / the guest agent aren't reporting.
+  addresses: string[];
 }

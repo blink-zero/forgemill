@@ -187,6 +187,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 			r.Get("/vms", vmH.List)
 			r.Get("/vms/{id}", vmH.Get)
 			r.Get("/vms/{id}/snapshots", vmH.ListSnapshots)
+			r.Get("/vms/{id}/nics", vmH.ListNICs)
 			r.Get("/vms/{id}/executions", execH.ListVMExecutions)
 			r.Get("/executions/{id}", execH.GetExecution)
 			r.Get("/blueprints", blueprintH.List)

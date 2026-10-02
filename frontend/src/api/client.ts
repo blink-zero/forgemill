@@ -174,6 +174,8 @@ export const vms = {
   // Providers advertise support via features.nic_attach; adapter_type
   // defaults server-side (vmxnet3 on vSphere, virtio on Proxmox); connected
   // defaults to true; vlan_tag is Proxmox-only.
+  // Live from the hypervisor, like listDisks.
+  listNICs: (id: number) => api.get<VMNIC[]>(`/vms/${id}/nics`),
   addNIC: (id: number, data: { network: string; adapter_type?: string; connected?: boolean; vlan_tag?: number }) =>
     api.post<{ status: string; nic: VMNIC }>(`/vms/${id}/nics`, data),
   console: (id: number) => api.get<{ url: string }>(`/vms/${id}/console`),

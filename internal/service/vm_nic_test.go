@@ -24,6 +24,8 @@ type fakeNICProvider struct {
 	addNICCalls []provider.NICSpec
 	addNICErr   error
 	statusCalls int
+	nics        []provider.NIC
+	listNICsErr error
 }
 
 var fakeNIC *fakeNICProvider
@@ -87,6 +89,12 @@ func (f *fakeNICProvider) AddNIC(_ context.Context, _ string, spec provider.NICS
 		return nil, f.addNICErr
 	}
 	return &provider.NIC{Key: 4001, Label: "Network adapter 2", AdapterType: "vmxnet3", Network: spec.Network, MACAddress: "00:50:56:aa:bb:cc", Connected: spec.Connected}, nil
+}
+func (f *fakeNICProvider) ListNICs(context.Context, string) ([]provider.NIC, error) {
+	if f.listNICsErr != nil {
+		return nil, f.listNICsErr
+	}
+	return f.nics, nil
 }
 func (f *fakeNICProvider) GetConsoleURL(context.Context, string) (string, error) {
 	return "", errTestList
@@ -286,5 +294,35 @@ func TestAddNICInvalidAdapterTypeRejectedBeforeConnecting(t *testing.T) {
 	}
 	if got := fakeNIC.addNICCalls[0].AdapterType; got != "e1000e" {
 		t.Errorf("provider received adapter %q, want e1000e", got)
+	}
+}
+
+func TestListNICsReturnsProviderInventoryAndNeverNil(t *testing.T) {
+	svc, _, vmID := newNICTestService(t, "esxi")
+	fakeNIC.nics = []provider.NIC{
+		{Key: 4000, Label: "Network adapter 1", AdapterType: "vmxnet3", Network: "VM Network", MACAddress: "00:50:56:00:00:01", Connected: true, Addresses: []string{"10.20.10.11", "fe80::1"}},
+		{Key: 4001, Label: "Network adapter 2", AdapterType: "e1000e", Network: "dvPG-Backend", MACAddress: "00:50:56:00:00:02", Connected: false},
+	}
+	got, err := svc.ListNICs(context.Background(), vmID)
+	if err != nil {
+		t.Fatalf("ListNICs: %v", err)
+	}
+	if len(got) != 2 || got[1].Network != "dvPG-Backend" || got[0].Addresses[0] != "10.20.10.11" {
+		t.Errorf("unexpected inventory: %+v", got)
+	}
+
+	// A VM with no adapters is an empty list, not null — the UI iterates it.
+	fakeNIC.nics = nil
+	got, err = svc.ListNICs(context.Background(), vmID)
+	if err != nil || got == nil || len(got) != 0 {
+		t.Errorf("expected empty non-nil slice, got %v, %v", got, err)
+	}
+}
+
+func TestListNICsVMNotFound(t *testing.T) {
+	svc, _, _ := newNICTestService(t, "esxi")
+	_, err := svc.ListNICs(context.Background(), 424242)
+	if !errors.Is(err, ErrVMNotFound) {
+		t.Fatalf("expected ErrVMNotFound, got %v", err)
 	}
 }

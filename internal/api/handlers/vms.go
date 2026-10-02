@@ -445,3 +445,21 @@ func (h *VMHandler) AddNIC(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"status": "attached", "nic": nic})
 }
+
+func (h *VMHandler) ListNICs(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	nics, err := h.svc.ListNICs(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, service.ErrVMNotFound) {
+			writeError(w, "VM not found", http.StatusNotFound)
+			return
+		}
+		writeErrorLog(w, "failed to list network adapters", http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, nics)
+}
