@@ -59,6 +59,7 @@ func (p *Provider) ListNICs(ctx context.Context, vmID string) ([]provider.NIC, e
 		}
 		if eth.Connectable != nil {
 			nic.Connected = eth.Connectable.Connected
+			nic.StartConnected = eth.Connectable.StartConnected
 		}
 		nics = append(nics, nic)
 	}

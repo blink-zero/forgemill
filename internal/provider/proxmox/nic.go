@@ -218,14 +218,16 @@ func (p *Provider) AddNIC(ctx context.Context, vmID string, spec provider.NICSpe
 		return nil, fmt.Errorf("add network device %s: %w", key, err)
 	}
 
+	pending := p.netChangePending(ctx, node, vmID, key)
 	nic := &provider.NIC{
-		Key:         slot,
-		Label:       key,
-		AdapterType: model,
-		Network:     bridge,
-		VLANTag:     spec.VLANTag,
-		Connected:   spec.Connected,
-		Pending:     p.netChangePending(ctx, node, vmID, key),
+		Key:            slot,
+		Label:          key,
+		AdapterType:    model,
+		Network:        bridge,
+		VLANTag:        spec.VLANTag,
+		Connected:      spec.Connected && !pending && p.isRunning(ctx, node, vmID),
+		StartConnected: spec.Connected,
+		Pending:        pending,
 	}
 	// Re-read to pick up the MAC Proxmox generated. Best effort — the
 	// device is attached at this point regardless.
@@ -290,8 +292,29 @@ func (p *Provider) getGuestAgentInterfaces(ctx context.Context, node, vmID strin
 	return out
 }
 
+// isRunning reports whether the VM is currently running. Unknown (status
+// read failed) is treated as not running so Connected is never over-claimed.
+func (p *Provider) isRunning(ctx context.Context, node, vmID string) bool {
+	body, err := p.doGet(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/status/current", url.PathEscape(node), url.PathEscape(vmID)))
+	if err != nil {
+		return false
+	}
+	var result struct {
+		Data struct {
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(body, &result) != nil {
+		return false
+	}
+	return result.Data.Status == "running"
+}
+
 // ListNICs reads net0..netN from the VM config and joins the guest agent's
-// interface list by MAC for addresses.
+// interface list by MAC for addresses. Connected is the live link state
+// (VM running and link not down); StartConnected is the configured intent
+// (link not down), so a stopped VM's adapters read as "connects at
+// power-on" rather than "disconnected".
 func (p *Provider) ListNICs(ctx context.Context, vmID string) ([]provider.NIC, error) {
 	node, err := p.resolveVMNode(ctx, vmID)
 	if err != nil {
@@ -301,6 +324,7 @@ func (p *Provider) ListNICs(ctx context.Context, vmID string) ([]provider.NIC, e
 	if err != nil {
 		return nil, err
 	}
+	running := p.isRunning(ctx, node, vmID)
 	guest := p.getGuestAgentInterfaces(ctx, node, vmID)
 
 	nics := []provider.NIC{}
@@ -312,14 +336,15 @@ func (p *Provider) ListNICs(ctx context.Context, vmID string) ([]provider.NIC, e
 		}
 		nc := parseNetConfig(raw)
 		nic := provider.NIC{
-			Key:         i,
-			Label:       key,
-			AdapterType: nc.Model,
-			Network:     nc.Bridge,
-			MACAddress:  nc.MAC,
-			VLANTag:     nc.VLANTag,
-			Connected:   !nc.LinkDown,
-			Addresses:   []string{},
+			Key:            i,
+			Label:          key,
+			AdapterType:    nc.Model,
+			Network:        nc.Bridge,
+			MACAddress:     nc.MAC,
+			VLANTag:        nc.VLANTag,
+			Connected:      running && !nc.LinkDown,
+			StartConnected: !nc.LinkDown,
+			Addresses:      []string{},
 		}
 		for _, g := range guest {
 			if g.MAC != "" && g.MAC == nc.MAC {

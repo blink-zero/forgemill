@@ -141,6 +141,15 @@ func (p *Provider) AddNIC(ctx context.Context, vmID string, spec provider.NICSpe
 		if existing[dev.GetVirtualDevice().Key] {
 			continue
 		}
+		if spec.Connected {
+			if err := p.ensureConnected(ctx, vm, dev); err != nil {
+				slog.Warn("network adapter added but connect reconfigure failed", "vmID", vmID, "error", err)
+			} else if refreshed, err := vm.Device(ctx); err == nil {
+				if d := refreshed.FindByKey(dev.GetVirtualDevice().Key); d != nil {
+					after, dev = refreshed, d
+				}
+			}
+		}
 		return nicFromDevice(after, dev, spec.Network), nil
 	}
 	slog.Warn("network adapter added but not found in post-add device list", "vmID", vmID)
@@ -166,6 +175,34 @@ func nicFromDevice(devices object.VirtualDeviceList, dev types.BaseVirtualDevice
 	}
 	if eth.Connectable != nil {
 		nic.Connected = eth.Connectable.Connected
+		nic.StartConnected = eth.Connectable.StartConnected
 	}
 	return nic
+}
+
+// ensureConnected is the belt-and-braces step after a hot-add on a running
+// VM: if vSphere accepted the device but reports it not connected despite
+// connected=true on the add spec (seen with some adapter models / host
+// versions), issue the same Edit reconfigure the vSphere client's
+// "Connect" checkbox does. Powered-off VMs are left alone — connected is
+// runtime state there and StartConnected already carries the intent.
+func (p *Provider) ensureConnected(ctx context.Context, vm *object.VirtualMachine, dev types.BaseVirtualDevice) error {
+	state, err := vm.PowerState(ctx)
+	if err != nil || state != types.VirtualMachinePowerStatePoweredOn {
+		return nil
+	}
+	eth := dev.(types.BaseVirtualEthernetCard).GetVirtualEthernetCard()
+	if eth.Connectable != nil && eth.Connectable.Connected {
+		return nil
+	}
+	eth.Connectable = &types.VirtualDeviceConnectInfo{StartConnected: true, Connected: true, AllowGuestControl: true}
+	task, err := vm.Reconfigure(ctx, types.VirtualMachineConfigSpec{
+		DeviceChange: []types.BaseVirtualDeviceConfigSpec{
+			&types.VirtualDeviceConfigSpec{Operation: types.VirtualDeviceConfigSpecOperationEdit, Device: dev},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	return task.Wait(ctx)
 }

@@ -499,7 +499,10 @@ export interface VMNIC {
   adapter_type: string;
   network: string;
   mac_address: string;
+  // connected = live link state (only while the VM runs); start_connected =
+  // configured to connect at power-on. An off VM is false/true for a normal NIC.
   connected: boolean;
+  start_connected?: boolean;
   vlan_tag?: number;
   // Proxmox with network hot-plug disabled: saved, attaches at next power cycle.
   pending?: boolean;
