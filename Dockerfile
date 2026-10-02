@@ -1,5 +1,5 @@
 # Stage 1: Build frontend
-FROM node:20-alpine AS frontend-build
+FROM node:26-alpine AS frontend-build
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json* ./
 # MED-28: Use npm ci only — fail loudly on lockfile mismatch instead of falling
@@ -9,7 +9,7 @@ COPY frontend/ .
 RUN npm run build
 
 # Stage 2: Build Go binary
-FROM golang:1.24-alpine AS go-build
+FROM golang:1.27-alpine AS go-build
 RUN apk add --no-cache git
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -24,7 +24,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /forgemill ./cmd/forgemill
 
 # Stage 3: Final image
-FROM alpine:3.20
+FROM alpine:3.24
 
 # Install Packer for Template Factory builds (with checksum verification)
 RUN apk add --no-cache ca-certificates tzdata curl unzip xorriso openssl && \
