@@ -26,6 +26,7 @@ type fakePVE struct {
 	puts     []url.Values
 	agent    []map[string]interface{} // guest agent interfaces; nil = empty result
 	agentErr bool                     // simulate "No QEMU guest agent configured"
+	stopped  bool                     // status/current reports "stopped" instead of "running"
 	server   *httptest.Server
 }
 
@@ -101,6 +102,15 @@ func newFakePVE(t *testing.T) *fakePVE {
 			return
 		}
 		write(w, map[string]interface{}{"result": f.agent})
+	})
+	mux.HandleFunc("/api2/json/nodes/pve/qemu/100/status/current", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		st := "running"
+		if f.stopped {
+			st = "stopped"
+		}
+		write(w, map[string]interface{}{"status": st, "vmid": 100})
 	})
 	f.server = httptest.NewTLSServer(mux)
 	t.Cleanup(f.server.Close)
@@ -244,5 +254,49 @@ func TestListNICsWithoutGuestAgentStillListsAdapters(t *testing.T) {
 	}
 	if len(nics) != 1 || nics[0].MACAddress != "BC:24:11:00:00:01" || len(nics[0].Addresses) != 0 {
 		t.Errorf("unexpected: %+v", nics)
+	}
+}
+
+func TestListNICsConnectedIsRuntimeStartConnectedIsIntent(t *testing.T) {
+	// Running VM: a normal adapter is both connected and start-connected;
+	// link_down=1 is neither.
+	f := newFakePVE(t)
+	f.config["net1"] = "virtio=BC:24:11:00:00:02,bridge=vmbr0,link_down=1"
+	p := f.provider(t)
+	nics, err := p.ListNICs(context.Background(), "100")
+	if err != nil {
+		t.Fatalf("ListNICs: %v", err)
+	}
+	if !nics[0].Connected || !nics[0].StartConnected {
+		t.Errorf("running + up: got connected=%v start=%v", nics[0].Connected, nics[0].StartConnected)
+	}
+	if nics[1].Connected || nics[1].StartConnected {
+		t.Errorf("link_down: got connected=%v start=%v", nics[1].Connected, nics[1].StartConnected)
+	}
+
+	// Stopped VM: nothing is live, but the intent survives — this is what
+	// lets the UI say "connects at power-on" instead of "disconnected".
+	f2 := newFakePVE(t)
+	f2.stopped = true
+	p2 := f2.provider(t)
+	nics, err = p2.ListNICs(context.Background(), "100")
+	if err != nil {
+		t.Fatalf("ListNICs (stopped): %v", err)
+	}
+	if nics[0].Connected || !nics[0].StartConnected {
+		t.Errorf("stopped: got connected=%v start=%v, want false/true", nics[0].Connected, nics[0].StartConnected)
+	}
+}
+
+func TestAddNICOnStoppedVMReportsStartConnectedOnly(t *testing.T) {
+	f := newFakePVE(t)
+	f.stopped = true
+	p := f.provider(t)
+	nic, err := p.AddNIC(context.Background(), "100", provider.NICSpec{Network: "vmbr0", Connected: true})
+	if err != nil {
+		t.Fatalf("AddNIC: %v", err)
+	}
+	if nic.Connected || !nic.StartConnected {
+		t.Errorf("got connected=%v start=%v, want false/true on a stopped VM", nic.Connected, nic.StartConnected)
 	}
 }

@@ -232,8 +232,13 @@ type NIC struct {
 	AdapterType string `json:"adapter_type"`
 	Network     string `json:"network"`
 	MACAddress  string `json:"mac_address"`
-	Connected   bool   `json:"connected"`
-	VLANTag     int    `json:"vlan_tag,omitempty"`
+	// Connected is the live link state: true only while the VM is running
+	// with the adapter attached. StartConnected is the configured intent —
+	// the adapter connects when the VM powers on. A powered-off VM therefore
+	// reports Connected=false, StartConnected=true for a normal adapter.
+	Connected      bool `json:"connected"`
+	StartConnected bool `json:"start_connected"`
+	VLANTag        int  `json:"vlan_tag,omitempty"`
 	// Pending: the hypervisor accepted the adapter but will only attach it
 	// at the next power cycle (Proxmox with network hot-plug disabled).
 	Pending bool `json:"pending,omitempty"`

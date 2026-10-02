@@ -312,6 +312,8 @@ export default function VMDetail() {
       const summary = nic?.label ? `${nic.label} (${nic.adapter_type}${nic.mac_address ? `, ${nic.mac_address}` : ""}${nic.vlan_tag ? `, VLAN ${nic.vlan_tag}` : ""})` : "Network adapter";
       if (nic?.pending) {
         toast(`${summary} saved — it attaches at the next power cycle (network hot-plug is disabled on this VM)`);
+      } else if (nic && !nic.connected && nic.start_connected) {
+        toast(`${summary} attached — it connects when the VM powers on`);
       } else {
         toast(`${summary} attached`);
       }
@@ -830,11 +832,13 @@ export default function VMDetail() {
                           </td>
                           <td className="py-2 whitespace-nowrap">
                             {n.pending ? (
-                              <Badge variant="warning">Pending</Badge>
+                              <Badge variant="warning" title="Saved; attaches at the next power cycle">Pending</Badge>
                             ) : n.connected ? (
                               <Badge variant="success">Connected</Badge>
+                            ) : n.start_connected ? (
+                              <Badge variant="info" title="Configured to connect when the VM powers on">Connects at power-on</Badge>
                             ) : (
-                              <Badge variant="secondary">Disconnected</Badge>
+                              <Badge variant="secondary" title="Link down — the adapter is attached but not connected">Disconnected</Badge>
                             )}
                           </td>
                         </tr>
