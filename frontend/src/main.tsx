@@ -5,6 +5,10 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { TimezoneProvider } from "@/hooks/useTimezone";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import App from "./App";
+// Self-hosted variable fonts: the production CSP (default-src 'self') blocks
+// fonts.googleapis.com, so the Google Fonts <link> never loaded in practice.
+import "@fontsource-variable/inter";
+import "@fontsource-variable/jetbrains-mono";
 import "./index.css";
 
 // Apply the persisted theme before first paint. index.html ships with the
