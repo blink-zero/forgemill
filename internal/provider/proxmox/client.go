@@ -51,12 +51,13 @@ func init() {
 			DiskProvisioning: false,
 			LinkedClones:     true,
 			VLANTagging:      true,
-			NICAttach:        false,
+			NICAttach:        true,
 		},
 		DeployFields: []provider.DeployField{
 			{Key: "datastore", Label: "Storage", Resource: "datastores"},
 			{Key: "network", Label: "Bridge", Resource: "networks"},
 		},
+		NICAdapterTypes: nicAdapterTypes,
 	})
 }
 
@@ -536,11 +537,7 @@ func intFromJSON(v interface{}) int {
 // cloned VM. vlanTag <= 0 means untagged (no "tag=" segment) — Proxmox
 // interprets an untagged net0 as a regular access-port NIC on the bridge.
 func buildNet0Config(bridge string, vlanTag int) string {
-	net0 := fmt.Sprintf("virtio,bridge=%s", bridge)
-	if vlanTag > 0 {
-		net0 += fmt.Sprintf(",tag=%d", vlanTag)
-	}
-	return net0
+	return buildNetConfig("virtio", bridge, vlanTag, false)
 }
 
 func (p *Provider) DeployVM(ctx context.Context, spec *provider.DeploySpec) (*provider.DeployResult, error) {
@@ -1865,13 +1862,4 @@ func netmaskToCIDR(mask string) string {
 		}
 	}
 	return strconv.Itoa(bits)
-}
-
-// AddNIC is vSphere-only for now. Proxmox does expose NIC hot-plug through
-// the qemu config API (netN=<model>,bridge=<br>[,tag=<vlan>]) but it isn't
-// wired up yet, so return the sentinel: callers surface a clear "not
-// available for Proxmox targets" message instead of a generic failure. The
-// "proxmox" metadata declares NICAttach: false for the same reason.
-func (p *Provider) AddNIC(ctx context.Context, vmID string, spec provider.NICSpec) (*provider.NIC, error) {
-	return nil, fmt.Errorf("%w: adding a network adapter to a Proxmox VM", provider.ErrNotSupported)
 }

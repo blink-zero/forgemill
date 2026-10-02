@@ -214,12 +214,57 @@ func TestAddNICInvalidNetworkSurfacesProviderSentinel(t *testing.T) {
 }
 
 func TestAddNICUnsupportedProviderRefusesWithoutConnecting(t *testing.T) {
-	// Proxmox's registered metadata declares NICAttach: false, so the
-	// service must answer ErrNotSupported without ever building a provider.
-	svc, _, vmID := newNICTestService(t, "proxmox")
-	_, err := svc.AddNIC(context.Background(), vmID, AddNICRequest{Network: "vmbr0"})
+	// Both in-tree providers implement AddNIC now, so simulate a provider
+	// whose metadata declares NICAttach: false by temporarily swapping the
+	// "esxi" metadata. The service must answer ErrNotSupported without
+	// ever building a provider (the fake would record a call otherwise).
+	svc, _, vmID := newNICTestService(t, "esxi")
+	orig := provider.GetMetadata("esxi")
+	noNIC := *orig
+	noNIC.Features.NICAttach = false
+	provider.RegisterMetadata("esxi", &noNIC)
+	t.Cleanup(func() { provider.RegisterMetadata("esxi", orig) })
+
+	_, err := svc.AddNIC(context.Background(), vmID, AddNICRequest{Network: "VM Network"})
 	if !errors.Is(err, provider.ErrNotSupported) {
 		t.Fatalf("expected ErrNotSupported, got %v", err)
+	}
+	if len(fakeNIC.addNICCalls) != 0 {
+		t.Error("provider must not be called when metadata says NICAttach is unsupported")
+	}
+}
+
+func TestAddNICVLANTagValidation(t *testing.T) {
+	svc, _, vmID := newNICTestService(t, "esxi")
+
+	// Out of range is rejected before anything else.
+	for _, tag := range []int{-1, 4095, 70000} {
+		_, err := svc.AddNIC(context.Background(), vmID, AddNICRequest{Network: "VM Network", VLANTag: tag})
+		if !errors.Is(err, ErrInvalidNICSpec) {
+			t.Errorf("VLANTag %d: expected ErrInvalidNICSpec, got %v", tag, err)
+		}
+	}
+	// In range but on a provider without VLANTagging (esxi) is refused —
+	// silently dropping it would misreport the NIC as isolated.
+	_, err := svc.AddNIC(context.Background(), vmID, AddNICRequest{Network: "VM Network", VLANTag: 20})
+	if !errors.Is(err, ErrInvalidNICSpec) {
+		t.Fatalf("expected ErrInvalidNICSpec for a VLAN tag on esxi, got %v", err)
+	}
+	if len(fakeNIC.addNICCalls) != 0 {
+		t.Error("provider must not be called for a rejected VLAN tag")
+	}
+
+	// With VLANTagging declared, the tag passes straight through.
+	orig := provider.GetMetadata("esxi")
+	vlan := *orig
+	vlan.Features.VLANTagging = true
+	provider.RegisterMetadata("esxi", &vlan)
+	t.Cleanup(func() { provider.RegisterMetadata("esxi", orig) })
+	if _, err := svc.AddNIC(context.Background(), vmID, AddNICRequest{Network: "vmbr0", VLANTag: 20}); err != nil {
+		t.Fatalf("AddNIC with VLAN: %v", err)
+	}
+	if got := fakeNIC.addNICCalls[0].VLANTag; got != 20 {
+		t.Errorf("provider received VLANTag %d, want 20", got)
 	}
 }
 

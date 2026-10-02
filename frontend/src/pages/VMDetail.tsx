@@ -89,6 +89,7 @@ export default function VMDetail() {
   const [nicNetwork, setNicNetwork] = useState("");
   const [nicAdapter, setNicAdapter] = useState("");
   const [nicConnected, setNicConnected] = useState(true);
+  const [nicVlan, setNicVlan] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [tab, setTab] = useState<Tab>("overview");
 
@@ -238,6 +239,7 @@ export default function VMDetail() {
   // Adapter choices come from the provider's published list (first = default)
   // so the UI never offers a model the backend would reject.
   const nicAdapterTypes = nicProviderMeta?.nic_adapter_types?.length ? nicProviderMeta.nic_adapter_types : ["vmxnet3"];
+  const nicVlanSupported = Boolean(nicProviderMeta?.features?.vlan_tagging);
 
   const loadNICNetworks = async () => {
     if (!vm) return;
@@ -262,9 +264,15 @@ export default function VMDetail() {
     if (!nicNetwork) return;
     setActing(true);
     try {
-      const res = await vmApi.addNIC(vmId, { network: nicNetwork, adapter_type: nicAdapter, connected: nicConnected });
+      const vlan = nicVlanSupported && nicVlan ? Number(nicVlan) : undefined;
+      const res = await vmApi.addNIC(vmId, { network: nicNetwork, adapter_type: nicAdapter, connected: nicConnected, ...(vlan ? { vlan_tag: vlan } : {}) });
       const nic = res.data?.nic;
-      toast(nic?.label ? `${nic.label} attached (${nic.adapter_type}${nic.mac_address ? `, ${nic.mac_address}` : ""})` : "Network adapter attached");
+      const summary = nic?.label ? `${nic.label} (${nic.adapter_type}${nic.mac_address ? `, ${nic.mac_address}` : ""}${nic.vlan_tag ? `, VLAN ${nic.vlan_tag}` : ""})` : "Network adapter";
+      if (nic?.pending) {
+        toast(`${summary} saved — it attaches at the next power cycle (network hot-plug is disabled on this VM)`);
+      } else {
+        toast(`${summary} attached`);
+      }
       setShowAddNIC(false);
       reload();
     } catch (e) {
@@ -601,7 +609,7 @@ export default function VMDetail() {
                       }}>
                         <Network className="h-3.5 w-3.5" /> Add Network Adapter
                       </Button>
-                      <InfoTip text="Hot-adds a second (or further) virtual NIC to this VM without a power cycle. The adapter appears in the guest as a new, unconfigured interface — assign it an address inside the guest OS afterwards. Existing adapters are not touched." />
+                      <InfoTip text="Adds a second (or further) virtual NIC to this VM without a power cycle — hot-added on vSphere, and on Proxmox when the VM's hotplug setting includes network (the default; otherwise it's saved and attaches at the next power cycle). The adapter appears in the guest as a new, unconfigured interface — assign it an address inside the guest OS afterwards. Existing adapters are not touched." />
                     </div>
                     {showAddNIC && (
                       <div className="space-y-2 border rounded-md p-3 bg-muted/30">
@@ -627,6 +635,12 @@ export default function VMDetail() {
                                 ))}
                               </Select>
                             </div>
+                            {nicVlanSupported && (
+                              <div>
+                                <Label className="text-xs">VLAN Tag</Label>
+                                <Input type="number" min={1} max={4094} value={nicVlan} onChange={(e) => setNicVlan(e.target.value)} placeholder="Untagged if empty" />
+                              </div>
+                            )}
                             <label className="flex items-center gap-2 text-xs cursor-pointer">
                               <input type="checkbox" checked={nicConnected} onChange={(e) => setNicConnected(e.target.checked)} className="h-3.5 w-3.5" />
                               Connect now and at power-on

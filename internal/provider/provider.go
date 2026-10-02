@@ -213,6 +213,10 @@ type NICSpec struct {
 	// Connected controls whether the adapter is connected immediately (when
 	// the VM is running) and at the next power-on.
 	Connected bool
+	// VLANTag is an optional 802.1Q tag (1-4094) for providers whose VLAN
+	// membership is a NIC property (Proxmox). 0 = untagged. Ignored by
+	// providers where VLAN is part of the network itself (vSphere).
+	VLANTag int
 }
 
 // NIC is a virtual network adapter as the hypervisor reports it.
@@ -223,6 +227,10 @@ type NIC struct {
 	Network     string `json:"network"`
 	MACAddress  string `json:"mac_address"`
 	Connected   bool   `json:"connected"`
+	VLANTag     int    `json:"vlan_tag,omitempty"`
+	// Pending: the hypervisor accepted the adapter but will only attach it
+	// at the next power cycle (Proxmox with network hot-plug disabled).
+	Pending bool `json:"pending,omitempty"`
 }
 
 type VMInfo struct {

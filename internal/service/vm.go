@@ -735,6 +735,7 @@ type AddNICRequest struct {
 	Network     string
 	AdapterType string // "" = provider default
 	Connected   bool
+	VLANTag     int // 0 = untagged; only for providers with Features.VLANTagging
 }
 
 // AddNIC attaches an additional network adapter to a managed VM and then
@@ -745,6 +746,9 @@ func (s *VMService) AddNIC(ctx context.Context, id int64, req AddNICRequest) (*p
 	req.Network = strings.TrimSpace(req.Network)
 	if req.Network == "" {
 		return nil, fmt.Errorf("%w: network is required", ErrInvalidNICSpec)
+	}
+	if req.VLANTag != 0 && (req.VLANTag < 1 || req.VLANTag > 4094) {
+		return nil, fmt.Errorf("%w: VLAN tag must be between 1 and 4094", ErrInvalidNICSpec)
 	}
 
 	vm, err := s.db.GetManagedVM(id)
@@ -772,6 +776,12 @@ func (s *VMService) AddNIC(ctx context.Context, id int64, req AddNICRequest) (*p
 	if req.AdapterType != "" && meta != nil && len(meta.NICAdapterTypes) > 0 && !slices.Contains(meta.NICAdapterTypes, req.AdapterType) {
 		return nil, fmt.Errorf("%w: %q (use %s)", provider.ErrInvalidAdapterType, req.AdapterType, strings.Join(meta.NICAdapterTypes, ", "))
 	}
+	// A VLAN tag on a provider that can't apply it (vSphere: VLAN belongs
+	// to the portgroup) would be silently dropped — refuse instead so the
+	// caller doesn't believe the NIC is isolated when it isn't.
+	if req.VLANTag != 0 && meta != nil && !meta.Features.VLANTagging {
+		return nil, fmt.Errorf("%w: VLAN tag is not supported on %s targets — pick a network/portgroup that carries the VLAN instead", ErrInvalidNICSpec, meta.Name)
+	}
 
 	p, err := s.targets.GetProvider(vm.TargetID)
 	if err != nil {
@@ -787,6 +797,7 @@ func (s *VMService) AddNIC(ctx context.Context, id int64, req AddNICRequest) (*p
 		Network:     req.Network,
 		AdapterType: req.AdapterType,
 		Connected:   req.Connected,
+		VLANTag:     req.VLANTag,
 	})
 	if err != nil {
 		return nil, err

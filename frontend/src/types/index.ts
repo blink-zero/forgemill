@@ -500,4 +500,7 @@ export interface VMNIC {
   network: string;
   mac_address: string;
   connected: boolean;
+  vlan_tag?: number;
+  // Proxmox with network hot-plug disabled: saved, attaches at next power cycle.
+  pending?: boolean;
 }
