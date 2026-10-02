@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/forgemill/forgemill/internal/api/middleware"
 	"github.com/forgemill/forgemill/internal/db/models"
+	"github.com/forgemill/forgemill/internal/provider"
 	"github.com/forgemill/forgemill/internal/service"
 )
 
@@ -366,4 +368,75 @@ func (h *VMHandler) GetCredentials(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, creds)
+}
+
+type addNICRequest struct {
+	Network     string `json:"network"`
+	AdapterType string `json:"adapter_type,omitempty"`
+	// Connected is a pointer so an omitted field defaults to true — an
+	// adapter you attach is almost always meant to be live — while an
+	// explicit false still works.
+	Connected *bool `json:"connected,omitempty"`
+}
+
+// addNICErrorResponse maps an AddNIC error to the status and message the
+// client sees. logIt is true for the generic 500 path, where the real error
+// is logged server-side and only a generic message goes out.
+func addNICErrorResponse(err error) (status int, msg string, logIt bool) {
+	switch {
+	case errors.Is(err, service.ErrVMNotFound):
+		return http.StatusNotFound, "VM not found", false
+	case errors.Is(err, provider.ErrNotSupported),
+		errors.Is(err, provider.ErrNetworkNotFound),
+		errors.Is(err, provider.ErrInvalidAdapterType),
+		errors.Is(err, service.ErrInvalidNICSpec):
+		return http.StatusBadRequest, err.Error(), false
+	default:
+		return http.StatusInternalServerError, "failed to add network adapter", true
+	}
+}
+
+func (h *VMHandler) AddNIC(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	var req addNICRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Network) == "" {
+		writeError(w, "network is required", http.StatusBadRequest)
+		return
+	}
+	connected := true
+	if req.Connected != nil {
+		connected = *req.Connected
+	}
+
+	nic, err := h.svc.AddNIC(r.Context(), id, service.AddNICRequest{
+		Network:     req.Network,
+		AdapterType: req.AdapterType,
+		Connected:   connected,
+	})
+	if err != nil {
+		status, msg, logIt := addNICErrorResponse(err)
+		if logIt {
+			writeErrorLog(w, msg, status, err)
+		} else {
+			writeError(w, msg, status)
+		}
+		return
+	}
+	if actor := middleware.UserFromContext(r.Context()); actor != nil {
+		h.audit.Log(actor.Username, &actor.ID, "vm.nic.add", "vm", fmt.Sprintf("%d", id), service.IPFromRequest(r), map[string]interface{}{
+			"network":      req.Network,
+			"adapter_type": nic.AdapterType,
+			"connected":    connected,
+			"nic_key":      nic.Key,
+		})
+	}
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"status": "attached", "nic": nic})
 }

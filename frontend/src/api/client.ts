@@ -34,6 +34,7 @@ import type {
   APIKeyCreateResponse,
   Notification,
   NotificationListResponse,
+  VMNIC,
 } from "@/types";
 
 const api = axios.create({
@@ -170,6 +171,10 @@ export const vms = {
     api.get<{ key: number; label: string; size_gb: number }[]>(`/vms/${id}/disks`),
   expandDisk: (id: number, key: number, data: { new_size_gb: number }) =>
     api.put(`/vms/${id}/disks/${key}/expand`, data),
+  // vSphere only (providers advertise support via features.nic_attach).
+  // adapter_type defaults to vmxnet3 server-side; connected defaults to true.
+  addNIC: (id: number, data: { network: string; adapter_type?: string; connected?: boolean }) =>
+    api.post<{ status: string; nic: VMNIC }>(`/vms/${id}/nics`, data),
   console: (id: number) => api.get<{ url: string }>(`/vms/${id}/console`),
   credentials: (id: number) => api.get<{ username: string; password: string }>(`/vms/${id}/credentials`),
   resetHostKey: (id: number) => api.post(`/vms/${id}/reset-host-key`),

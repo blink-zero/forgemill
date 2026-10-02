@@ -51,6 +51,7 @@ func init() {
 			DiskProvisioning: false,
 			LinkedClones:     true,
 			VLANTagging:      true,
+			NICAttach:        false,
 		},
 		DeployFields: []provider.DeployField{
 			{Key: "datastore", Label: "Storage", Resource: "datastores"},
@@ -1864,4 +1865,13 @@ func netmaskToCIDR(mask string) string {
 		}
 	}
 	return strconv.Itoa(bits)
+}
+
+// AddNIC is vSphere-only for now. Proxmox does expose NIC hot-plug through
+// the qemu config API (netN=<model>,bridge=<br>[,tag=<vlan>]) but it isn't
+// wired up yet, so return the sentinel: callers surface a clear "not
+// available for Proxmox targets" message instead of a generic failure. The
+// "proxmox" metadata declares NICAttach: false for the same reason.
+func (p *Provider) AddNIC(ctx context.Context, vmID string, spec provider.NICSpec) (*provider.NIC, error) {
+	return nil, fmt.Errorf("%w: adding a network adapter to a Proxmox VM", provider.ErrNotSupported)
 }

@@ -386,6 +386,7 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 | `DELETE` | `/api/vms/:id/snapshots/:snapId` | Delete snapshot (admin) |
 | `PUT` | `/api/vms/:id/resize` | Resize CPU/memory (admin) |
 | `PUT` | `/api/vms/:id/disks/:key/expand` | Expand a disk (admin) |
+| `POST` | `/api/vms/:id/nics` | Attach an additional network adapter — vSphere only (admin) |
 | `GET` | `/api/vms/:id/console` | Console URL (admin) |
 | `GET` | `/api/vms/:id/credentials` | Reveal deploy credentials (admin) |
 | `POST` | `/api/vms/:id/reset-host-key` | Reset SSH host-key fingerprint (admin) |
