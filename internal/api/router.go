@@ -98,8 +98,13 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 	// Fix 8: Rate limiters
 	// Login: 5 requests per minute per IP (5/60 = 0.083/s, burst 5)
 	loginLimiter := middleware.NewRateLimiter(rate.Limit(5.0/60.0), 5)
-	// Global API: 60 requests per minute per IP (1/s, burst 10)
-	globalLimiter := middleware.NewRateLimiter(rate.Limit(1), 10)
+	// Global API: 5/s sustained per IP with a burst of 40. The burst has to
+	// clear a single page load — the VM detail page alone fires ~10 requests
+	// at once, and several tabs or users behind one NAT share a bucket — so
+	// a burst of 10 refused the tail of a page load and silently blanked UI
+	// that depended on the dropped call. 5/s still bounds abuse; login keeps
+	// its own strict limiter above.
+	globalLimiter := middleware.NewRateLimiter(rate.Limit(5), 40)
 
 	authH := handlers.NewAuthHandler(cfg.DB, cfg.Auth, cfg.AuditService)
 	authH.SetLDAP(cfg.LDAPService)

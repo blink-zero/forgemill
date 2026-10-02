@@ -55,13 +55,34 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Retry idempotent GETs that hit the per-IP rate limiter. A page load fires
+// several requests at once and the last of them can be refused with a 429
+// when the bucket is low; without this the failure is usually swallowed by
+// a `.catch(() => {})` and a piece of UI quietly goes missing (the Add
+// Network Adapter control depends on GET /targets/:id, for instance).
+// Honours Retry-After, backs off 1s → 2s → 4s, three attempts max.
+const MAX_429_RETRIES = 3;
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 api.interceptors.response.use(
   (res) => res,
-  (err) => {
+  async (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem("forgemill_token");
       if (window.location.pathname !== "/login") {
         window.location.href = "/login";
+      }
+      return Promise.reject(err);
+    }
+    const cfg = err.config as (typeof err.config & { __retry429?: number }) | undefined;
+    if (err.response?.status === 429 && cfg && (cfg.method ?? "get").toLowerCase() === "get") {
+      const attempt = cfg.__retry429 ?? 0;
+      if (attempt < MAX_429_RETRIES) {
+        const retryAfter = Number(err.response.headers?.["retry-after"]);
+        const delay = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** attempt;
+        await sleep(delay);
+        cfg.__retry429 = attempt + 1;
+        return api.request(cfg);
       }
     }
     return Promise.reject(err);

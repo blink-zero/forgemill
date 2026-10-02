@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"math"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -98,10 +100,22 @@ func (rl *RateLimiter) Limit(next http.Handler) http.Handler {
 		if !limiter.Allow() {
 			// F-37: Use correct Content-Type for JSON error body (http.Error sets text/plain)
 			w.Header().Set("Content-Type", "application/json")
+			// Tell well-behaved clients when to come back: one token refills in
+			// 1/r seconds, rounded up (the UI's GET retry honours this).
+			w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds(rl.r)))
 			w.WriteHeader(http.StatusTooManyRequests)
 			w.Write([]byte(`{"error":"rate limit exceeded"}`))
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// retryAfterSeconds is the whole number of seconds until one token refills
+// at rate r, never less than 1 (Retry-After is an integer header).
+func retryAfterSeconds(r rate.Limit) int {
+	if r <= 0 {
+		return 60
+	}
+	return int(math.Max(1, math.Ceil(1/float64(r))))
 }
