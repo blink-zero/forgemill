@@ -377,6 +377,8 @@ type addNICRequest struct {
 	// adapter you attach is almost always meant to be live — while an
 	// explicit false still works.
 	Connected *bool `json:"connected,omitempty"`
+	// VLANTag: optional 802.1Q tag, Proxmox only (1-4094; 0/omitted = untagged).
+	VLANTag int `json:"vlan_tag,omitempty"`
 }
 
 // addNICErrorResponse maps an AddNIC error to the status and message the
@@ -420,6 +422,7 @@ func (h *VMHandler) AddNIC(w http.ResponseWriter, r *http.Request) {
 		Network:     req.Network,
 		AdapterType: req.AdapterType,
 		Connected:   connected,
+		VLANTag:     req.VLANTag,
 	})
 	if err != nil {
 		status, msg, logIt := addNICErrorResponse(err)
@@ -435,7 +438,9 @@ func (h *VMHandler) AddNIC(w http.ResponseWriter, r *http.Request) {
 			"network":      req.Network,
 			"adapter_type": nic.AdapterType,
 			"connected":    connected,
+			"vlan_tag":     req.VLANTag,
 			"nic_key":      nic.Key,
+			"pending":      nic.Pending,
 		})
 	}
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"status": "attached", "nic": nic})
