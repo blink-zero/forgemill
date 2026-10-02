@@ -531,7 +531,7 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 ### Rate limits
 
 - **Login**: 5 requests/minute per IP
-- **API**: 60 requests/minute per IP (1/s average, burst of 10)
+- **API**: 5 requests/second sustained per IP, burst of 40 — enough to absorb a full page load; refusals carry a `Retry-After` header and the UI retries read requests automatically
 
 ---
 
@@ -590,7 +590,7 @@ Forgemill has been through multiple rounds of security review; all CRITICAL, HIG
 - **Parameterised SQL** — all queries use prepared statements; LIKE patterns are escaped
 - **JWT with revocation** — HS256 tokens with issuer / audience validation and per-user token-version for immediate revocation on logout, force-logout, or disable
 - **RBAC enforcement** — three-tier role system (viewer / user / admin) enforced at every API endpoint and WebSocket connection
-- **Rate limiting** — token-bucket on login (5/min) and API (60/min) per IP
+- **Rate limiting** — token-bucket on login (5/min) and API (5/s, burst 40) per IP, with `Retry-After` on refusals
 - **Security headers** — CSP, HSTS, X-Frame-Options, X-Content-Type-Options on all responses
 - **Webhook safety** — HMAC-SHA256 signed payloads, private-IP filtering, redirect validation
 - **LDAP hardening** — unauthenticated-bind protection, generic error messages
