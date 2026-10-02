@@ -39,6 +39,7 @@ func init() {
 			DiskProvisioning: true,
 			LinkedClones:     true,
 			VLANTagging:      false,
+			NICAttach:        true,
 		},
 		DeployFields: []provider.DeployField{
 			{Key: "datacenter", Label: "Datacenter", Resource: "datacenters"},
@@ -48,6 +49,7 @@ func init() {
 			{Key: "network", Label: "Network", Resource: "networks"},
 			{Key: "folder", Label: "Folder", Resource: "folders", Placeholder: "Default folder"},
 		},
+		NICAdapterTypes: nicAdapterTypes,
 	})
 
 	// Register ESXi standalone provider
@@ -74,11 +76,13 @@ func init() {
 			DiskProvisioning: true,
 			LinkedClones:     false,
 			VLANTagging:      false,
+			NICAttach:        true,
 		},
 		DeployFields: []provider.DeployField{
 			{Key: "datastore", Label: "Datastore", Resource: "datastores"},
 			{Key: "network", Label: "Network", Resource: "networks"},
 		},
+		NICAdapterTypes: nicAdapterTypes,
 	})
 }
 

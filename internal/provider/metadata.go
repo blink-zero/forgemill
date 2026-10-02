@@ -10,14 +10,19 @@ import (
 
 // ProviderMetadata contains all UI-facing configuration for a provider type.
 type ProviderMetadata struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	Icon        string            `json:"icon"`
-	Defaults    ProviderDefaults  `json:"defaults"`
-	Hints       map[string]string `json:"hints"`
-	Features    ProviderFeatures  `json:"features"`
-	DeployFields []DeployField    `json:"deploy_fields"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Description  string            `json:"description"`
+	Icon         string            `json:"icon"`
+	Defaults     ProviderDefaults  `json:"defaults"`
+	Hints        map[string]string `json:"hints"`
+	Features     ProviderFeatures  `json:"features"`
+	DeployFields []DeployField     `json:"deploy_fields"`
+	// NICAdapterTypes lists the adapter models AddNIC accepts, first entry
+	// is the default. Empty when Features.NICAttach is false. The service
+	// validates a requested adapter against this before opening a
+	// hypervisor session, and the UI renders its adapter dropdown from it.
+	NICAdapterTypes []string `json:"nic_adapter_types,omitempty"`
 }
 
 // ProviderDefaults contains default values for target creation forms.
@@ -35,6 +40,10 @@ type ProviderFeatures struct {
 	DiskProvisioning bool `json:"disk_provisioning"`
 	LinkedClones     bool `json:"linked_clones"`
 	VLANTagging      bool `json:"vlan_tagging"`
+	// NICAttach: the provider implements AddNIC. The UI shows the "Add
+	// Network Adapter" control, and the service refuses the call before
+	// opening a hypervisor session, on this same flag.
+	NICAttach bool `json:"nic_attach"`
 }
 
 // DeployField defines a field shown in the deploy form for this provider.
@@ -70,16 +79,16 @@ func GetMetadata(id string) *ProviderMetadata {
 func GetAllMetadata() []*ProviderMetadata {
 	metadataMu.RLock()
 	defer metadataMu.RUnlock()
-	
+
 	result := make([]*ProviderMetadata, 0, len(metadataRegistry))
 	for _, meta := range metadataRegistry {
 		result = append(result, meta)
 	}
-	
+
 	// Sort by ID for consistent ordering
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].ID < result[j].ID
 	})
-	
+
 	return result
 }

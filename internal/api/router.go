@@ -296,6 +296,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 				r.Put("/vms/{id}/resize", vmH.Resize)
 				r.Get("/vms/{id}/disks", vmH.ListDisks)
 				r.Put("/vms/{id}/disks/{key}/expand", vmH.ExpandDisk)
+				r.Post("/vms/{id}/nics", vmH.AddNIC)
 				r.Get("/vms/{id}/console", vmH.GetConsoleURL)
 				r.Get("/vms/{id}/credentials", vmH.GetCredentials)
 				r.Post("/vms/{id}/reset-host-key", vmH.ResetHostKey)

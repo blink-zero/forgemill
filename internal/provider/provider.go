@@ -1,6 +1,23 @@
 package provider
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// Sentinel errors providers wrap so callers can map them to a specific
+// response (errors.Is) instead of matching on error text.
+var (
+	// ErrNotSupported: the operation isn't implemented for this provider's
+	// platform. Callers surface a clear "not available for X targets" message.
+	ErrNotSupported = errors.New("operation not supported by this provider")
+	// ErrNetworkNotFound: the requested network/portgroup doesn't resolve on
+	// the hypervisor.
+	ErrNetworkNotFound = errors.New("network not found")
+	// ErrInvalidAdapterType: the requested NIC adapter model isn't one the
+	// provider will create.
+	ErrInvalidAdapterType = errors.New("invalid adapter type")
+)
 
 // PV-X1: All Provider interface methods now accept context.Context for
 // per-operation timeouts, cancellation propagation, and tracing support.
@@ -30,6 +47,11 @@ type Provider interface {
 	ResizeVM(ctx context.Context, vmID string, cpu int, memoryMB int) error
 	ListDisks(ctx context.Context, vmID string) ([]Disk, error)
 	ExpandDisk(ctx context.Context, vmID string, diskKey int, newSizeGB int) error
+	// AddNIC attaches an additional virtual network adapter to an existing
+	// VM and returns the adapter as the hypervisor reports it afterwards.
+	// Providers that don't implement it return ErrNotSupported (wrapped);
+	// a network that doesn't resolve returns ErrNetworkNotFound (wrapped).
+	AddNIC(ctx context.Context, vmID string, spec NICSpec) (*NIC, error)
 	GetConsoleURL(ctx context.Context, vmID string) (string, error)
 
 	ListVMs(ctx context.Context) ([]VMInfo, error)
@@ -92,32 +114,32 @@ type TemplateDetail struct {
 	CreatedAt   string   `json:"created_at"`
 	Platform    string   `json:"platform"`
 	// Proxmox-specific fields
-	Node        string `json:"node,omitempty"`
-	CPUType     string `json:"cpu_type,omitempty"`
-	SCSIType    string `json:"scsi_type,omitempty"`
-	CloudInit   bool   `json:"cloud_init,omitempty"`
-	DiskFormat  string `json:"disk_format,omitempty"`
+	Node       string `json:"node,omitempty"`
+	CPUType    string `json:"cpu_type,omitempty"`
+	SCSIType   string `json:"scsi_type,omitempty"`
+	CloudInit  bool   `json:"cloud_init,omitempty"`
+	DiskFormat string `json:"disk_format,omitempty"`
 }
 
 type DeploySpec struct {
-	TemplateName string
-	VMName       string
-	Datacenter   string
-	Cluster      string
-	Datastore    string
-	Folder       string
-	Network      string
-	CPU          int
-	MemoryMB     int
-	DiskGB       int
-	IPAddress    string
-	Netmask      string
-	Gateway      string
-	DNS          []string
-	Hostname     string
-	DomainName   string
-	OSType       string // "linux" or "windows"
-	LinkedClone  bool   // PV-P5: support for linked clones
+	TemplateName     string
+	VMName           string
+	Datacenter       string
+	Cluster          string
+	Datastore        string
+	Folder           string
+	Network          string
+	CPU              int
+	MemoryMB         int
+	DiskGB           int
+	IPAddress        string
+	Netmask          string
+	Gateway          string
+	DNS              []string
+	Hostname         string
+	DomainName       string
+	OSType           string // "linux" or "windows"
+	LinkedClone      bool   // PV-P5: support for linked clones
 	PasswordHash     string // SHA-512 crypt hash for cloud-init credential injection
 	PlainPassword    string // BUG-03: Plaintext password for Proxmox cipassword
 	SSHPublicKey     string // Optional SSH public key to inject
@@ -155,7 +177,7 @@ type Resources struct {
 	Clusters      []ResourceItem    `json:"clusters"`
 	Datacenters   []ResourceItem    `json:"datacenters"`
 	ISOStorages   []ResourceItem    `json:"iso_storages,omitempty"`
-	ResourcePools []ResourceItem    `json:"resource_pools"`          // PV-X6
+	ResourcePools []ResourceItem    `json:"resource_pools"` // PV-X6
 	Hosts         []ResourceItem    `json:"hosts,omitempty"`
 	Platform      string            `json:"platform"`
 	Defaults      map[string]string `json:"defaults,omitempty"`
@@ -178,6 +200,29 @@ type Disk struct {
 	Key    int    `json:"key"`
 	Label  string `json:"label"`
 	SizeGB int    `json:"size_gb"`
+}
+
+// NICSpec describes a network adapter to attach with AddNIC.
+type NICSpec struct {
+	// Network is the network/portgroup name or full inventory path, in the
+	// same form GetResources reports it (and DeploySpec.Network accepts).
+	Network string
+	// AdapterType is the provider-specific adapter model. Empty means the
+	// provider's default (vmxnet3 on vSphere).
+	AdapterType string
+	// Connected controls whether the adapter is connected immediately (when
+	// the VM is running) and at the next power-on.
+	Connected bool
+}
+
+// NIC is a virtual network adapter as the hypervisor reports it.
+type NIC struct {
+	Key         int    `json:"key"`
+	Label       string `json:"label"`
+	AdapterType string `json:"adapter_type"`
+	Network     string `json:"network"`
+	MACAddress  string `json:"mac_address"`
+	Connected   bool   `json:"connected"`
 }
 
 type VMInfo struct {
