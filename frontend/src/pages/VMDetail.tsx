@@ -9,7 +9,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import type { ManagedVM, VMSnapshot, Action, ActionExecution, ActionParameter, ResourceItem, VMNIC } from "@/types";
 import { Select } from "@/components/ui/select";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,7 +25,7 @@ import {
   Camera, Undo2, ExternalLink, Cpu, MemoryStick, HardDrive, ArrowLeft,
   RefreshCw, KeyRound, Eye, EyeOff, Copy, Terminal, X,
   CheckCircle, XCircle, Loader2, AlertTriangle, Settings2,
-  CalendarPlus, Clock, History, Network,
+  Clock, History, Network,
 } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { getErrorMessage } from "@/lib/utils";
@@ -377,22 +377,48 @@ export default function VMDetail() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <nav className="flex items-center gap-1 text-sm text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <nav className="flex items-center gap-1 text-13 text-muted-foreground">
           <Button variant="ghost" size="sm" onClick={() => navigate("/vms")} className="h-auto p-0 font-normal hover:text-foreground">
             VMs
           </Button>
           <span>/</span>
           <span className="font-medium text-foreground">{vm.vm_name}</span>
         </nav>
-        <h1 className="text-2xl font-bold">{vm.vm_name}</h1>
-        <Badge variant={powerVariant(vm.power_state)}>
-          <Power className="h-3 w-3 mr-1" />{powerLabel(vm.power_state)}
+        <h1 className="text-xl font-semibold tracking-tight">{vm.vm_name}</h1>
+        <Badge variant={powerVariant(vm.power_state)} dot pulse={vm.power_state === "poweredOn" || vm.power_state === "running"}>
+          {powerLabel(vm.power_state)}
         </Badge>
-        <Button variant="outline" size="sm" onClick={doSync} disabled={syncing} className="ml-auto">
-          <RefreshCw className={`h-3 w-3 mr-1 ${syncing ? "animate-spin" : ""}`} />
-          {syncing ? "Syncing..." : "Sync"}
-        </Button>
+        <span className="hidden md:inline text-13 text-muted-foreground truncate">
+          {vm.target_name}{vm.template_name ? ` · from ${vm.template_name}` : ""}
+        </span>
+        {/* Primary actions live in the header: power, console, sync. */}
+        <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+          <div className="inline-flex items-center rounded-md border border-border bg-card shadow-xs overflow-hidden">
+            <Button size="sm" variant="ghost" className="rounded-none h-8 px-2.5 gap-1.5 text-success hover:text-success" onClick={() => doPower("start")} disabled={acting} title="Start">
+              <Play className="h-3.5 w-3.5" /> Start
+            </Button>
+            <span className="h-5 w-px bg-border" aria-hidden="true" />
+            <Button size="sm" variant="ghost" className="rounded-none h-8 px-2.5 gap-1.5" onClick={() => doPower("stop")} disabled={acting} title="Stop">
+              <Square className="h-3.5 w-3.5" /> Stop
+            </Button>
+            <span className="h-5 w-px bg-border" aria-hidden="true" />
+            <Button size="sm" variant="ghost" className="rounded-none h-8 px-2.5 gap-1.5" onClick={() => doPower("restart")} disabled={acting} title="Restart">
+              <RotateCcw className="h-3.5 w-3.5" /> Restart
+            </Button>
+            <span className="h-5 w-px bg-border" aria-hidden="true" />
+            <Button size="sm" variant="ghost" className="rounded-none h-8 px-2.5 gap-1.5" onClick={() => doPower("suspend")} disabled={acting} title="Suspend">
+              <Pause className="h-3.5 w-3.5" /> Suspend
+            </Button>
+          </div>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={doConsole}>
+            <ExternalLink className="h-3.5 w-3.5" /> Console
+          </Button>
+          <Button variant="outline" size="sm" onClick={doSync} disabled={syncing} className="gap-1.5">
+            <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "Syncing..." : "Sync"}
+          </Button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -414,87 +440,39 @@ export default function VMDetail() {
 
       {tab === "overview" && (
         <>
-          {/* Resource Stats */}
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Card className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-info/10 flex items-center justify-center">
-                  <Cpu className="h-5 w-5 text-info" />
+          {/* Stat strip: the numbers people come for, in one row instead of six tiles. */}
+          <Card>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-y sm:divide-y-0 lg:divide-x divide-border">
+              {[
+                { label: "vCPU", value: vm.cpu || "—", icon: Cpu, tone: "text-info" },
+                { label: "Memory", value: vm.memory_mb ? (vm.memory_mb >= 1024 ? `${(vm.memory_mb / 1024).toFixed(vm.memory_mb % 1024 ? 1 : 0)} GB` : `${vm.memory_mb} MB`) : "—", icon: MemoryStick, tone: "text-primary" },
+                { label: "Disk", value: vm.disk_gb ? `${vm.disk_gb} GB` : "—", icon: HardDrive, tone: "text-success" },
+                { label: "Address", value: vm.ip_address || "—", icon: Network, tone: "text-muted-foreground", mono: true, copy: !!vm.ip_address },
+                { label: "Current session", value: vmLifecycleLabel(vm, now).label || "—", icon: Clock, tone: "text-warning", iso: vm.state_changed_at },
+                { label: "Lifetime runtime", value: formatDuration(totalLifetimeRuntimeMs(vm, now)), icon: History, tone: "text-success" },
+              ].map((st) => (
+                <div key={st.label} className="flex items-center gap-2.5 px-4 py-3 min-w-0">
+                  <st.icon className={`h-4 w-4 shrink-0 ${st.tone}`} aria-hidden="true" />
+                  <div className="min-w-0">
+                    <div className="text-2xs uppercase tracking-[0.08em] text-muted-foreground leading-4">{st.label}</div>
+                    <div className={`text-[15px] font-semibold tabular-nums leading-5 truncate ${st.mono ? "font-mono text-sm" : ""}`}>
+                      {st.iso ? <TimeWithTooltip iso={st.iso}>{String(st.value)}</TimeWithTooltip> : String(st.value)}
+                      {st.copy && (
+                        <button onClick={() => copyText(vm.ip_address)} className="ml-1.5 align-middle text-muted-foreground hover:text-foreground" aria-label="Copy IP address">
+                          <Copy className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-2xl font-bold">{vm.cpu || "—"}</p>
-                  <p className="text-xs text-muted-foreground">vCPU Cores</p>
-                </div>
-              </div>
-            </Card>
-            <Card className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <MemoryStick className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{vm.memory_mb ? (vm.memory_mb >= 1024 ? `${(vm.memory_mb / 1024).toFixed(vm.memory_mb % 1024 ? 1 : 0)} GB` : `${vm.memory_mb} MB`) : "—"}</p>
-                  <p className="text-xs text-muted-foreground">Memory</p>
-                </div>
-              </div>
-            </Card>
-            <Card className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-success/10 flex items-center justify-center">
-                  <HardDrive className="h-5 w-5 text-success" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{vm.disk_gb ? `${vm.disk_gb} GB` : "—"}</p>
-                  <p className="text-xs text-muted-foreground">Disk</p>
-                </div>
-              </div>
-            </Card>
-          </div>
+              ))}
+            </div>
+          </Card>
 
-          {/* Lifecycle Stats */}
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Card className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-slate-500/10 flex items-center justify-center">
-                  <CalendarPlus className="h-5 w-5 text-slate-500" />
-                </div>
-                <div>
-                  <TimeWithTooltip iso={vm.created_at}>
-                    <p className="text-2xl font-bold">{timeAgo(vm.created_at)}</p>
-                  </TimeWithTooltip>
-                  <p className="text-xs text-muted-foreground">Created</p>
-                </div>
-              </div>
-            </Card>
-            <Card className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-warning/10 flex items-center justify-center">
-                  <Clock className="h-5 w-5 text-warning" />
-                </div>
-                <div>
-                  <TimeWithTooltip iso={vm.state_changed_at}>
-                    <p className="text-2xl font-bold">{vmLifecycleLabel(vm, now).label || "—"}</p>
-                  </TimeWithTooltip>
-                  <p className="text-xs text-muted-foreground">Current Session</p>
-                </div>
-              </div>
-            </Card>
-            <Card className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-success/10 flex items-center justify-center">
-                  <History className="h-5 w-5 text-success" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{formatDuration(totalLifetimeRuntimeMs(vm, now))}</p>
-                  <p className="text-xs text-muted-foreground">Total Lifetime Runtime</p>
-                </div>
-              </div>
-            </Card>
-          </div>
-
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="lg:col-span-2 space-y-4">
             {/* VM Details */}
-            <Card className="lg:col-span-2">
+            <Card>
               <CardHeader>
                 <CardTitle>Details</CardTitle>
               </CardHeader>
@@ -504,13 +482,11 @@ export default function VMDetail() {
                   { label: "Template", value: vm.template_name || "N/A" },
                   { label: "IP Address", value: vm.ip_address || "N/A", mono: true, copyable: !!vm.ip_address },
                   { label: "OS Type", value: vm.os_type || "N/A" },
-                  { label: "VM ID", value: String(vm.id), mono: true },
-                  { label: "Last Synced", value: vm.last_synced_at ? formatDateTime(vm.last_synced_at) : "Never" },
                 ].map((row) => (
-                  <div key={row.label} className="flex items-center justify-between py-2 border-b last:border-0">
-                    <span className="text-sm text-muted-foreground">{row.label}</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-sm font-medium ${row.mono ? "font-mono" : ""}`}>{row.value}</span>
+                  <div key={row.label} className="kv-row">
+                    <span className="kv-label">{row.label}</span>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className={`kv-value ${row.mono ? "font-mono" : ""}`}>{row.value}</span>
                       {row.copyable && (
                         <button
                           onClick={() => {
@@ -539,35 +515,112 @@ export default function VMDetail() {
                     </div>
                   </div>
                 ))}
+                {/* Rarely-needed identifiers: one muted footer line instead of full rows. */}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-2.5 text-2xs text-muted-foreground">
+                  <span>VM ID <span className="font-mono text-foreground/80">{vm.id}</span></span>
+                  <span aria-hidden="true">·</span>
+                  <span>Ref <span className="font-mono text-foreground/80">{vm.vm_ref}</span></span>
+                  <span aria-hidden="true">·</span>
+                  <span>Last synced {vm.last_synced_at ? formatDateTime(vm.last_synced_at) : "never"}</span>
+                </div>
               </CardContent>
             </Card>
 
+            {/* Network adapters — live from the hypervisor */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                <div className="flex items-center gap-1.5">
+                  <CardTitle>Network Adapters</CardTitle>
+                  <InfoTip text="Every virtual NIC on this VM as the hypervisor reports it right now. Addresses come from VMware Tools / the QEMU guest agent inside the guest — if those aren't running, the adapter still shows with its network and MAC but no addresses." />
+                </div>
+                <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={loadNICs} disabled={nicsLoading}>
+                  <RefreshCw className={`h-3 w-3 ${nicsLoading ? "animate-spin" : ""}`} /> Refresh
+                </Button>
+              </CardHeader>
+              <CardContent>
+                {nics === null || (nicsLoading && nics.length === 0) ? (
+                  <p className="text-sm text-muted-foreground flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading adapters…</p>
+                ) : nicsError ? (
+                  <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+                    <p className="text-xs text-warning">{nicsError}</p>
+                  </div>
+                ) : nics.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No network adapters on this VM.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs text-muted-foreground border-b">
+                          <th className="py-2 pr-3 font-medium">Adapter</th>
+                          <th className="py-2 pr-3 font-medium">Network</th>
+                          <th className="py-2 pr-3 font-medium">Type</th>
+                          <th className="py-2 pr-3 font-medium">MAC</th>
+                          <th className="py-2 pr-3 font-medium">Addresses</th>
+                          <th className="py-2 font-medium">State</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {nics.map((n) => (
+                          <tr key={n.key} className="border-b last:border-0">
+                            <td className="py-2 pr-3 font-medium whitespace-nowrap">{n.label || `Adapter ${n.key}`}</td>
+                            <td className="py-2 pr-3 whitespace-nowrap">
+                              {n.network || <span className="text-muted-foreground">—</span>}
+                              {n.vlan_tag ? <span className="ml-1.5 text-xs text-muted-foreground">VLAN {n.vlan_tag}</span> : null}
+                            </td>
+                            <td className="py-2 pr-3 text-muted-foreground whitespace-nowrap">{n.adapter_type || "—"}</td>
+                            <td className="py-2 pr-3 whitespace-nowrap">
+                              {n.mac_address ? (
+                                <span className="inline-flex items-center gap-1">
+                                  <span className="font-mono text-xs">{n.mac_address}</span>
+                                  <button onClick={() => copyText(n.mac_address)} className="text-muted-foreground hover:text-foreground" aria-label={`Copy MAC ${n.mac_address}`}>
+                                    <Copy className="h-3 w-3" />
+                                  </button>
+                                </span>
+                              ) : <span className="text-muted-foreground">—</span>}
+                            </td>
+                            <td className="py-2 pr-3">
+                              {n.addresses && n.addresses.length > 0 ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {n.addresses.map((a) => (
+                                    <button key={a} onClick={() => copyText(a)} className="font-mono text-xs rounded border px-1.5 py-0.5 bg-muted/40 hover:bg-muted" title="Copy">{a}</button>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">{n.connected ? "not reported by guest" : "—"}</span>
+                              )}
+                            </td>
+                            <td className="py-2 whitespace-nowrap">
+                              {n.pending ? (
+                                <Badge variant="warning" title="Saved; attaches at the next power cycle">Pending</Badge>
+                              ) : n.connected ? (
+                                <Badge variant="success">Connected</Badge>
+                              ) : n.start_connected ? (
+                                <Badge variant="info" title="Configured to connect when the VM powers on">Connects at power-on</Badge>
+                              ) : (
+                                <Badge variant="secondary" title="Link down — the adapter is attached but not connected">Disconnected</Badge>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            </div>
+            <div className="space-y-4">
             {/* Power & Management */}
             <Card>
               <CardHeader>
-                <CardTitle>Management</CardTitle>
+                <CardTitle>Operations</CardTitle>
+                <CardDescription>Resize, storage, networking and access.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <Button size="sm" onClick={() => doPower("start")} disabled={acting} className="gap-1.5">
-                    <Play className="h-3.5 w-3.5" /> Start
-                  </Button>
-                  <Button size="sm" variant="secondary" onClick={() => doPower("stop")} disabled={acting} className="gap-1.5">
-                    <Square className="h-3.5 w-3.5" /> Stop
-                  </Button>
-                  <Button size="sm" variant="secondary" onClick={() => doPower("restart")} disabled={acting} className="gap-1.5">
-                    <RotateCcw className="h-3.5 w-3.5" /> Restart
-                  </Button>
-                  <Button size="sm" variant="secondary" onClick={() => doPower("suspend")} disabled={acting} className="gap-1.5">
-                    <Pause className="h-3.5 w-3.5" /> Suspend
-                  </Button>
-                </div>
-
-                <div className="border-t pt-3 space-y-2">
-                  <Button size="sm" variant="outline" className="w-full gap-1.5" onClick={doConsole}>
-                    <ExternalLink className="h-3.5 w-3.5" /> Open Console
-                  </Button>
-                  <Button size="sm" variant="outline" className="w-full gap-1.5" onClick={() => {
+              <CardContent className="space-y-2">
+                <div className="space-y-2">
+                  <Button size="sm" variant="outline" className="w-full justify-start gap-2" onClick={() => {
                     if (!showResize && vm) {
                       setResizeCPU(vm.cpu || 0);
                       setResizeMem(vm.memory_mb || 0);
@@ -597,9 +650,9 @@ export default function VMDetail() {
                   )}
                 </div>
 
-                <div className="border-t pt-3 space-y-2">
+                <div className="pt-2 space-y-2">
                   <div className="flex items-center gap-1.5">
-                    <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={async () => {
+                    <Button size="sm" variant="outline" className="flex-1 justify-start gap-2" onClick={async () => {
                       if (!showExpandDisk) await loadDisks();
                       setShowExpandDisk(!showExpandDisk);
                     }}>
@@ -647,9 +700,9 @@ export default function VMDetail() {
                 </div>
 
                 {nicAttachSupported && (
-                  <div className="border-t pt-3 space-y-2">
+                  <div className="pt-2 space-y-2">
                     <div className="flex items-center gap-1.5">
-                      <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={async () => {
+                      <Button size="sm" variant="outline" className="flex-1 justify-start gap-2" onClick={async () => {
                         if (!showAddNIC) await loadNICNetworks();
                         setShowAddNIC(!showAddNIC);
                       }}>
@@ -699,8 +752,8 @@ export default function VMDetail() {
                   </div>
                 )}
 
-                <div className="border-t pt-3 space-y-2">
-                  <Button size="sm" variant="outline" className="w-full gap-1.5" onClick={async () => {
+                <div className="pt-2 space-y-2">
+                  <Button size="sm" variant="outline" className="w-full justify-start gap-2" onClick={async () => {
                     const ok = await showConfirm({ title: "Reset SSH Host Key", message: "This clears the stored SSH host key fingerprint. The next SSH connection will trust the new key automatically (TOFU). Use this after rebuilding a VM.", confirmLabel: "Reset" });
                     if (!ok) return;
                     try { await vmApi.resetHostKey(vm.id); toast("SSH host key reset — next connection will re-establish trust"); } catch (e) { toast(getErrorMessage(e, "Failed to reset host key"), "error"); }
@@ -709,164 +762,95 @@ export default function VMDetail() {
                   </Button>
                 </div>
 
-                <div className="pt-3">
-                  <DangerZone description="Both remove this VM from Forgemill. Neither can be undone.">
-                    <DangerZoneItem
-                      title="Untrack VM"
-                      description="Forget it here; it keeps running on the hypervisor."
-                      expanded={deleteMode === "untrack" && (
-                        <div className="border border-warning/30 rounded-md p-3 space-y-2 bg-warning/[0.06]">
-                          <p className="text-2xs text-warning">Remove this VM from Forgemill only. The VM will continue running on the hypervisor — it just won't be tracked here anymore.</p>
-                          <p className="text-2xs text-warning/80">⚠ This cannot be reversed. Untracked VMs cannot currently be re-imported into Forgemill.</p>
-                          {deletePreviewLoading && (
-                            <p className="text-2xs text-warning/80">Checking what else this affects…</p>
-                          )}
-                          {deletePreview && (deletePreview.dependent_snapshots > 0 || deletePreview.dependent_executions > 0) && (
-                            <p className="text-2xs text-warning/80">
-                              Forgemill also has {deletePreview.dependent_snapshots > 0 && `${deletePreview.dependent_snapshots} snapshot${deletePreview.dependent_snapshots === 1 ? "" : "s"}`}
-                              {deletePreview.dependent_snapshots > 0 && deletePreview.dependent_executions > 0 && " and "}
-                              {deletePreview.dependent_executions > 0 && `${deletePreview.dependent_executions} execution record${deletePreview.dependent_executions === 1 ? "" : "s"}`} on file for this VM.
-                            </p>
-                          )}
-                          <Button size="sm" variant="secondary" onClick={() => doDelete(true)} disabled={acting} className="w-full">
-                            Confirm Untrack
-                          </Button>
-                        </div>
-                      )}
-                    >
-                      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setDeleteMode(deleteMode === "untrack" ? null : "untrack")} disabled={acting} aria-expanded={deleteMode === "untrack"}>
-                        <X className="h-3.5 w-3.5" /> Untrack VM
-                      </Button>
-                    </DangerZoneItem>
-                    <DangerZoneItem
-                      title="Destroy VM"
-                      description="Power off and delete it from the hypervisor, then remove it here."
-                      expanded={deleteMode === "destroy" && (
-                        <div className="border border-destructive/30 rounded-md p-3 space-y-3 bg-destructive/[0.06]">
-                          <p className="text-2xs text-destructive">This will permanently destroy this VM on the hypervisor and remove it from Forgemill. This cannot be undone.</p>
-                          {deletePreviewLoading && (
-                            <p className="text-2xs text-destructive/80">Checking what else this affects…</p>
-                          )}
-                          {deletePreview && (deletePreview.dependent_snapshots > 0 || deletePreview.dependent_executions > 0) && (
-                            <p className="text-2xs text-destructive/80">
-                              Forgemill also has {deletePreview.dependent_snapshots > 0 && `${deletePreview.dependent_snapshots} snapshot${deletePreview.dependent_snapshots === 1 ? "" : "s"}`}
-                              {deletePreview.dependent_snapshots > 0 && deletePreview.dependent_executions > 0 && " and "}
-                              {deletePreview.dependent_executions > 0 && `${deletePreview.dependent_executions} execution record${deletePreview.dependent_executions === 1 ? "" : "s"}`} on file for this VM.
-                            </p>
-                          )}
-                          <div className="space-y-1.5">
-                            <Label className="text-2xs text-destructive">Type <span className="font-mono font-bold">{vm?.vm_name}</span> to confirm:</Label>
-                            <Input
-                              value={destroyConfirmText}
-                              onChange={(e) => setDestroyConfirmText(e.target.value)}
-                              placeholder={vm?.vm_name}
-                              autoComplete="off"
-                              spellCheck={false}
-                              className="font-mono text-13 border-destructive/50 focus-visible:border-destructive"
-                            />
-                          </div>
-                          <Button size="sm" variant={destroyConfirmText === vm?.vm_name ? "danger" : "destructive"} onClick={() => doDelete(false)} disabled={acting || destroyConfirmText !== vm?.vm_name} className="w-full">
-                            {destroyConfirmText === vm?.vm_name ? "Confirm Destroy" : "Type VM name to confirm"}
-                          </Button>
-                        </div>
-                      )}
-                    >
-                      <Button size="sm" variant="destructive" className="gap-1.5" onClick={() => { setDeleteMode(deleteMode === "destroy" ? null : "destroy"); setDestroyConfirmText(""); }} disabled={acting} aria-expanded={deleteMode === "destroy"}>
-                        <Trash2 className="h-3.5 w-3.5" /> Destroy VM
-                      </Button>
-                    </DangerZoneItem>
-                  </DangerZone>
-                </div>
               </CardContent>
             </Card>
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-1.5">
+                  <CardTitle>Lifecycle</CardTitle>
+                  <InfoTip text="Created is when Forgemill first tracked the VM. Current session is how long it has been in its present power state. Lifetime runtime only accrues while powered on — it freezes while suspended or off and is never reset." />
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-0">
+                <div className="kv-row"><span className="kv-label">Created</span><span className="kv-value"><TimeWithTooltip iso={vm.created_at}>{timeAgo(vm.created_at)}</TimeWithTooltip></span></div>
+                <div className="kv-row"><span className="kv-label">Current session</span><span className="kv-value"><TimeWithTooltip iso={vm.state_changed_at}>{vmLifecycleLabel(vm, now).label || "—"}</TimeWithTooltip></span></div>
+                <div className="kv-row"><span className="kv-label">Last powered on</span><span className="kv-value"><TimeWithTooltip iso={vm.last_powered_on_at}>{vm.last_powered_on_at ? timeAgo(vm.last_powered_on_at) : "—"}</TimeWithTooltip></span></div>
+                <div className="kv-row"><span className="kv-label">Last powered off</span><span className="kv-value"><TimeWithTooltip iso={vm.last_powered_off_at}>{vm.last_powered_off_at ? timeAgo(vm.last_powered_off_at) : "—"}</TimeWithTooltip></span></div>
+                <div className="kv-row"><span className="kv-label">Lifetime runtime</span><span className="kv-value tabular-nums">{formatDuration(totalLifetimeRuntimeMs(vm, now))}</span></div>
+              </CardContent>
+            </Card>
+              <CredentialsCard vmId={vmId} vmIp={vm.ip_address} />
+            </div>
           </div>
 
-          {/* Network adapters — live from the hypervisor */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <div className="flex items-center gap-1.5">
-                <CardTitle>Network Adapters</CardTitle>
-                <InfoTip text="Every virtual NIC on this VM as the hypervisor reports it right now. Addresses come from VMware Tools / the QEMU guest agent inside the guest — if those aren't running, the adapter still shows with its network and MAC but no addresses." />
-              </div>
-              <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={loadNICs} disabled={nicsLoading}>
-                <RefreshCw className={`h-3 w-3 ${nicsLoading ? "animate-spin" : ""}`} /> Refresh
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {nics === null || (nicsLoading && nics.length === 0) ? (
-                <p className="text-sm text-muted-foreground flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading adapters…</p>
-              ) : nicsError ? (
-                <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 flex items-start gap-2">
-                  <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
-                  <p className="text-xs text-warning">{nicsError}</p>
-                </div>
-              ) : nics.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No network adapters on this VM.</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-xs text-muted-foreground border-b">
-                        <th className="py-2 pr-3 font-medium">Adapter</th>
-                        <th className="py-2 pr-3 font-medium">Network</th>
-                        <th className="py-2 pr-3 font-medium">Type</th>
-                        <th className="py-2 pr-3 font-medium">MAC</th>
-                        <th className="py-2 pr-3 font-medium">Addresses</th>
-                        <th className="py-2 font-medium">State</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {nics.map((n) => (
-                        <tr key={n.key} className="border-b last:border-0">
-                          <td className="py-2 pr-3 font-medium whitespace-nowrap">{n.label || `Adapter ${n.key}`}</td>
-                          <td className="py-2 pr-3 whitespace-nowrap">
-                            {n.network || <span className="text-muted-foreground">—</span>}
-                            {n.vlan_tag ? <span className="ml-1.5 text-xs text-muted-foreground">VLAN {n.vlan_tag}</span> : null}
-                          </td>
-                          <td className="py-2 pr-3 text-muted-foreground whitespace-nowrap">{n.adapter_type || "—"}</td>
-                          <td className="py-2 pr-3 whitespace-nowrap">
-                            {n.mac_address ? (
-                              <span className="inline-flex items-center gap-1">
-                                <span className="font-mono text-xs">{n.mac_address}</span>
-                                <button onClick={() => copyText(n.mac_address)} className="text-muted-foreground hover:text-foreground" aria-label={`Copy MAC ${n.mac_address}`}>
-                                  <Copy className="h-3 w-3" />
-                                </button>
-                              </span>
-                            ) : <span className="text-muted-foreground">—</span>}
-                          </td>
-                          <td className="py-2 pr-3">
-                            {n.addresses && n.addresses.length > 0 ? (
-                              <div className="flex flex-wrap gap-1">
-                                {n.addresses.map((a) => (
-                                  <button key={a} onClick={() => copyText(a)} className="font-mono text-xs rounded border px-1.5 py-0.5 bg-muted/40 hover:bg-muted" title="Copy">{a}</button>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">{n.connected ? "not reported by guest" : "—"}</span>
-                            )}
-                          </td>
-                          <td className="py-2 whitespace-nowrap">
-                            {n.pending ? (
-                              <Badge variant="warning" title="Saved; attaches at the next power cycle">Pending</Badge>
-                            ) : n.connected ? (
-                              <Badge variant="success">Connected</Badge>
-                            ) : n.start_connected ? (
-                              <Badge variant="info" title="Configured to connect when the VM powers on">Connects at power-on</Badge>
-                            ) : (
-                              <Badge variant="secondary" title="Link down — the adapter is attached but not connected">Disconnected</Badge>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* SSH Credentials */}
-          <CredentialsCard vmId={vmId} vmIp={vm.ip_address} />
+          <div className="pt-3">
+            <DangerZone description="Both remove this VM from Forgemill. Neither can be undone.">
+              <DangerZoneItem
+                title="Untrack VM"
+                description="Forget it here; it keeps running on the hypervisor."
+                expanded={deleteMode === "untrack" && (
+                  <div className="border border-warning/30 rounded-md p-3 space-y-2 bg-warning/[0.06]">
+                    <p className="text-2xs text-warning">Remove this VM from Forgemill only. The VM will continue running on the hypervisor — it just won't be tracked here anymore.</p>
+                    <p className="text-2xs text-warning/80">⚠ This cannot be reversed. Untracked VMs cannot currently be re-imported into Forgemill.</p>
+                    {deletePreviewLoading && (
+                      <p className="text-2xs text-warning/80">Checking what else this affects…</p>
+                    )}
+                    {deletePreview && (deletePreview.dependent_snapshots > 0 || deletePreview.dependent_executions > 0) && (
+                      <p className="text-2xs text-warning/80">
+                        Forgemill also has {deletePreview.dependent_snapshots > 0 && `${deletePreview.dependent_snapshots} snapshot${deletePreview.dependent_snapshots === 1 ? "" : "s"}`}
+                        {deletePreview.dependent_snapshots > 0 && deletePreview.dependent_executions > 0 && " and "}
+                        {deletePreview.dependent_executions > 0 && `${deletePreview.dependent_executions} execution record${deletePreview.dependent_executions === 1 ? "" : "s"}`} on file for this VM.
+                      </p>
+                    )}
+                    <Button size="sm" variant="secondary" onClick={() => doDelete(true)} disabled={acting} className="w-full">
+                      Confirm Untrack
+                    </Button>
+                  </div>
+                )}
+              >
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setDeleteMode(deleteMode === "untrack" ? null : "untrack")} disabled={acting} aria-expanded={deleteMode === "untrack"}>
+                  <X className="h-3.5 w-3.5" /> Untrack VM
+                </Button>
+              </DangerZoneItem>
+              <DangerZoneItem
+                title="Destroy VM"
+                description="Power off and delete it from the hypervisor, then remove it here."
+                expanded={deleteMode === "destroy" && (
+                  <div className="border border-destructive/30 rounded-md p-3 space-y-3 bg-destructive/[0.06]">
+                    <p className="text-2xs text-destructive">This will permanently destroy this VM on the hypervisor and remove it from Forgemill. This cannot be undone.</p>
+                    {deletePreviewLoading && (
+                      <p className="text-2xs text-destructive/80">Checking what else this affects…</p>
+                    )}
+                    {deletePreview && (deletePreview.dependent_snapshots > 0 || deletePreview.dependent_executions > 0) && (
+                      <p className="text-2xs text-destructive/80">
+                        Forgemill also has {deletePreview.dependent_snapshots > 0 && `${deletePreview.dependent_snapshots} snapshot${deletePreview.dependent_snapshots === 1 ? "" : "s"}`}
+                        {deletePreview.dependent_snapshots > 0 && deletePreview.dependent_executions > 0 && " and "}
+                        {deletePreview.dependent_executions > 0 && `${deletePreview.dependent_executions} execution record${deletePreview.dependent_executions === 1 ? "" : "s"}`} on file for this VM.
+                      </p>
+                    )}
+                    <div className="space-y-1.5">
+                      <Label className="text-2xs text-destructive">Type <span className="font-mono font-bold">{vm?.vm_name}</span> to confirm:</Label>
+                      <Input
+                        value={destroyConfirmText}
+                        onChange={(e) => setDestroyConfirmText(e.target.value)}
+                        placeholder={vm?.vm_name}
+                        autoComplete="off"
+                        spellCheck={false}
+                        className="font-mono text-13 border-destructive/50 focus-visible:border-destructive"
+                      />
+                    </div>
+                    <Button size="sm" variant={destroyConfirmText === vm?.vm_name ? "danger" : "destructive"} onClick={() => doDelete(false)} disabled={acting || destroyConfirmText !== vm?.vm_name} className="w-full">
+                      {destroyConfirmText === vm?.vm_name ? "Confirm Destroy" : "Type VM name to confirm"}
+                    </Button>
+                  </div>
+                )}
+              >
+                <Button size="sm" variant="destructive" className="gap-1.5" onClick={() => { setDeleteMode(deleteMode === "destroy" ? null : "destroy"); setDestroyConfirmText(""); }} disabled={acting} aria-expanded={deleteMode === "destroy"}>
+                  <Trash2 className="h-3.5 w-3.5" /> Destroy VM
+                </Button>
+              </DangerZoneItem>
+            </DangerZone>
+          </div>
         </>
       )}
 
@@ -1051,6 +1035,11 @@ function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState: string
   const [actionCategoryFilter, setActionCategoryFilter] = useState<string>("all");
   const [historyPage, setHistoryPage] = useState(1);
   const [historyPerPage, setHistoryPerPage] = usePageSize("vmdetail_executions", 10);
+  // Action cards are paged so the tab doesn't become a wall of 20+ cards;
+  // 9 / 12 fit the 3-column grid exactly. Filter first, then page.
+  const [actionPage, setActionPage] = useState(1);
+  const [actionsPerPage, setActionsPerPage] = usePageSize("vmdetail_actions", 9, [9, 12, 24]);
+  useEffect(() => { setActionPage(1); }, [actionSearch, actionCategoryFilter, actionsPerPage]);
   const [paramAction, setParamAction] = useState<Action | null>(null);
   const [paramValues, setParamValues] = useState<Record<string, string>>({});
 
@@ -1411,7 +1400,7 @@ function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState: string
       )}
 
       {!isPoweredOn && (
-        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md p-3 text-sm text-yellow-700 dark:text-yellow-300 flex items-center gap-2">
+        <div className="bg-warning/[0.06] border border-warning/30 rounded-md p-3 text-13 text-warning flex items-center gap-2">
           <AlertTriangle className="h-4 w-4" />
           VM must be powered on to execute actions.
         </div>
@@ -1457,11 +1446,14 @@ function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState: string
               const matchCategory = actionCategoryFilter === "all" || a.category === actionCategoryFilter;
               return matchSearch && matchCategory;
             });
+            const pageStart = (actionPage - 1) * actionsPerPage;
+            const pagedActions = filtered.slice(pageStart, pageStart + actionsPerPage);
             return filtered.length === 0 ? (
               <p className="text-sm text-muted-foreground">No actions match your search</p>
             ) : (
+              <>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {filtered.map((action) => (
+                {pagedActions.map((action) => (
                   <button
                     key={action.id}
                     className="flex flex-col items-start gap-1 border rounded-lg p-3 hover:bg-muted/50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1486,6 +1478,16 @@ function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState: string
                   </button>
                 ))}
               </div>
+              <Pagination
+                page={actionPage}
+                pageSize={actionsPerPage}
+                totalItems={filtered.length}
+                onPageChange={setActionPage}
+                onPageSizeChange={setActionsPerPage}
+                pageSizeOptions={[9, 12, 24]}
+                itemLabel="actions"
+              />
+              </>
             );
           })()}
         </CardContent>
