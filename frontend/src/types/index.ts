@@ -490,3 +490,14 @@ export interface ExecuteRequest {
   timeout_seconds?: number;
   parameter_values?: Record<string, string>;
 }
+
+// A virtual network adapter as the hypervisor reports it, returned by
+// POST /api/vms/:id/nics after a successful attach.
+export interface VMNIC {
+  key: number;
+  label: string;
+  adapter_type: string;
+  network: string;
+  mac_address: string;
+  connected: boolean;
+}

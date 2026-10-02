@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -718,4 +721,82 @@ func (s *VMService) GetConsoleURL(ctx context.Context, id int64) (string, error)
 // Next SSH connection will trust-on-first-use again.
 func (s *VMService) ResetHostKey(id int64) error {
 	return s.db.UpdateManagedVMHostKeyFP(id, "")
+}
+
+// Sentinel errors for AddNIC. The handler maps these with errors.Is to a
+// specific HTTP status instead of matching on error text.
+var (
+	ErrVMNotFound     = errors.New("VM not found")
+	ErrInvalidNICSpec = errors.New("invalid network adapter request")
+)
+
+// AddNICRequest is the service-level input for AddNIC.
+type AddNICRequest struct {
+	Network     string
+	AdapterType string // "" = provider default
+	Connected   bool
+}
+
+// AddNIC attaches an additional network adapter to a managed VM and then
+// re-syncs the VM record from the hypervisor. It never power-cycles the VM:
+// the provider performs a hot-add, which vSphere supports for every adapter
+// model the vmware provider accepts.
+func (s *VMService) AddNIC(ctx context.Context, id int64, req AddNICRequest) (*provider.NIC, error) {
+	req.Network = strings.TrimSpace(req.Network)
+	if req.Network == "" {
+		return nil, fmt.Errorf("%w: network is required", ErrInvalidNICSpec)
+	}
+
+	vm, err := s.db.GetManagedVM(id)
+	if err != nil {
+		return nil, fmt.Errorf("%w: id %d", ErrVMNotFound, id)
+	}
+
+	target, err := s.targets.Get(vm.TargetID)
+	if err != nil {
+		return nil, fmt.Errorf("get target: %w", err)
+	}
+	// Refuse on the provider's declared capability before opening a
+	// hypervisor session — the UI hides the control on the same flag, so a
+	// request that gets here for an unsupported target is an API caller
+	// that needs a clear answer, not a connection attempt.
+	meta := provider.GetMetadata(target.Type)
+	if meta != nil && !meta.Features.NICAttach {
+		return nil, fmt.Errorf("%w: adding a network adapter is not available for %s targets", provider.ErrNotSupported, meta.Name)
+	}
+	// Same reasoning for the adapter model: the provider re-checks it, but
+	// checking against the published list here turns a typo into a 400
+	// instead of a hypervisor round-trip (or, for an unreachable target, a
+	// connect failure that hides the real mistake).
+	req.AdapterType = strings.ToLower(strings.TrimSpace(req.AdapterType))
+	if req.AdapterType != "" && meta != nil && len(meta.NICAdapterTypes) > 0 && !slices.Contains(meta.NICAdapterTypes, req.AdapterType) {
+		return nil, fmt.Errorf("%w: %q (use %s)", provider.ErrInvalidAdapterType, req.AdapterType, strings.Join(meta.NICAdapterTypes, ", "))
+	}
+
+	p, err := s.targets.GetProvider(vm.TargetID)
+	if err != nil {
+		return nil, fmt.Errorf("get provider: %w", err)
+	}
+	defer p.Disconnect()
+
+	if err := p.Connect(ctx); err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+
+	nic, err := p.AddNIC(ctx, vm.VMRef, provider.NICSpec{
+		Network:     req.Network,
+		AdapterType: req.AdapterType,
+		Connected:   req.Connected,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Refresh the stored record straight away rather than waiting for the
+	// next periodic sync. The adapter is already attached at this point, so
+	// a sync failure is logged, not reported as a failure of the attach.
+	if _, err := s.SyncState(ctx, id); err != nil {
+		slog.Warn("VM sync after NIC attach failed", "vm_id", id, "error", err)
+	}
+	return nic, nil
 }

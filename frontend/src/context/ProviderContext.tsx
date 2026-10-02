@@ -15,6 +15,7 @@ export interface ProviderFeatures {
   disk_provisioning: boolean;
   linked_clones: boolean;
   vlan_tagging: boolean;
+  nic_attach: boolean;
 }
 
 export interface DeployField {
@@ -33,6 +34,9 @@ export interface ProviderMetadata {
   hints: Record<string, string>;
   features: ProviderFeatures;
   deploy_fields: DeployField[];
+  // Adapter models AddNIC accepts, first is the default. Absent when
+  // features.nic_attach is false.
+  nic_adapter_types?: string[];
 }
 
 interface ProviderContextType {

@@ -1,12 +1,13 @@
 import { useTimezone } from "@/hooks/useTimezone";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { vms as vmApi, executions as execApi, actions as actionsApi } from "@/api/client";
+import { vms as vmApi, executions as execApi, actions as actionsApi, targets as targetApi } from "@/api/client";
 import type { DeletePreview } from "@/api/client";
+import { useProviders } from "@/context/ProviderContext";
 import { usePageSize } from "@/hooks/usePageSize";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
-import type { ManagedVM, VMSnapshot, Action, ActionExecution, ActionParameter } from "@/types";
+import type { ManagedVM, VMSnapshot, Action, ActionExecution, ActionParameter, ResourceItem } from "@/types";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +24,7 @@ import {
   Camera, Undo2, ExternalLink, Cpu, MemoryStick, HardDrive, ArrowLeft,
   RefreshCw, KeyRound, Eye, EyeOff, Copy, Terminal, X,
   CheckCircle, XCircle, Loader2, AlertTriangle, Settings2,
-  CalendarPlus, Clock, History,
+  CalendarPlus, Clock, History, Network,
 } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { getErrorMessage } from "@/lib/utils";
@@ -77,6 +78,17 @@ export default function VMDetail() {
   const [disks, setDisks] = useState<{ key: number; label: string; size_gb: number }[]>([]);
   const [expandDiskKey, setExpandDiskKey] = useState<number | null>(null);
   const [expandDiskSize, setExpandDiskSize] = useState(0);
+  // Add Network Adapter — only offered when the VM's target type advertises
+  // features.nic_attach (vSphere today). Networks come from the target's live
+  // resource inventory, the same list the deploy form uses.
+  const { getProvider } = useProviders();
+  const [targetType, setTargetType] = useState("");
+  const [showAddNIC, setShowAddNIC] = useState(false);
+  const [nicNetworks, setNicNetworks] = useState<ResourceItem[]>([]);
+  const [nicNetworksLoading, setNicNetworksLoading] = useState(false);
+  const [nicNetwork, setNicNetwork] = useState("");
+  const [nicAdapter, setNicAdapter] = useState("");
+  const [nicConnected, setNicConnected] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [tab, setTab] = useState<Tab>("overview");
 
@@ -205,6 +217,58 @@ export default function VMDetail() {
       toast("Disk expanded successfully");
     } catch (e) {
       toast(getErrorMessage(e, "Failed to expand disk"), "error");
+    } finally {
+      setActing(false);
+    }
+  };
+
+  // Resolve the target's provider type so the NIC control can be gated on
+  // the provider's declared capability rather than hardcoded platform names.
+  useEffect(() => {
+    if (!vm?.target_id) return;
+    let cancelled = false;
+    targetApi.get(vm.target_id)
+      .then((res) => { if (!cancelled) setTargetType(res.data.type); })
+      .catch(() => { /* leave the control hidden if the target can't be read */ });
+    return () => { cancelled = true; };
+  }, [vm?.target_id]);
+
+  const nicProviderMeta = getProvider(targetType);
+  const nicAttachSupported = Boolean(nicProviderMeta?.features?.nic_attach);
+  // Adapter choices come from the provider's published list (first = default)
+  // so the UI never offers a model the backend would reject.
+  const nicAdapterTypes = nicProviderMeta?.nic_adapter_types?.length ? nicProviderMeta.nic_adapter_types : ["vmxnet3"];
+
+  const loadNICNetworks = async () => {
+    if (!vm) return;
+    if (!nicAdapter) setNicAdapter(nicAdapterTypes[0]);
+    setNicNetworksLoading(true);
+    try {
+      const res = await targetApi.resources(vm.target_id);
+      const nets = res.data?.networks || [];
+      setNicNetworks(nets);
+      // Networks are submitted by inventory path when the provider reports one
+      // (nested vCenter portgroups don't resolve by bare name) — same rule as
+      // the deploy form.
+      if (nets.length > 0 && !nicNetwork) setNicNetwork(nets[0].path || nets[0].name);
+    } catch (e) {
+      toast(getErrorMessage(e, "Failed to load target networks"), "error");
+    } finally {
+      setNicNetworksLoading(false);
+    }
+  };
+
+  const doAddNIC = async () => {
+    if (!nicNetwork) return;
+    setActing(true);
+    try {
+      const res = await vmApi.addNIC(vmId, { network: nicNetwork, adapter_type: nicAdapter, connected: nicConnected });
+      const nic = res.data?.nic;
+      toast(nic?.label ? `${nic.label} attached (${nic.adapter_type}${nic.mac_address ? `, ${nic.mac_address}` : ""})` : "Network adapter attached");
+      setShowAddNIC(false);
+      reload();
+    } catch (e) {
+      toast(getErrorMessage(e, "Failed to add network adapter"), "error");
     } finally {
       setActing(false);
     }
@@ -527,6 +591,53 @@ export default function VMDetail() {
                     </div>
                   )}
                 </div>
+
+                {nicAttachSupported && (
+                  <div className="border-t pt-3 space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={async () => {
+                        if (!showAddNIC) await loadNICNetworks();
+                        setShowAddNIC(!showAddNIC);
+                      }}>
+                        <Network className="h-3.5 w-3.5" /> Add Network Adapter
+                      </Button>
+                      <InfoTip text="Hot-adds a second (or further) virtual NIC to this VM without a power cycle. The adapter appears in the guest as a new, unconfigured interface — assign it an address inside the guest OS afterwards. Existing adapters are not touched." />
+                    </div>
+                    {showAddNIC && (
+                      <div className="space-y-2 border rounded-md p-3 bg-muted/30">
+                        {nicNetworksLoading ? (
+                          <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" /> Loading networks…</p>
+                        ) : nicNetworks.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">No networks reported by this target.</p>
+                        ) : (
+                          <>
+                            <div>
+                              <Label className="text-xs">Network</Label>
+                              <Select value={nicNetwork} onChange={(e) => setNicNetwork(e.target.value)}>
+                                {nicNetworks.map((n) => (
+                                  <option key={n.id} value={n.path || n.name}>{n.name}</option>
+                                ))}
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-xs">Adapter Type</Label>
+                              <Select value={nicAdapter} onChange={(e) => setNicAdapter(e.target.value)}>
+                                {nicAdapterTypes.map((t, i) => (
+                                  <option key={t} value={t}>{t}{i === 0 ? " (recommended)" : ""}</option>
+                                ))}
+                              </Select>
+                            </div>
+                            <label className="flex items-center gap-2 text-xs cursor-pointer">
+                              <input type="checkbox" checked={nicConnected} onChange={(e) => setNicConnected(e.target.checked)} className="h-3.5 w-3.5" />
+                              Connect now and at power-on
+                            </label>
+                            <Button size="sm" onClick={doAddNIC} disabled={acting || !nicNetwork} className="w-full">Attach Adapter</Button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="border-t pt-3 space-y-2">
                   <Button size="sm" variant="outline" className="w-full gap-1.5" onClick={async () => {
