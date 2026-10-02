@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"errors"
+	"sort"
+	"strings"
 )
 
 // Sentinel errors providers wrap so callers can map them to a specific
@@ -52,6 +54,10 @@ type Provider interface {
 	// Providers that don't implement it return ErrNotSupported (wrapped);
 	// a network that doesn't resolve returns ErrNetworkNotFound (wrapped).
 	AddNIC(ctx context.Context, vmID string, spec NICSpec) (*NIC, error)
+	// ListNICs returns the VM's virtual network adapters as the hypervisor
+	// reports them right now, with guest-reported addresses joined in by
+	// MAC where guest tools / the guest agent make them available.
+	ListNICs(ctx context.Context, vmID string) ([]NIC, error)
 	GetConsoleURL(ctx context.Context, vmID string) (string, error)
 
 	ListVMs(ctx context.Context) ([]VMInfo, error)
@@ -213,6 +219,10 @@ type NICSpec struct {
 	// Connected controls whether the adapter is connected immediately (when
 	// the VM is running) and at the next power-on.
 	Connected bool
+	// VLANTag is an optional 802.1Q tag (1-4094) for providers whose VLAN
+	// membership is a NIC property (Proxmox). 0 = untagged. Ignored by
+	// providers where VLAN is part of the network itself (vSphere).
+	VLANTag int
 }
 
 // NIC is a virtual network adapter as the hypervisor reports it.
@@ -223,6 +233,33 @@ type NIC struct {
 	Network     string `json:"network"`
 	MACAddress  string `json:"mac_address"`
 	Connected   bool   `json:"connected"`
+	VLANTag     int    `json:"vlan_tag,omitempty"`
+	// Pending: the hypervisor accepted the adapter but will only attach it
+	// at the next power cycle (Proxmox with network hot-plug disabled).
+	Pending bool `json:"pending,omitempty"`
+	// Addresses are the guest-reported IPs on this adapter (IPv4 first),
+	// empty when guest tools / the guest agent aren't reporting.
+	Addresses []string `json:"addresses"`
+}
+
+// SortAddresses orders guest-reported addresses for display: IPv4 before
+// IPv6, link-local last within each family, otherwise stable.
+func SortAddresses(addrs []string) []string {
+	rank := func(a string) int {
+		isV6 := strings.Contains(a, ":")
+		linkLocal := strings.HasPrefix(a, "169.254.") || strings.HasPrefix(strings.ToLower(a), "fe80:")
+		r := 0
+		if isV6 {
+			r += 2
+		}
+		if linkLocal {
+			r++
+		}
+		return r
+	}
+	out := append([]string(nil), addrs...)
+	sort.SliceStable(out, func(i, j int) bool { return rank(out[i]) < rank(out[j]) })
+	return out
 }
 
 type VMInfo struct {

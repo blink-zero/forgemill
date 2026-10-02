@@ -24,6 +24,8 @@ type fakeNICProvider struct {
 	addNICCalls []provider.NICSpec
 	addNICErr   error
 	statusCalls int
+	nics        []provider.NIC
+	listNICsErr error
 }
 
 var fakeNIC *fakeNICProvider
@@ -87,6 +89,12 @@ func (f *fakeNICProvider) AddNIC(_ context.Context, _ string, spec provider.NICS
 		return nil, f.addNICErr
 	}
 	return &provider.NIC{Key: 4001, Label: "Network adapter 2", AdapterType: "vmxnet3", Network: spec.Network, MACAddress: "00:50:56:aa:bb:cc", Connected: spec.Connected}, nil
+}
+func (f *fakeNICProvider) ListNICs(context.Context, string) ([]provider.NIC, error) {
+	if f.listNICsErr != nil {
+		return nil, f.listNICsErr
+	}
+	return f.nics, nil
 }
 func (f *fakeNICProvider) GetConsoleURL(context.Context, string) (string, error) {
 	return "", errTestList
@@ -214,12 +222,57 @@ func TestAddNICInvalidNetworkSurfacesProviderSentinel(t *testing.T) {
 }
 
 func TestAddNICUnsupportedProviderRefusesWithoutConnecting(t *testing.T) {
-	// Proxmox's registered metadata declares NICAttach: false, so the
-	// service must answer ErrNotSupported without ever building a provider.
-	svc, _, vmID := newNICTestService(t, "proxmox")
-	_, err := svc.AddNIC(context.Background(), vmID, AddNICRequest{Network: "vmbr0"})
+	// Both in-tree providers implement AddNIC now, so simulate a provider
+	// whose metadata declares NICAttach: false by temporarily swapping the
+	// "esxi" metadata. The service must answer ErrNotSupported without
+	// ever building a provider (the fake would record a call otherwise).
+	svc, _, vmID := newNICTestService(t, "esxi")
+	orig := provider.GetMetadata("esxi")
+	noNIC := *orig
+	noNIC.Features.NICAttach = false
+	provider.RegisterMetadata("esxi", &noNIC)
+	t.Cleanup(func() { provider.RegisterMetadata("esxi", orig) })
+
+	_, err := svc.AddNIC(context.Background(), vmID, AddNICRequest{Network: "VM Network"})
 	if !errors.Is(err, provider.ErrNotSupported) {
 		t.Fatalf("expected ErrNotSupported, got %v", err)
+	}
+	if len(fakeNIC.addNICCalls) != 0 {
+		t.Error("provider must not be called when metadata says NICAttach is unsupported")
+	}
+}
+
+func TestAddNICVLANTagValidation(t *testing.T) {
+	svc, _, vmID := newNICTestService(t, "esxi")
+
+	// Out of range is rejected before anything else.
+	for _, tag := range []int{-1, 4095, 70000} {
+		_, err := svc.AddNIC(context.Background(), vmID, AddNICRequest{Network: "VM Network", VLANTag: tag})
+		if !errors.Is(err, ErrInvalidNICSpec) {
+			t.Errorf("VLANTag %d: expected ErrInvalidNICSpec, got %v", tag, err)
+		}
+	}
+	// In range but on a provider without VLANTagging (esxi) is refused —
+	// silently dropping it would misreport the NIC as isolated.
+	_, err := svc.AddNIC(context.Background(), vmID, AddNICRequest{Network: "VM Network", VLANTag: 20})
+	if !errors.Is(err, ErrInvalidNICSpec) {
+		t.Fatalf("expected ErrInvalidNICSpec for a VLAN tag on esxi, got %v", err)
+	}
+	if len(fakeNIC.addNICCalls) != 0 {
+		t.Error("provider must not be called for a rejected VLAN tag")
+	}
+
+	// With VLANTagging declared, the tag passes straight through.
+	orig := provider.GetMetadata("esxi")
+	vlan := *orig
+	vlan.Features.VLANTagging = true
+	provider.RegisterMetadata("esxi", &vlan)
+	t.Cleanup(func() { provider.RegisterMetadata("esxi", orig) })
+	if _, err := svc.AddNIC(context.Background(), vmID, AddNICRequest{Network: "vmbr0", VLANTag: 20}); err != nil {
+		t.Fatalf("AddNIC with VLAN: %v", err)
+	}
+	if got := fakeNIC.addNICCalls[0].VLANTag; got != 20 {
+		t.Errorf("provider received VLANTag %d, want 20", got)
 	}
 }
 
@@ -241,5 +294,35 @@ func TestAddNICInvalidAdapterTypeRejectedBeforeConnecting(t *testing.T) {
 	}
 	if got := fakeNIC.addNICCalls[0].AdapterType; got != "e1000e" {
 		t.Errorf("provider received adapter %q, want e1000e", got)
+	}
+}
+
+func TestListNICsReturnsProviderInventoryAndNeverNil(t *testing.T) {
+	svc, _, vmID := newNICTestService(t, "esxi")
+	fakeNIC.nics = []provider.NIC{
+		{Key: 4000, Label: "Network adapter 1", AdapterType: "vmxnet3", Network: "VM Network", MACAddress: "00:50:56:00:00:01", Connected: true, Addresses: []string{"10.20.10.11", "fe80::1"}},
+		{Key: 4001, Label: "Network adapter 2", AdapterType: "e1000e", Network: "dvPG-Backend", MACAddress: "00:50:56:00:00:02", Connected: false},
+	}
+	got, err := svc.ListNICs(context.Background(), vmID)
+	if err != nil {
+		t.Fatalf("ListNICs: %v", err)
+	}
+	if len(got) != 2 || got[1].Network != "dvPG-Backend" || got[0].Addresses[0] != "10.20.10.11" {
+		t.Errorf("unexpected inventory: %+v", got)
+	}
+
+	// A VM with no adapters is an empty list, not null — the UI iterates it.
+	fakeNIC.nics = nil
+	got, err = svc.ListNICs(context.Background(), vmID)
+	if err != nil || got == nil || len(got) != 0 {
+		t.Errorf("expected empty non-nil slice, got %v, %v", got, err)
+	}
+}
+
+func TestListNICsVMNotFound(t *testing.T) {
+	svc, _, _ := newNICTestService(t, "esxi")
+	_, err := svc.ListNICs(context.Background(), 424242)
+	if !errors.Is(err, ErrVMNotFound) {
+		t.Fatalf("expected ErrVMNotFound, got %v", err)
 	}
 }

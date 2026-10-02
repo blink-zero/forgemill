@@ -171,9 +171,12 @@ export const vms = {
     api.get<{ key: number; label: string; size_gb: number }[]>(`/vms/${id}/disks`),
   expandDisk: (id: number, key: number, data: { new_size_gb: number }) =>
     api.put(`/vms/${id}/disks/${key}/expand`, data),
-  // vSphere only (providers advertise support via features.nic_attach).
-  // adapter_type defaults to vmxnet3 server-side; connected defaults to true.
-  addNIC: (id: number, data: { network: string; adapter_type?: string; connected?: boolean }) =>
+  // Providers advertise support via features.nic_attach; adapter_type
+  // defaults server-side (vmxnet3 on vSphere, virtio on Proxmox); connected
+  // defaults to true; vlan_tag is Proxmox-only.
+  // Live from the hypervisor, like listDisks.
+  listNICs: (id: number) => api.get<VMNIC[]>(`/vms/${id}/nics`),
+  addNIC: (id: number, data: { network: string; adapter_type?: string; connected?: boolean; vlan_tag?: number }) =>
     api.post<{ status: string; nic: VMNIC }>(`/vms/${id}/nics`, data),
   console: (id: number) => api.get<{ url: string }>(`/vms/${id}/console`),
   credentials: (id: number) => api.get<{ username: string; password: string }>(`/vms/${id}/credentials`),

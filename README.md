@@ -76,9 +76,9 @@ If you already run full-blown cloud platforms or need multi-tenancy, Forgemill i
 |------------|-----------|-------|
 | **VMware vCenter** | govmomi (vSphere API) | Full VM lifecycle, folders, clusters, resource pools, native templates |
 | **VMware ESXi (standalone)** | govmomi (direct host) | VM lifecycle, snapshots, resize. No folders / native templates without vCenter |
-| **Proxmox VE** | Proxmox REST API | KVM/QEMU VMs, snapshots, cloning, templates, resize, optional 802.1Q VLAN tag on deploy. Ticket or API-token auth |
+| **Proxmox VE** | Proxmox REST API | KVM/QEMU VMs, snapshots, cloning, templates, resize, add NIC, optional 802.1Q VLAN tag on deploy and on added NICs. Ticket or API-token auth |
 
-Hypervisor capabilities are declared per provider and the UI adapts to them — e.g. folder placement and disk provisioning only appear for vSphere, VLAN tagging only for Proxmox, adding a network adapter to a running VM only where the provider supports a hot-add.
+Hypervisor capabilities are declared per provider and the UI adapts to them — e.g. folder placement and disk provisioning only appear for vSphere, VLAN tagging only for Proxmox, and the adapter models offered when adding a NIC come from the provider itself.
 
 ## Supported OS templates (Factory builder)
 
@@ -231,7 +231,8 @@ This prevents secrets from appearing in `docker inspect` output or process listi
 - Power operations: start, stop, restart, suspend
 - Snapshot management: create, revert, delete
 - Live resource resizing: CPU, memory, disk expansion
-- **Add a network adapter** to an existing VM — hot-add on vSphere, no power cycle, network picked from the target's live inventory
+- **Network adapters view** — every NIC on the VM with its network/bridge, adapter model, MAC, VLAN tag and the guest-reported addresses (IPv4 and IPv6), not just one primary IP
+- **Add a network adapter** to an existing VM — hot-add on vSphere and Proxmox (Proxmox with hot-plug disabled saves it for the next power cycle and says so), optional VLAN tag on Proxmox, network picked from the target's live inventory
 - **Uptime and runtime tracking** — current-state duration, last power-off, cumulative lifetime runtime (frozen while suspended, never reset); searchable with `state:stopped`, `uptime>30d`, `age>14d`
 - Web console access (noVNC / VMRC)
 - Managed VM inventory with live status tracking and orphan detection on sync
@@ -440,7 +441,8 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 | `PUT` | `/api/vms/:id/resize` | Resize CPU/memory (admin) |
 | `GET` | `/api/vms/:id/disks` | List disks (admin) |
 | `PUT` | `/api/vms/:id/disks/:key/expand` | Expand a disk (admin) |
-| `POST` | `/api/vms/:id/nics` | Attach an additional network adapter — vSphere only (admin) |
+| `GET` | `/api/vms/:id/nics` | Network adapters with network, MAC, guest-reported addresses |
+| `POST` | `/api/vms/:id/nics` | Attach an additional network adapter (admin; optional `vlan_tag` on Proxmox) |
 | `GET` | `/api/vms/:id/console` | Console URL (admin) |
 | `GET` | `/api/vms/:id/credentials` | Reveal deploy credentials (admin) |
 | `POST` | `/api/vms/:id/reset-host-key` | Reset SSH host-key fingerprint (admin) |
