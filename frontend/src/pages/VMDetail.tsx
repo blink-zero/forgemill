@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InfoTip } from "@/components/ui/tooltip";
+import { DangerZone, DangerZoneItem } from "@/components/ui/danger-zone";
 import { TimeWithTooltip } from "@/components/ui/time-with-tooltip";
 import { useNowTick } from "@/hooks/useNowTick";
 import { vmLifecycleLabel, totalLifetimeRuntimeMs, formatDuration } from "@/lib/vmLifecycle";
@@ -417,8 +418,8 @@ export default function VMDetail() {
           <div className="grid gap-4 sm:grid-cols-3">
             <Card className="p-4">
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                  <Cpu className="h-5 w-5 text-blue-500" />
+                <div className="h-10 w-10 rounded-lg bg-info/10 flex items-center justify-center">
+                  <Cpu className="h-5 w-5 text-info" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{vm.cpu || "—"}</p>
@@ -428,8 +429,8 @@ export default function VMDetail() {
             </Card>
             <Card className="p-4">
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
-                  <MemoryStick className="h-5 w-5 text-purple-500" />
+                <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <MemoryStick className="h-5 w-5 text-primary" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{vm.memory_mb ? (vm.memory_mb >= 1024 ? `${(vm.memory_mb / 1024).toFixed(vm.memory_mb % 1024 ? 1 : 0)} GB` : `${vm.memory_mb} MB`) : "—"}</p>
@@ -439,8 +440,8 @@ export default function VMDetail() {
             </Card>
             <Card className="p-4">
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                  <HardDrive className="h-5 w-5 text-green-500" />
+                <div className="h-10 w-10 rounded-lg bg-success/10 flex items-center justify-center">
+                  <HardDrive className="h-5 w-5 text-success" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{vm.disk_gb ? `${vm.disk_gb} GB` : "—"}</p>
@@ -467,8 +468,8 @@ export default function VMDetail() {
             </Card>
             <Card className="p-4">
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                  <Clock className="h-5 w-5 text-amber-500" />
+                <div className="h-10 w-10 rounded-lg bg-warning/10 flex items-center justify-center">
+                  <Clock className="h-5 w-5 text-warning" />
                 </div>
                 <div>
                   <TimeWithTooltip iso={vm.state_changed_at}>
@@ -480,8 +481,8 @@ export default function VMDetail() {
             </Card>
             <Card className="p-4">
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-teal-500/10 flex items-center justify-center">
-                  <History className="h-5 w-5 text-teal-500" />
+                <div className="h-10 w-10 rounded-lg bg-success/10 flex items-center justify-center">
+                  <History className="h-5 w-5 text-success" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{formatDuration(totalLifetimeRuntimeMs(vm, now))}</p>
@@ -578,9 +579,9 @@ export default function VMDetail() {
                   {showResize && (
                     <div className="space-y-2 border rounded-md p-3 bg-muted/30">
                       {vm.power_state !== "poweredOff" && vm.power_state !== "stopped" && (
-                        <div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 px-3 py-2 flex items-start gap-2">
-                          <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0 mt-0.5" />
-                          <p className="text-xs text-yellow-600 dark:text-yellow-400">VM must be powered off before resizing.</p>
+                        <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 flex items-start gap-2">
+                          <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+                          <p className="text-xs text-warning">VM must be powered off before resizing.</p>
                         </div>
                       )}
                       <div>
@@ -708,59 +709,73 @@ export default function VMDetail() {
                   </Button>
                 </div>
 
-                <div className="border-t pt-3 space-y-2">
-                  <Button size="sm" variant="outline" className="w-full gap-1.5" onClick={() => setDeleteMode(deleteMode === "untrack" ? null : "untrack")} disabled={acting}>
-                    <X className="h-3.5 w-3.5" /> Untrack VM
-                  </Button>
-                  {deleteMode === "untrack" && (
-                    <div className="border border-yellow-500/30 rounded-md p-3 space-y-2 bg-yellow-500/5">
-                      <p className="text-xs text-yellow-600 dark:text-yellow-400">Remove this VM from Forgemill only. The VM will continue running on the hypervisor — it just won't be tracked here anymore.</p>
-                      <p className="text-xs text-yellow-600/70 dark:text-yellow-400/70">⚠ This cannot be reversed. Untracked VMs cannot currently be re-imported into Forgemill.</p>
-                      {deletePreviewLoading && (
-                        <p className="text-xs text-yellow-600/70 dark:text-yellow-400/70">Checking what else this affects…</p>
+                <div className="pt-3">
+                  <DangerZone description="Both remove this VM from Forgemill. Neither can be undone.">
+                    <DangerZoneItem
+                      title="Untrack VM"
+                      description="Forget it here; it keeps running on the hypervisor."
+                      expanded={deleteMode === "untrack" && (
+                        <div className="border border-warning/30 rounded-md p-3 space-y-2 bg-warning/[0.06]">
+                          <p className="text-2xs text-warning">Remove this VM from Forgemill only. The VM will continue running on the hypervisor — it just won't be tracked here anymore.</p>
+                          <p className="text-2xs text-warning/80">⚠ This cannot be reversed. Untracked VMs cannot currently be re-imported into Forgemill.</p>
+                          {deletePreviewLoading && (
+                            <p className="text-2xs text-warning/80">Checking what else this affects…</p>
+                          )}
+                          {deletePreview && (deletePreview.dependent_snapshots > 0 || deletePreview.dependent_executions > 0) && (
+                            <p className="text-2xs text-warning/80">
+                              Forgemill also has {deletePreview.dependent_snapshots > 0 && `${deletePreview.dependent_snapshots} snapshot${deletePreview.dependent_snapshots === 1 ? "" : "s"}`}
+                              {deletePreview.dependent_snapshots > 0 && deletePreview.dependent_executions > 0 && " and "}
+                              {deletePreview.dependent_executions > 0 && `${deletePreview.dependent_executions} execution record${deletePreview.dependent_executions === 1 ? "" : "s"}`} on file for this VM.
+                            </p>
+                          )}
+                          <Button size="sm" variant="secondary" onClick={() => doDelete(true)} disabled={acting} className="w-full">
+                            Confirm Untrack
+                          </Button>
+                        </div>
                       )}
-                      {deletePreview && (deletePreview.dependent_snapshots > 0 || deletePreview.dependent_executions > 0) && (
-                        <p className="text-xs text-yellow-600/70 dark:text-yellow-400/70">
-                          Forgemill also has {deletePreview.dependent_snapshots > 0 && `${deletePreview.dependent_snapshots} snapshot${deletePreview.dependent_snapshots === 1 ? "" : "s"}`}
-                          {deletePreview.dependent_snapshots > 0 && deletePreview.dependent_executions > 0 && " and "}
-                          {deletePreview.dependent_executions > 0 && `${deletePreview.dependent_executions} execution record${deletePreview.dependent_executions === 1 ? "" : "s"}`} on file for this VM.
-                        </p>
-                      )}
-                      <Button size="sm" variant="secondary" onClick={() => doDelete(true)} disabled={acting} className="w-full">
-                        Confirm Untrack
+                    >
+                      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setDeleteMode(deleteMode === "untrack" ? null : "untrack")} disabled={acting} aria-expanded={deleteMode === "untrack"}>
+                        <X className="h-3.5 w-3.5" /> Untrack VM
                       </Button>
-                    </div>
-                  )}
-                  <Button size="sm" variant="destructive" className="w-full gap-1.5" onClick={() => { setDeleteMode(deleteMode === "destroy" ? null : "destroy"); setDestroyConfirmText(""); }} disabled={acting}>
-                    <Trash2 className="h-3.5 w-3.5" /> Destroy VM
-                  </Button>
-                  {deleteMode === "destroy" && (
-                    <div className="border border-destructive/30 rounded-md p-3 space-y-3 bg-destructive/5">
-                      <p className="text-xs text-destructive">This will permanently destroy this VM on the hypervisor and remove it from Forgemill. This cannot be undone.</p>
-                      {deletePreviewLoading && (
-                        <p className="text-xs text-destructive/70">Checking what else this affects…</p>
+                    </DangerZoneItem>
+                    <DangerZoneItem
+                      title="Destroy VM"
+                      description="Power off and delete it from the hypervisor, then remove it here."
+                      expanded={deleteMode === "destroy" && (
+                        <div className="border border-destructive/30 rounded-md p-3 space-y-3 bg-destructive/[0.06]">
+                          <p className="text-2xs text-destructive">This will permanently destroy this VM on the hypervisor and remove it from Forgemill. This cannot be undone.</p>
+                          {deletePreviewLoading && (
+                            <p className="text-2xs text-destructive/80">Checking what else this affects…</p>
+                          )}
+                          {deletePreview && (deletePreview.dependent_snapshots > 0 || deletePreview.dependent_executions > 0) && (
+                            <p className="text-2xs text-destructive/80">
+                              Forgemill also has {deletePreview.dependent_snapshots > 0 && `${deletePreview.dependent_snapshots} snapshot${deletePreview.dependent_snapshots === 1 ? "" : "s"}`}
+                              {deletePreview.dependent_snapshots > 0 && deletePreview.dependent_executions > 0 && " and "}
+                              {deletePreview.dependent_executions > 0 && `${deletePreview.dependent_executions} execution record${deletePreview.dependent_executions === 1 ? "" : "s"}`} on file for this VM.
+                            </p>
+                          )}
+                          <div className="space-y-1.5">
+                            <Label className="text-2xs text-destructive">Type <span className="font-mono font-bold">{vm?.vm_name}</span> to confirm:</Label>
+                            <Input
+                              value={destroyConfirmText}
+                              onChange={(e) => setDestroyConfirmText(e.target.value)}
+                              placeholder={vm?.vm_name}
+                              autoComplete="off"
+                              spellCheck={false}
+                              className="font-mono text-13 border-destructive/50 focus-visible:border-destructive"
+                            />
+                          </div>
+                          <Button size="sm" variant={destroyConfirmText === vm?.vm_name ? "danger" : "destructive"} onClick={() => doDelete(false)} disabled={acting || destroyConfirmText !== vm?.vm_name} className="w-full">
+                            {destroyConfirmText === vm?.vm_name ? "Confirm Destroy" : "Type VM name to confirm"}
+                          </Button>
+                        </div>
                       )}
-                      {deletePreview && (deletePreview.dependent_snapshots > 0 || deletePreview.dependent_executions > 0) && (
-                        <p className="text-xs text-destructive/70">
-                          Forgemill also has {deletePreview.dependent_snapshots > 0 && `${deletePreview.dependent_snapshots} snapshot${deletePreview.dependent_snapshots === 1 ? "" : "s"}`}
-                          {deletePreview.dependent_snapshots > 0 && deletePreview.dependent_executions > 0 && " and "}
-                          {deletePreview.dependent_executions > 0 && `${deletePreview.dependent_executions} execution record${deletePreview.dependent_executions === 1 ? "" : "s"}`} on file for this VM.
-                        </p>
-                      )}
-                      <div className="space-y-1.5">
-                        <Label className="text-xs text-destructive">Type <span className="font-mono font-bold">{vm?.vm_name}</span> to confirm:</Label>
-                        <Input
-                          value={destroyConfirmText}
-                          onChange={(e) => setDestroyConfirmText(e.target.value)}
-                          placeholder={vm?.vm_name}
-                          className="text-sm border-destructive/50 focus:border-destructive"
-                        />
-                      </div>
-                      <Button size="sm" variant="destructive" onClick={() => doDelete(false)} disabled={acting || destroyConfirmText !== vm?.vm_name} className="w-full">
-                        {destroyConfirmText === vm?.vm_name ? "Confirm Destroy" : "Type VM name to confirm"}
+                    >
+                      <Button size="sm" variant="destructive" className="gap-1.5" onClick={() => { setDeleteMode(deleteMode === "destroy" ? null : "destroy"); setDestroyConfirmText(""); }} disabled={acting} aria-expanded={deleteMode === "destroy"}>
+                        <Trash2 className="h-3.5 w-3.5" /> Destroy VM
                       </Button>
-                    </div>
-                  )}
+                    </DangerZoneItem>
+                  </DangerZone>
                 </div>
               </CardContent>
             </Card>
@@ -781,9 +796,9 @@ export default function VMDetail() {
               {nics === null || (nicsLoading && nics.length === 0) ? (
                 <p className="text-sm text-muted-foreground flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading adapters…</p>
               ) : nicsError ? (
-                <div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 px-3 py-2 flex items-start gap-2">
-                  <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0 mt-0.5" />
-                  <p className="text-xs text-yellow-600 dark:text-yellow-400">{nicsError}</p>
+                <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+                  <p className="text-xs text-warning">{nicsError}</p>
                 </div>
               ) : nics.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No network adapters on this VM.</p>
@@ -978,10 +993,10 @@ function CredentialsCard({ vmId, vmIp }: { vmId: number; vmIp?: string }) {
                         key={i}
                         className={
                           /[0-9]/.test(ch)
-                            ? "text-blue-500"
+                            ? "text-info"
                             : /[a-zA-Z]/.test(ch)
-                              ? "text-green-500"
-                              : "text-orange-500"
+                              ? "text-success"
+                              : "text-warning"
                         }
                       >
                         {ch}
@@ -1259,9 +1274,9 @@ function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState: string
               <div className="flex items-center gap-3">
                 <Terminal className="h-5 w-5" />
                 <span className="font-medium">{activeExecution.action_name}</span>
-                {isRunning && <Loader2 className="h-4 w-4 animate-spin text-yellow-500" />}
-                {execStatus === "completed" && <CheckCircle className="h-4 w-4 text-green-500" />}
-                {execStatus === "failed" && <XCircle className="h-4 w-4 text-red-500" />}
+                {isRunning && <Loader2 className="h-4 w-4 animate-spin text-warning" />}
+                {execStatus === "completed" && <CheckCircle className="h-4 w-4 text-success" />}
+                {execStatus === "failed" && <XCircle className="h-4 w-4 text-destructive" />}
                 {execStatus === "cancelled" && <X className="h-4 w-4 text-gray-500" />}
               </div>
               <div className="flex items-center gap-2">
@@ -1271,7 +1286,7 @@ function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState: string
                   </Button>
                 )}
                 {execExitCode !== null && (
-                  <span className={`inline-flex items-center gap-1.5 text-sm ${execExitCode === 0 ? "text-green-500" : "text-red-500"}`}>
+                  <span className={`inline-flex items-center gap-1.5 text-sm ${execExitCode === 0 ? "text-success" : "text-destructive"}`}>
                     {execExitCode === 0 ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
                     {execExitCode === 0 ? "Completed successfully" : `Failed (exit code ${execExitCode})`}
                   </span>
@@ -1305,7 +1320,7 @@ function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState: string
             </div>
             <div
               ref={outputRef}
-              className="flex-1 overflow-auto p-4 bg-gray-950 font-mono text-sm text-green-400 min-h-[400px]"
+              className="flex-1 overflow-auto p-4 bg-gray-950 font-mono text-sm text-success min-h-[400px]"
             >
               {outputLines.length === 0 && isRunning && (
                 <p className="text-gray-500">Waiting for output...</p>
@@ -1339,7 +1354,7 @@ function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState: string
                 <div key={param.name} className="space-y-1.5">
                   <Label className="text-sm font-medium">
                     {param.label}
-                    {param.required && <span className="text-red-500 ml-0.5">*</span>}
+                    {param.required && <span className="text-destructive ml-0.5">*</span>}
                   </Label>
                   {param.description && (
                     <p className="text-xs text-muted-foreground">{param.description}</p>
@@ -1484,12 +1499,12 @@ function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState: string
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-xs text-yellow-600 dark:text-yellow-400 flex items-center gap-1">
+          <p className="text-xs text-warning flex items-center gap-1">
             <AlertTriangle className="h-3 w-3" />
             Scripts run with sudo privileges on the target VM.
           </p>
           <textarea
-            className="w-full h-32 bg-gray-950 text-green-400 font-mono text-sm p-3 rounded-md border resize-y"
+            className="w-full h-32 bg-gray-950 text-success font-mono text-sm p-3 rounded-md border resize-y"
             placeholder="#!/bin/bash&#10;echo 'Hello from Forgemill'"
             value={adHocScript}
             onChange={(e) => setAdHocScript(e.target.value)}
@@ -1532,7 +1547,7 @@ function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState: string
                         <span className="text-sm font-medium">{exec.action_name}</span>
                         <Badge variant={statusVariant(exec.status)}>{exec.status}</Badge>
                         {exec.exit_code !== null && exec.exit_code !== 0 && (
-                          <span className="text-xs text-red-500 flex items-center gap-1">
+                          <span className="text-xs text-destructive flex items-center gap-1">
                             <XCircle className="h-3.5 w-3.5" /> Exit code {exec.exit_code}
                           </span>
                         )}
@@ -1557,7 +1572,7 @@ function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState: string
                       </div>
                     )}
                     {expandedExecId === exec.id && exec.output && (
-                      <div className="border-t bg-gray-950 p-3 font-mono text-xs text-green-400 max-h-60 overflow-auto whitespace-pre-wrap">
+                      <div className="border-t bg-gray-950 p-3 font-mono text-xs text-success max-h-60 overflow-auto whitespace-pre-wrap">
                         {exec.output}
                       </div>
                     )}

@@ -30,12 +30,12 @@ import { PageHeader } from "@/components/ui/page-header";
 import { usePageSize } from "@/hooks/usePageSize";
 
 const statusColors: Record<string, string> = {
-  pending: "bg-yellow-500/10 text-yellow-500",
-  downloading: "bg-blue-500/10 text-blue-500",
-  building: "bg-blue-500/10 text-blue-500",
-  converting: "bg-blue-500/10 text-blue-500",
-  completed: "bg-green-500/10 text-green-500",
-  failed: "bg-red-500/10 text-red-500",
+  pending: "bg-warning/10 text-warning",
+  downloading: "bg-info/10 text-info",
+  building: "bg-info/10 text-info",
+  converting: "bg-info/10 text-info",
+  completed: "bg-success/10 text-success",
+  failed: "bg-destructive/10 text-destructive",
   cancelled: "bg-gray-500/10 text-gray-500",
 };
 
@@ -154,9 +154,9 @@ export default function Factory() {
 
       {/* Prerequisites Check */}
       {prereqs && !prereqs.packer_installed && (
-        <Card className="p-4 border-yellow-500/50 bg-yellow-500/5">
+        <Card className="p-4 border-warning/50 bg-warning/5">
           <div className="flex items-center gap-3">
-            <AlertTriangle className="h-5 w-5 text-yellow-500" />
+            <AlertTriangle className="h-5 w-5 text-warning" />
             <div>
               <p className="font-medium">Packer Not Installed</p>
               <p className="text-sm text-muted-foreground">
@@ -179,12 +179,12 @@ export default function Factory() {
       {updates.length > 0 ? (
         <div>
           <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-yellow-500" />
+            <AlertTriangle className="h-5 w-5 text-warning" />
             Updates Available
           </h2>
           <div className="space-y-2">
             {updates.map((u) => (
-              <Card key={u.template_id} className="p-4 border-yellow-500/30">
+              <Card key={u.template_id} className="p-4 border-warning/30">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-medium">{u.template_name}</p>
@@ -192,8 +192,8 @@ export default function Factory() {
                       {u.os_definition_id} &middot; v{u.current_version} &middot; ISO checksum changed
                     </p>
                     <div className="mt-1 text-xs font-mono text-muted-foreground space-y-0.5">
-                      <p>Current: <span className="text-red-400">{u.current_checksum?.slice(0, 16)}...</span></p>
-                      <p>Latest:&nbsp; <span className="text-green-400">{u.latest_checksum?.slice(0, 16)}...</span></p>
+                      <p>Current: <span className="text-destructive">{u.current_checksum?.slice(0, 16)}...</span></p>
+                      <p>Latest:&nbsp; <span className="text-success">{u.latest_checksum?.slice(0, 16)}...</span></p>
                     </div>
                   </div>
                   <Button
@@ -209,9 +209,9 @@ export default function Factory() {
           </div>
         </div>
       ) : hasCheckedUpdates && updates.length === 0 && (
-        <Card className="p-4 border-green-500/30 bg-green-500/5">
+        <Card className="p-4 border-success/30 bg-success/5">
           <div className="flex items-center gap-3">
-            <CheckCircle className="h-5 w-5 text-green-500 shrink-0" />
+            <CheckCircle className="h-5 w-5 text-success shrink-0" />
             <div>
               <p className="font-medium text-sm">All templates are up to date</p>
               <p className="text-xs text-muted-foreground">
@@ -408,7 +408,7 @@ export default function Factory() {
                         size="icon"
                         onClick={() => navigate(`/factory/build/${build.id}`)}
                       >
-                        <XCircle className="h-4 w-4 text-red-500" />
+                        <XCircle className="h-4 w-4 text-destructive" />
                       </Button>
                     )}
                     {(build.status === "completed" ||

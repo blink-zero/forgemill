@@ -7,6 +7,17 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import App from "./App";
 import "./index.css";
 
+// Apply the persisted theme before first paint. index.html ships with the
+// dark class so there's no flash for the default; a stored "light" choice
+// previously only took effect after the user toggled again.
+try {
+  if (localStorage.getItem("forgemill_theme") === "light") {
+    document.documentElement.classList.remove("dark");
+  }
+} catch {
+  /* storage unavailable (private mode) — keep the default */
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ErrorBoundary>

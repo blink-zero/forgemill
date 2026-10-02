@@ -12,12 +12,12 @@ import { useToast } from "@/components/ui/toast";
 import { getErrorMessage } from "@/lib/utils";
 
 const statusColors: Record<string, string> = {
-  pending: "bg-yellow-500/10 text-yellow-500",
-  downloading: "bg-blue-500/10 text-blue-500",
-  building: "bg-blue-500/10 text-blue-500",
-  converting: "bg-blue-500/10 text-blue-500",
-  completed: "bg-green-500/10 text-green-500",
-  failed: "bg-red-500/10 text-red-500",
+  pending: "bg-warning/10 text-warning",
+  downloading: "bg-info/10 text-info",
+  building: "bg-info/10 text-info",
+  converting: "bg-info/10 text-info",
+  completed: "bg-success/10 text-success",
+  failed: "bg-destructive/10 text-destructive",
   cancelled: "bg-gray-500/10 text-gray-500",
 };
 
@@ -279,7 +279,7 @@ export default function FactoryBuildProgress() {
             <div className="h-2.5 rounded-full bg-secondary overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-700 ease-out ${
-                  build.status === "completed" ? "bg-green-500" : "bg-primary"
+                  build.status === "completed" ? "bg-success" : "bg-primary"
                 }`}
                 style={{ width: `${pct}%` }}
               />
@@ -290,9 +290,9 @@ export default function FactoryBuildProgress() {
 
       {/* Error display */}
       {build.status === "failed" && build.error_message && (
-        <Card className="p-4 border-red-500/50 bg-red-500/5">
-          <p className="text-sm text-red-500 font-medium">Build Failed</p>
-          <p className="text-sm text-red-400 mt-1">{build.error_message}</p>
+        <Card className="p-4 border-destructive/50 bg-destructive/5">
+          <p className="text-sm text-destructive font-medium">Build Failed</p>
+          <p className="text-sm text-destructive mt-1">{build.error_message}</p>
         </Card>
       )}
 
@@ -318,7 +318,7 @@ export default function FactoryBuildProgress() {
       {/* Security info */}
       <Card className="p-4">
         <div className="flex items-start gap-2">
-          <ShieldCheck className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
+          <ShieldCheck className="h-4 w-4 text-success mt-0.5 shrink-0" />
           <div className="text-xs text-muted-foreground space-y-1">
             <p><strong className="text-foreground">Credential handling:</strong> Build credentials are randomly generated per build and automatically locked before the template is finalised. They cannot be used to access deployed VMs.</p>
             <p><strong className="text-foreground">Log redaction:</strong> Hypervisor passwords and sensitive values are automatically redacted from build logs before storage.</p>

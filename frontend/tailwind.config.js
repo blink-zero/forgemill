@@ -24,6 +24,12 @@ export default {
           "monospace",
         ],
       },
+      // A 13px step between xs (12) and sm (14): dense UI copy — table
+      // cells, card metadata, button labels — without dropping to caption size.
+      fontSize: {
+        "2xs": ["11px", { lineHeight: "16px" }],
+        "13": ["13px", { lineHeight: "20px" }],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -80,6 +86,15 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+      },
+      boxShadow: {
+        card: "var(--shadow-card)",
+        pop: "var(--shadow-pop)",
+        xs: "0 1px 2px 0 rgb(0 0 0 / 0.04)",
+      },
+      spacing: {
+        4.5: "1.125rem",
+        13: "3.25rem",
       },
     },
   },

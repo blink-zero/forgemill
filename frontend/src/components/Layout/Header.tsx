@@ -7,6 +7,11 @@ import { navItems } from "@/config/navigation";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { NotificationBell } from "./NotificationBell";
 
+/*
+  Header: 48px, hairline bottom border, three zones. Breadcrumbs anchor the
+  left so every page shows where it sits; the search pill is centred and
+  capped so it doesn't dominate; utilities sit right.
+*/
 export function Header() {
   const [dark, setDark] = useState(() => {
     const stored = localStorage.getItem("forgemill_theme");
@@ -48,20 +53,20 @@ export function Header() {
 
   return (
     <>
-      <header className="relative z-30 grid h-14 shrink-0 grid-cols-[1fr_minmax(0,28rem)_1fr] items-center gap-4 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-6">
+      <header className="relative z-30 grid h-12 shrink-0 grid-cols-[1fr_minmax(0,24rem)_1fr] items-center gap-4 border-b border-border bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75 px-4 sm:px-6">
         {/* Left: hamburger (mobile) + breadcrumbs (desktop) */}
         <div className="flex items-center gap-3 min-w-0">
           <Button
             ref={toggleRef}
             variant="ghost"
             size="icon"
-            className="md:hidden"
+            className="md:hidden h-8 w-8"
             onClick={() => setMobileOpen(!mobileOpen)}
             aria-label="Toggle navigation menu"
           >
-            <Menu className="h-5 w-5" />
+            <Menu className="h-4.5 w-4.5" />
           </Button>
-          <span className="text-sm text-muted-foreground md:hidden font-semibold">Forgemill</span>
+          <span className="text-sm md:hidden font-semibold">Forgemill</span>
           <div className="hidden md:block min-w-0">
             <Breadcrumbs />
           </div>
@@ -71,23 +76,24 @@ export function Header() {
         <div className="flex justify-center">
           <button
             onClick={() => document.dispatchEvent(new CustomEvent("openCommandPalette"))}
-            className="hidden sm:flex items-center gap-2 w-full max-w-md px-3.5 py-2 text-sm text-muted-foreground bg-muted/60 hover:bg-muted rounded-md border border-border/60 hover:border-border transition-colors"
+            className="hidden sm:flex items-center gap-2 w-full h-8 px-3 text-13 text-muted-foreground bg-card hover:bg-muted rounded-md border border-border hover:border-input shadow-xs transition-colors"
             aria-label="Open search"
           >
-            <Search className="h-4 w-4 shrink-0" />
-            <span className="flex-1 text-left">Search...</span>
-            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border border-border bg-background/80 px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+            <Search className="h-3.5 w-3.5 shrink-0" />
+            <span className="flex-1 text-left">Search…</span>
+            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-0.5 rounded border border-border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
               {navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}K
             </kbd>
           </button>
         </div>
 
         {/* Right: notifications + theme toggle */}
-        <div className="flex items-center gap-1 justify-end">
+        <div className="flex items-center gap-0.5 justify-end">
           <NotificationBell />
           <Button
             variant="ghost"
             size="icon"
+            className="h-8 w-8"
             onClick={toggleTheme}
             aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
           >
@@ -97,7 +103,7 @@ export function Header() {
       </header>
 
       {mobileOpen && (
-        <div ref={menuRef} className="md:hidden border-b border-border bg-card p-4 space-y-1">
+        <div ref={menuRef} className="md:hidden border-b border-border bg-card p-3 space-y-0.5">
           {navItems.map((item) => (
             <NavLink
               key={item.to}
@@ -106,7 +112,7 @@ export function Header() {
               onClick={() => setMobileOpen(false)}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  "flex items-center gap-3 rounded-md px-3 py-2 text-13 font-medium transition-colors",
                   isActive
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"

@@ -22,16 +22,20 @@ export function Layout() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-background">
       {/* 7.16: Skip-to-content link for keyboard/screen reader users */}
       <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-background focus:px-4 focus:py-2 focus:text-primary">
         Skip to content
       </a>
       <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         <Header />
-        <main id="main-content" className="flex-1 overflow-auto p-6">
-          <Outlet />
+        {/* Content column: comfortable gutters, capped width so wide monitors
+            don't stretch tables and forms into unreadable lines. */}
+        <main id="main-content" className="flex-1 overflow-auto">
+          <div className="mx-auto w-full max-w-[1600px] px-5 py-5 sm:px-6 lg:px-8">
+            <Outlet />
+          </div>
         </main>
       </div>
       <CommandPalette />

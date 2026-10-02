@@ -528,7 +528,7 @@ export default function Templates() {
                               >
                                 <Power className="h-3 w-3" />
                                 {schedule.enabled ? "Enabled" : "Disabled"}
-                                <div className={`ml-1 w-7 h-4 rounded-full relative transition-colors ${schedule.enabled ? "bg-green-500" : "bg-muted-foreground/30"}`}>
+                                <div className={`ml-1 w-7 h-4 rounded-full relative transition-colors ${schedule.enabled ? "bg-success" : "bg-muted-foreground/30"}`}>
                                   <div className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${schedule.enabled ? "translate-x-3.5" : "translate-x-0.5"}`} />
                                 </div>
                               </button>
@@ -611,7 +611,7 @@ export default function Templates() {
                       <p className="text-sm text-muted-foreground truncate">
                         {t.target_name}
                         {t.managed_by_forgemill && (
-                          <span className="inline-flex items-center gap-0.5 ml-2 text-green-500"><ShieldCheck className="h-3 w-3" /> Built by Forgemill</span>
+                          <span className="inline-flex items-center gap-0.5 ml-2 text-success"><ShieldCheck className="h-3 w-3" /> Built by Forgemill</span>
                         )}
                       </p>
                     </div>
@@ -637,11 +637,11 @@ export default function Templates() {
                   </p>
                 )}
                 {hasUpdate && updateInfo?.update && (
-                  <div className="mt-2 rounded-md border border-yellow-500/30 bg-yellow-500/5 p-2 text-xs space-y-1">
-                    <p className="font-medium text-yellow-500">ISO checksum changed upstream</p>
+                  <div className="mt-2 rounded-md border border-warning/30 bg-warning/5 p-2 text-xs space-y-1">
+                    <p className="font-medium text-warning">ISO checksum changed upstream</p>
                     <div className="font-mono text-muted-foreground">
-                      <p>Built with: <span className="text-red-400">{updateInfo.update.current_checksum?.slice(0, 20)}...</span></p>
-                      <p>Upstream:&nbsp;&nbsp; <span className="text-green-400">{updateInfo.update.latest_checksum?.slice(0, 20)}...</span></p>
+                      <p>Built with: <span className="text-destructive">{updateInfo.update.current_checksum?.slice(0, 20)}...</span></p>
+                      <p>Upstream:&nbsp;&nbsp; <span className="text-success">{updateInfo.update.latest_checksum?.slice(0, 20)}...</span></p>
                     </div>
                     <p className="text-muted-foreground">Rebuild to get the latest ISO contents.</p>
                   </div>
@@ -653,7 +653,7 @@ export default function Templates() {
                 )}
 
                 {schedule && t.managed_by_forgemill && (
-                  <div className={`mt-2 flex items-center gap-1.5 text-xs ${schedule.enabled ? "text-blue-500" : "text-muted-foreground"}`}>
+                  <div className={`mt-2 flex items-center gap-1.5 text-xs ${schedule.enabled ? "text-info" : "text-muted-foreground"}`}>
                     <Clock className="h-3 w-3" />
                     <span>
                       {schedule.strategy === "on_update" ? "on_update" : schedule.strategy === "interval" ? `every ${schedule.interval_days}d` : `on_update + every ${schedule.interval_days}d`}
@@ -820,7 +820,7 @@ export default function Templates() {
                           >
                             <Power className="h-3 w-3" />
                             {schedule.enabled ? "Enabled" : "Disabled"}
-                            <div className={`ml-1 w-7 h-4 rounded-full relative transition-colors ${schedule.enabled ? "bg-green-500" : "bg-muted-foreground/30"}`}>
+                            <div className={`ml-1 w-7 h-4 rounded-full relative transition-colors ${schedule.enabled ? "bg-success" : "bg-muted-foreground/30"}`}>
                               <div className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${schedule.enabled ? "translate-x-3.5" : "translate-x-0.5"}`} />
                             </div>
                           </button>
@@ -886,14 +886,14 @@ export default function Templates() {
 
       {/* Delete Template Modal */}
       {deleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => !deleting && setDeleteModal(null)}>
-          <div className="bg-card border rounded-lg shadow-xl max-w-md w-full mx-4 p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="overlay" onClick={() => !deleting && setDeleteModal(null)}>
+          <div className="dialog-panel max-w-md p-5 space-y-4" onClick={(e) => e.stopPropagation()} role="alertdialog" aria-modal="true" aria-labelledby="delete-template-title">
             <div className="flex items-start gap-3">
-              <div className="h-10 w-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
-                <AlertCircle className="h-5 w-5 text-destructive" />
+              <div className="h-9 w-9 rounded-md border border-destructive/30 bg-destructive/10 flex items-center justify-center shrink-0">
+                <AlertCircle className="h-4.5 w-4.5 text-destructive" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold">Delete Template</h3>
+                <h3 id="delete-template-title" className="text-[15px] font-semibold leading-tight">Delete Template</h3>
                 <p className="text-sm text-muted-foreground mt-1">
                   <span className="font-medium text-foreground">{deleteModal.template.name}</span> on {deleteModal.template.target_name}
                 </p>
@@ -953,17 +953,20 @@ export default function Templates() {
                     value={destroyConfirmText}
                     onChange={(e) => setDestroyConfirmText(e.target.value)}
                     placeholder={deleteModal.template.name}
-                    className="text-sm border-destructive/50 focus:border-destructive"
+                    className="font-mono text-13 border-destructive/50 focus-visible:border-destructive"
+                    autoComplete="off"
+                    spellCheck={false}
                     disabled={!!deleting}
                   />
                 </div>
-                <button
-                  className="w-full rounded-md bg-destructive text-destructive-foreground px-4 py-2 text-sm font-medium hover:bg-destructive/90 transition-colors disabled:opacity-50"
+                <Button
+                  variant={destroyConfirmText === deleteModal.template.name ? "danger" : "destructive"}
+                  className="w-full"
                   onClick={() => handleDeleteConfirm(true)}
                   disabled={!!deleting || destroyConfirmText !== deleteModal.template.name}
                 >
                   {deleting === "destroy" ? "Destroying..." : destroyConfirmText === deleteModal.template.name ? "Confirm Destroy" : "Type template name to confirm"}
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -979,8 +982,8 @@ export default function Templates() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setRebuildModal(null)}>
           <div className="bg-card border rounded-lg shadow-xl max-w-md w-full mx-4 p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start gap-3">
-              <div className="rounded-full p-2 bg-blue-500/10">
-                <RefreshCw className="h-6 w-6 text-blue-500" />
+              <div className="rounded-full p-2 bg-info/10">
+                <RefreshCw className="h-6 w-6 text-info" />
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="text-lg font-semibold">Rebuild Template</h3>
@@ -1211,17 +1214,17 @@ export default function Templates() {
                       <span className="text-xs text-muted-foreground">Waiting...</span>
                     )}
                     {item.status === "checking" && (
-                      <span className="text-xs text-blue-500 flex items-center gap-1">
+                      <span className="text-xs text-info flex items-center gap-1">
                         <RefreshCw className="h-3 w-3 animate-spin" /> Checking upstream ISO...
                       </span>
                     )}
                     {item.status === "up-to-date" && (
-                      <span className="text-xs text-green-500 flex items-center gap-1">
+                      <span className="text-xs text-success flex items-center gap-1">
                         <CheckCircle className="h-3 w-3" /> ISO unchanged
                       </span>
                     )}
                     {item.status === "update-available" && (
-                      <span className="text-xs text-orange-500 flex items-center gap-1">
+                      <span className="text-xs text-warning flex items-center gap-1">
                         <AlertTriangle className="h-3 w-3" /> New ISO available
                       </span>
                     )}
@@ -1237,12 +1240,12 @@ export default function Templates() {
               {!checking && updateProgress.length > 0 && (
                 <div className="pt-3 border-t">
                   {updateProgress.every((p) => p.status === "up-to-date") ? (
-                    <p className="text-sm text-green-500 flex items-center gap-2">
+                    <p className="text-sm text-success flex items-center gap-2">
                       <CheckCircle className="h-4 w-4" />
                       All templates are up to date — ISO checksums match upstream mirrors.
                     </p>
                   ) : updateProgress.some((p) => p.status === "update-available") ? (
-                    <p className="text-sm text-orange-500 flex items-center gap-2">
+                    <p className="text-sm text-warning flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4" />
                       {updateProgress.filter((p) => p.status === "update-available").length} template{updateProgress.filter((p) => p.status === "update-available").length !== 1 ? "s have" : " has"} a newer ISO available. Rebuild from the template card to update.
                     </p>

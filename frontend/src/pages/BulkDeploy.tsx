@@ -36,12 +36,12 @@ export function BulkDeployListPage() {
       <Card className="border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20">
         <CardContent className="p-4 space-y-4">
           <div className="flex items-center gap-2">
-            <Info className="h-5 w-5 text-blue-500" />
+            <Info className="h-5 w-5 text-info" />
             <p className="font-medium text-sm text-blue-900 dark:text-blue-100">How Bulk Deployments Work</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-3 text-sm">
             <div className="flex gap-3">
-              <ListChecks className="h-5 w-5 text-blue-500 mt-0.5 shrink-0" />
+              <ListChecks className="h-5 w-5 text-info mt-0.5 shrink-0" />
               <div>
                 <p className="font-medium text-blue-900 dark:text-blue-100">1. Define VMs</p>
                 <p className="text-blue-700 dark:text-blue-300">
@@ -50,7 +50,7 @@ export function BulkDeployListPage() {
               </div>
             </div>
             <div className="flex gap-3">
-              <PlayCircle className="h-5 w-5 text-blue-500 mt-0.5 shrink-0" />
+              <PlayCircle className="h-5 w-5 text-info mt-0.5 shrink-0" />
               <div>
                 <p className="font-medium text-blue-900 dark:text-blue-100">2. Deploy</p>
                 <p className="text-blue-700 dark:text-blue-300">
@@ -59,7 +59,7 @@ export function BulkDeployListPage() {
               </div>
             </div>
             <div className="flex gap-3">
-              <Layers className="h-5 w-5 text-blue-500 mt-0.5 shrink-0" />
+              <Layers className="h-5 w-5 text-info mt-0.5 shrink-0" />
               <div>
                 <p className="font-medium text-blue-900 dark:text-blue-100">3. Monitor</p>
                 <p className="text-blue-700 dark:text-blue-300">
@@ -150,8 +150,8 @@ export function BulkDeployDetailPage() {
             <div className="bg-primary h-2 rounded-full transition-all" style={{ width: `${progress}%` }} />
           </div>
           <div className="flex gap-4 text-sm">
-            <span className="text-green-500">Completed: {bulk.completed_vms}</span>
-            {bulk.failed_vms > 0 && <span className="text-red-500">Failed: {bulk.failed_vms}</span>}
+            <span className="text-success">Completed: {bulk.completed_vms}</span>
+            {bulk.failed_vms > 0 && <span className="text-destructive">Failed: {bulk.failed_vms}</span>}
             {bulk.parallel && <span className="text-muted-foreground">Mode: Parallel</span>}
           </div>
         </CardContent>
