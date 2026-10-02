@@ -19,12 +19,14 @@ import (
 // makes: node discovery, VM→node resolution, node bridges, VM config
 // read/write, and the pending-changes list.
 type fakePVE struct {
-	mu      sync.Mutex
-	config  map[string]string // current VM 100 config
-	pending map[string]string // keys that would show as pending after a write
-	bridges []string
-	puts    []url.Values
-	server  *httptest.Server
+	mu       sync.Mutex
+	config   map[string]string // current VM 100 config
+	pending  map[string]string // keys that would show as pending after a write
+	bridges  []string
+	puts     []url.Values
+	agent    []map[string]interface{} // guest agent interfaces; nil = empty result
+	agentErr bool                     // simulate "No QEMU guest agent configured"
+	server   *httptest.Server
 }
 
 func newFakePVE(t *testing.T) *fakePVE {
@@ -89,6 +91,16 @@ func newFakePVE(t *testing.T) *fakePVE {
 			out = append(out, map[string]interface{}{"key": k, "value": v})
 		}
 		write(w, out)
+	})
+	mux.HandleFunc("/api2/json/nodes/pve/qemu/100/agent/network-get-interfaces", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.agentErr {
+			w.WriteHeader(500)
+			_, _ = w.Write([]byte(`{"data":null,"message":"No QEMU guest agent configured"}`))
+			return
+		}
+		write(w, map[string]interface{}{"result": f.agent})
 	})
 	f.server = httptest.NewTLSServer(mux)
 	t.Cleanup(f.server.Close)
@@ -185,5 +197,52 @@ func TestAddNICRejectsBadInputBeforeAnyCall(t *testing.T) {
 	}
 	if len(f.puts) != 0 {
 		t.Error("nothing should have been written")
+	}
+}
+
+func TestListNICsJoinsConfigWithGuestAgentByMAC(t *testing.T) {
+	f := newFakePVE(t)
+	f.config["net1"] = "e1000=BC:24:11:00:00:02,bridge=vmbr1,tag=20,link_down=1"
+	f.agent = []map[string]interface{}{
+		{"name": "lo", "hardware-address": "00:00:00:00:00:00", "ip-addresses": []map[string]string{{"ip-address": "127.0.0.1"}}},
+		{"name": "ens18", "hardware-address": "bc:24:11:00:00:01", "ip-addresses": []map[string]string{{"ip-address": "fe80::be24:11ff:fe00:1"}, {"ip-address": "10.20.20.15"}}},
+	}
+	p := f.provider(t)
+
+	nics, err := p.ListNICs(context.Background(), "100")
+	if err != nil {
+		t.Fatalf("ListNICs: %v", err)
+	}
+	if len(nics) != 2 {
+		t.Fatalf("expected 2 adapters, got %d: %+v", len(nics), nics)
+	}
+	n0, n1 := nics[0], nics[1]
+	if n0.Label != "net0" || n0.AdapterType != "virtio" || n0.Network != "vmbr0" || n0.MACAddress != "BC:24:11:00:00:01" || !n0.Connected {
+		t.Errorf("net0 = %+v", n0)
+	}
+	// Guest agent addresses are joined by MAC (case-insensitive) and
+	// sorted IPv4-first; loopback is dropped.
+	if len(n0.Addresses) != 2 || n0.Addresses[0] != "10.20.20.15" {
+		t.Errorf("net0 addresses = %v", n0.Addresses)
+	}
+	if n1.Label != "net1" || n1.AdapterType != "e1000" || n1.Network != "vmbr1" || n1.VLANTag != 20 || n1.Connected {
+		t.Errorf("net1 = %+v", n1)
+	}
+	// An adapter the agent doesn't report has an empty (non-nil) list.
+	if n1.Addresses == nil || len(n1.Addresses) != 0 {
+		t.Errorf("net1 addresses should be empty, got %v", n1.Addresses)
+	}
+}
+
+func TestListNICsWithoutGuestAgentStillListsAdapters(t *testing.T) {
+	f := newFakePVE(t)
+	f.agentErr = true // agent not running: Proxmox answers 500 "No QEMU guest agent configured"
+	p := f.provider(t)
+	nics, err := p.ListNICs(context.Background(), "100")
+	if err != nil {
+		t.Fatalf("ListNICs: %v", err)
+	}
+	if len(nics) != 1 || nics[0].MACAddress != "BC:24:11:00:00:01" || len(nics[0].Addresses) != 0 {
+		t.Errorf("unexpected: %+v", nics)
 	}
 }

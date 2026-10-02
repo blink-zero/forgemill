@@ -242,3 +242,92 @@ func (p *Provider) AddNIC(ctx context.Context, vmID string, spec provider.NICSpe
 	}
 	return nic, nil
 }
+
+// guestInterface is one entry from the QEMU guest agent's
+// network-get-interfaces, reduced to what ListNICs joins on.
+type guestInterface struct {
+	Name      string
+	MAC       string
+	Addresses []string
+}
+
+// getGuestAgentInterfaces returns the guest's interfaces with MAC and
+// addresses, or nil when the agent isn't running/installed — that's the
+// normal case for a stopped VM or a guest without qemu-guest-agent, not
+// an error worth surfacing.
+func (p *Provider) getGuestAgentInterfaces(ctx context.Context, node, vmID string) []guestInterface {
+	body, err := p.doGet(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/agent/network-get-interfaces", url.PathEscape(node), url.PathEscape(vmID)))
+	if err != nil {
+		return nil
+	}
+	var result struct {
+		Data struct {
+			Result []struct {
+				Name        string `json:"name"`
+				HardwareMAC string `json:"hardware-address"`
+				IPAddresses []struct {
+					IPAddress string `json:"ip-address"`
+				} `json:"ip-addresses"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(body, &result) != nil {
+		return nil
+	}
+	var out []guestInterface
+	for _, iface := range result.Data.Result {
+		if iface.Name == "lo" || iface.Name == "lo0" {
+			continue
+		}
+		gi := guestInterface{Name: iface.Name, MAC: strings.ToUpper(iface.HardwareMAC)}
+		for _, a := range iface.IPAddresses {
+			if a.IPAddress != "" && a.IPAddress != "127.0.0.1" && a.IPAddress != "::1" {
+				gi.Addresses = append(gi.Addresses, a.IPAddress)
+			}
+		}
+		out = append(out, gi)
+	}
+	return out
+}
+
+// ListNICs reads net0..netN from the VM config and joins the guest agent's
+// interface list by MAC for addresses.
+func (p *Provider) ListNICs(ctx context.Context, vmID string) ([]provider.NIC, error) {
+	node, err := p.resolveVMNode(ctx, vmID)
+	if err != nil {
+		node = p.node
+	}
+	config, err := p.getVMConfig(ctx, node, vmID)
+	if err != nil {
+		return nil, err
+	}
+	guest := p.getGuestAgentInterfaces(ctx, node, vmID)
+
+	nics := []provider.NIC{}
+	for i := 0; i < maxNetSlots; i++ {
+		key := fmt.Sprintf("net%d", i)
+		raw, ok := config[key].(string)
+		if !ok {
+			continue
+		}
+		nc := parseNetConfig(raw)
+		nic := provider.NIC{
+			Key:         i,
+			Label:       key,
+			AdapterType: nc.Model,
+			Network:     nc.Bridge,
+			MACAddress:  nc.MAC,
+			VLANTag:     nc.VLANTag,
+			Connected:   !nc.LinkDown,
+			Addresses:   []string{},
+		}
+		for _, g := range guest {
+			if g.MAC != "" && g.MAC == nc.MAC {
+				nic.Addresses = provider.SortAddresses(g.Addresses)
+				break
+			}
+		}
+		nics = append(nics, nic)
+	}
+	return nics, nil
+}
