@@ -16,6 +16,7 @@ import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { DangerZone, DangerZoneItem } from "@/components/ui/danger-zone";
 import { getErrorMessage, cn } from "@/lib/utils";
 
 const WEBHOOK_EVENTS = [
@@ -186,7 +187,7 @@ export default function SettingsPage() {
   };
 
   const handleDeleteUser = async (user: User) => {
-    const ok = await showConfirm({ title: "Delete User", message: `Delete user "${user.username}"? This cannot be undone.`, confirmLabel: "Delete", variant: "destructive" });
+    const ok = await showConfirm({ title: "Delete User", message: `Delete user "${user.username}"?`, consequences: ["Their sessions are revoked immediately.", "Their API keys stop working.", "Audit history stays attributed to the username."], confirmText: user.username, confirmLabel: "Delete user", variant: "destructive" });
     if (!ok) return;
     try {
       await usersApi.delete(user.id);
@@ -284,7 +285,7 @@ export default function SettingsPage() {
   };
 
   const handleDeleteWebhook = async (wh: Webhook) => {
-    const ok = await showConfirm({ title: "Delete Webhook", message: `Delete webhook "${wh.name}"? This cannot be undone.`, confirmLabel: "Delete", variant: "destructive" });
+    const ok = await showConfirm({ title: "Delete Webhook", message: `Delete webhook "${wh.name}"?`, consequences: ["No further events are delivered to this endpoint.", "The signing secret is destroyed."], confirmLabel: "Delete webhook", variant: "destructive" });
     if (!ok) return;
     try {
       await webhooksApi.delete(wh.id);
@@ -340,7 +341,7 @@ export default function SettingsPage() {
   };
 
   const handleDeleteApiKey = async (key: APIKey) => {
-    const ok = await showConfirm({ title: "Delete API Key", message: `Delete API key "${key.name}" (${key.prefix}...)? This cannot be undone.`, confirmLabel: "Delete", variant: "destructive" });
+    const ok = await showConfirm({ title: "Delete API Key", message: `Delete API key "${key.name}" (${key.prefix}…)?`, consequences: ["Anything using this key is cut off immediately.", "The key cannot be recovered — issue a new one instead."], confirmLabel: "Delete key", variant: "destructive" });
     if (!ok) return;
     try {
       await apiKeysApi.delete(key.id);
@@ -799,12 +800,12 @@ export default function SettingsPage() {
 
       {tab === "apikeys" && (
         <div className="space-y-4">
-          <Card className="border-blue-500/20 bg-blue-500/5">
+          <Card className="border-info/20 bg-info/5">
             <CardContent className="p-4">
               <div className="flex items-start gap-3">
-                <AlertTriangle className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
+                <AlertTriangle className="h-5 w-5 text-info shrink-0 mt-0.5" />
                 <div className="text-sm">
-                  <p className="font-medium text-blue-500">API Key Authentication</p>
+                  <p className="font-medium text-info">API Key Authentication</p>
                   <p className="text-muted-foreground mt-1">
                     API keys authenticate as Bearer tokens. Use <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">Authorization: Bearer fm_xxxxx</code> in your requests.
                   </p>
@@ -814,7 +815,7 @@ export default function SettingsPage() {
           </Card>
 
           {revealedKey && (
-            <Card className="border-yellow-500/30 bg-yellow-500/5">
+            <Card className="border-warning/30 bg-warning/5">
               <CardHeader><CardTitle className="text-base flex items-center gap-2"><KeyRound className="h-4 w-4" />API Key Created</CardTitle></CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-sm text-muted-foreground">Copy this key now. It will not be shown again.</p>
@@ -1015,24 +1016,27 @@ export default function SettingsPage() {
             </Card>
           )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Trash2 className="h-5 w-5" />Data Management</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-medium">Deployment History</p>
-                  <p className="text-xs text-muted-foreground">
-                    Clear all completed and failed deployment records. Active deployments will not be affected.
-                  </p>
-                </div>
+          <DangerZone title="Data management" description="Removes records permanently. Hypervisors are not touched.">
+            <DangerZoneItem
+              title="Deployment History"
+              description="Clear all completed and failed deployment records. Active deployments will not be affected."
+            >
                 <Button
                   variant="destructive"
                   size="sm"
                   className="shrink-0"
                   onClick={async () => {
-                    const ok = await showConfirm({ title: "Clear Deployment History", message: "This will remove all completed and failed deployment records. VMs deployed from these records will lose their stored credentials. This cannot be undone.", confirmLabel: "Clear History", variant: "destructive" });
+                    const ok = await showConfirm({
+                      title: "Clear Deployment History",
+                      message: "This will remove all completed and failed deployment records.",
+                      consequences: [
+                        "VMs deployed from these records lose their stored deploy-time credentials.",
+                        "Deployment manifests and timelines for them are gone.",
+                        "Active deployments are not affected.",
+                      ],
+                      confirmLabel: "Clear History",
+                      variant: "destructive",
+                    });
                     if (!ok) return;
                     try {
                       const res = await settingsApi.clearDeploymentHistory();
@@ -1046,9 +1050,8 @@ export default function SettingsPage() {
                   <Trash2 className="h-3.5 w-3.5 mr-1.5" />
                   Clear History
                 </Button>
-              </div>
-            </CardContent>
-          </Card>
+            </DangerZoneItem>
+          </DangerZone>
         </div>
       )}
 
@@ -1254,42 +1257,42 @@ export default function SettingsPage() {
           <CardContent>
             <div className="grid gap-3 sm:grid-cols-2 text-sm">
               <div className="flex items-start gap-2">
-                <span className="text-green-500 mt-0.5">✓</span>
+                <span className="text-success mt-0.5">✓</span>
                 <div>
                   <p className="font-medium">Multi-Hypervisor</p>
                   <p className="text-xs text-muted-foreground">vCenter, ESXi standalone, Proxmox VE</p>
                 </div>
               </div>
               <div className="flex items-start gap-2">
-                <span className="text-green-500 mt-0.5">✓</span>
+                <span className="text-success mt-0.5">✓</span>
                 <div>
                   <p className="font-medium">Template Factory</p>
                   <p className="text-xs text-muted-foreground">Build templates from ISO with Packer</p>
                 </div>
               </div>
               <div className="flex items-start gap-2">
-                <span className="text-green-500 mt-0.5">✓</span>
+                <span className="text-success mt-0.5">✓</span>
                 <div>
                   <p className="font-medium">VM Lifecycle</p>
                   <p className="text-xs text-muted-foreground">Deploy, power, snapshot, resize, console</p>
                 </div>
               </div>
               <div className="flex items-start gap-2">
-                <span className="text-green-500 mt-0.5">✓</span>
+                <span className="text-success mt-0.5">✓</span>
                 <div>
                   <p className="font-medium">Post-Deploy Actions</p>
                   <p className="text-xs text-muted-foreground">SSH execution with live terminal streaming</p>
                 </div>
               </div>
               <div className="flex items-start gap-2">
-                <span className="text-green-500 mt-0.5">✓</span>
+                <span className="text-success mt-0.5">✓</span>
                 <div>
                   <p className="font-medium">Credential Management</p>
                   <p className="text-xs text-muted-foreground">AES-256-GCM encrypted, auto-generated</p>
                 </div>
               </div>
               <div className="flex items-start gap-2">
-                <span className="text-green-500 mt-0.5">✓</span>
+                <span className="text-success mt-0.5">✓</span>
                 <div>
                   <p className="font-medium">ISO Update Detection</p>
                   <p className="text-xs text-muted-foreground">Checksum comparison against upstream mirrors</p>

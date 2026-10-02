@@ -332,7 +332,7 @@ export default function ActionsPage() {
                   </div>
                 </div>
                 {viewingVersion === v.version && (
-                  <pre className="text-xs bg-gray-950 text-green-400 p-2 rounded-md overflow-x-auto max-h-48 whitespace-pre-wrap mt-2">{v.script}</pre>
+                  <pre className="text-xs bg-gray-950 text-success p-2 rounded-md overflow-x-auto max-h-48 whitespace-pre-wrap mt-2">{v.script}</pre>
                 )}
               </li>
             );
@@ -479,7 +479,7 @@ export default function ActionsPage() {
                   onChange={(e) => { setForm({ ...form, script: e.target.value }); if (e.target.value) validateScript(e.target.value); }}
                   placeholder={"#!/bin/bash\nset -euo pipefail\n\napt-get update -y\napt-get install -y nginx\nsystemctl enable --now nginx"}
                   rows={10}
-                  className="w-full rounded-md border border-input bg-gray-950 text-green-400 px-3 py-2 text-sm shadow-sm placeholder:text-gray-600 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono resize-y"
+                  className="w-full rounded-md border border-input bg-gray-950 text-success px-3 py-2 text-sm shadow-sm placeholder:text-gray-600 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono resize-y"
                 />
                 {configError && <p className="text-xs text-destructive">{configError}</p>}
                 <p className="text-xs text-muted-foreground">Bash script that runs with sudo privileges on the target VM. Max 64KB.</p>
@@ -738,7 +738,7 @@ export default function ActionsPage() {
                 {expandedId === action.id && (
                   <tr className="border-b last:border-0">
                     <td colSpan={5} className="px-4 py-3">
-                      <pre className="text-xs bg-gray-950 text-green-400 p-3 rounded-md overflow-x-auto max-h-64 whitespace-pre-wrap">{action.script}</pre>
+                      <pre className="text-xs bg-gray-950 text-success p-3 rounded-md overflow-x-auto max-h-64 whitespace-pre-wrap">{action.script}</pre>
                     </td>
                   </tr>
                 )}
@@ -824,7 +824,7 @@ export default function ActionsPage() {
                       </div>
                       {expandedId === action.id && (
                         <div className="relative mb-3">
-                          <pre className="text-xs bg-gray-950 text-green-400 p-3 pr-10 rounded-md overflow-x-auto max-h-64 whitespace-pre-wrap">{action.script}</pre>
+                          <pre className="text-xs bg-gray-950 text-success p-3 pr-10 rounded-md overflow-x-auto max-h-64 whitespace-pre-wrap">{action.script}</pre>
                           <button
                             className="absolute top-2 right-2 p-1.5 rounded-md bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
                             onClick={() => {
@@ -834,7 +834,7 @@ export default function ActionsPage() {
                             }}
                             title="Copy script"
                           >
-                            {copiedId === action.id ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
+                            {copiedId === action.id ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
                           </button>
                         </div>
                       )}

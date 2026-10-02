@@ -3,22 +3,35 @@ import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
+/*
+  Button variants, with destructive actions deliberately split in two:
+
+  - `destructive` is what every delete / destroy / clear button in the app
+    uses at rest. It is *outlined and tinted*, never a solid red block, so a
+    high-risk control can't be mistaken for the page's primary action and an
+    accidental click lands on a confirmation step rather than on the action.
+  - `danger` is the solid red fill, reserved for the final commit button
+    inside a confirmation (ConfirmDialog, typed-name confirms). It only ever
+    appears after the user has already said "yes, this one".
+*/
 const buttonVariants = cva(
-  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-13 font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 active:translate-y-px [&>svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
-        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        outline: "border border-border bg-transparent hover:bg-accent hover:text-accent-foreground",
-        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
+        default: "bg-primary text-primary-foreground edge-highlight shadow-xs hover:bg-primary/90",
+        destructive:
+          "border border-destructive/40 bg-destructive/[0.06] text-destructive hover:bg-destructive/[0.12] hover:border-destructive/60",
+        danger: "bg-destructive text-destructive-foreground edge-highlight shadow-xs hover:bg-destructive/90",
+        outline: "border border-border bg-card text-foreground shadow-xs hover:bg-muted hover:border-input",
+        secondary: "bg-secondary text-secondary-foreground hover:bg-accent",
+        ghost: "text-muted-foreground hover:bg-accent hover:text-foreground",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-[13px]",
-        lg: "h-10 rounded-md px-8",
+        default: "h-9 px-3.5",
+        sm: "h-8 px-3 text-[12.5px]",
+        lg: "h-10 px-6 text-sm",
         icon: "h-9 w-9",
       },
     },
