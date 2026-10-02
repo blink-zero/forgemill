@@ -1,5 +1,17 @@
 import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { extendTailwindMerge } from "tailwind-merge";
+
+// tailwind-merge needs to know about the custom theme scales so e.g.
+// cn("text-sm", "text-13") keeps only the later font-size and
+// cn("shadow-xs", "shadow-card") keeps only the later shadow.
+const twMerge = extendTailwindMerge({
+  extend: {
+    classGroups: {
+      "font-size": ["text-2xs", "text-13"],
+      shadow: ["shadow-card", "shadow-pop"],
+    },
+  },
+});
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));

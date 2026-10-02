@@ -303,7 +303,7 @@ export function CommandPalette() {
 
   const content = (
     <div
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs"
       onClick={handleClose}
       role="dialog"
       aria-modal="true"
@@ -320,7 +320,7 @@ export function CommandPalette() {
             <input
               ref={inputRef}
               type="text"
-              className="flex-1 bg-transparent px-4 py-4 text-sm outline-none placeholder:text-muted-foreground"
+              className="flex-1 bg-transparent px-4 py-4 text-sm outline-hidden placeholder:text-muted-foreground"
               placeholder="Search VMs, templates, targets..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -386,7 +386,7 @@ export function CommandPalette() {
                           role="option"
                           aria-selected={isSelected}
                         >
-                          <Icon className="h-5 w-5 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
+                          <Icon className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
                           <div className="flex-1 min-w-0">
                             <div className="font-medium truncate">{item.name}</div>
                             <div className="text-xs text-muted-foreground truncate">{item.subtitle}</div>
@@ -431,7 +431,7 @@ export function CommandPalette() {
                           {item.badge && (
                             <span
                               className={cn(
-                                "flex-shrink-0 rounded px-2 py-0.5 text-xs font-medium",
+                                "shrink-0 rounded px-2 py-0.5 text-xs font-medium",
                                 item.badgeVariant === "success" && "bg-success/20 text-success",
                                 item.badgeVariant === "warning" && "bg-warning/20 text-warning",
                                 item.badgeVariant === "secondary" && "bg-muted text-muted-foreground",

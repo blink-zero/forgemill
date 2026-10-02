@@ -81,7 +81,7 @@ export function Tooltip({ content, children, className }: TooltipProps) {
               transform: pos.placement === "top" ? "translateY(-100%)" : undefined,
             }}
             className={cn(
-              "z-[1000] max-w-[260px] rounded-md border border-border bg-popover text-popover-foreground text-xs leading-relaxed px-2.5 py-1.5 shadow-lg pointer-events-none",
+              "z-1000 max-w-[260px] rounded-md border border-border bg-popover text-popover-foreground text-xs leading-relaxed px-2.5 py-1.5 shadow-lg pointer-events-none",
               className
             )}
           >
@@ -114,7 +114,7 @@ export function InfoTip({ text, className }: InfoTipProps) {
         // participate in form submission or steal Enter-key behavior.
         tabIndex={0}
         className={cn(
-          "inline-flex h-3.5 w-3.5 items-center justify-center text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full",
+          "inline-flex h-3.5 w-3.5 items-center justify-center text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring rounded-full",
           className
         )}
         aria-label="More information"

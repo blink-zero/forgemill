@@ -73,7 +73,7 @@ export default function Login() {
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             {error && (
-              <div role="alert" className="text-13 text-destructive border border-destructive/30 bg-destructive/[0.06] rounded-md px-3 py-2">
+              <div role="alert" className="text-13 text-destructive border border-destructive/30 bg-destructive/6 rounded-md px-3 py-2">
                 {error}
               </div>
             )}

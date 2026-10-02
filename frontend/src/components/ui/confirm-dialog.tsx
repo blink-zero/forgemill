@@ -118,7 +118,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             aria-describedby="confirm-dialog-desc"
           >
             {/* Header band: red for destructive, neutral otherwise */}
-            <div className={`flex items-start gap-3 px-5 pt-5 pb-4 ${destructive ? "border-b border-destructive/20 bg-destructive/[0.04] rounded-t-lg" : ""}`}>
+            <div className={`flex items-start gap-3 px-5 pt-5 pb-4 ${destructive ? "border-b border-destructive/20 bg-destructive/4 rounded-t-lg" : ""}`}>
               <div className={`h-9 w-9 rounded-md flex items-center justify-center shrink-0 border ${
                 destructive ? "bg-destructive/10 border-destructive/30 text-destructive" : "bg-warning/10 border-warning/30 text-warning"
               }`}>

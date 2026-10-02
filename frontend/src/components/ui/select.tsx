@@ -8,7 +8,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(({ className, children
     <select
       ref={ref}
       className={cn(
-        "flex h-9 w-full appearance-none rounded-md border border-input bg-card pl-3 pr-8 py-1 text-13 text-foreground shadow-xs transition-[border-color,box-shadow] hover:border-muted-foreground/40 focus-visible:outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-muted [&>option]:bg-popover [&>option]:text-popover-foreground",
+        "flex h-9 w-full appearance-none rounded-md border border-input bg-card pl-3 pr-8 py-1 text-13 text-foreground shadow-xs transition-[border-color,box-shadow] hover:border-muted-foreground/40 focus-visible:outline-hidden focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-muted [&>option]:bg-popover [&>option]:text-popover-foreground",
         className
       )}
       // Chevron via inline background props rather than arbitrary bg-[…]
