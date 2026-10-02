@@ -92,10 +92,10 @@ export default function Dashboard() {
   if (!data) return <div className="text-muted-foreground">Failed to load dashboard</div>;
 
   const stats = [
-    { label: "Targets", value: data.stats.total_targets, icon: Server, color: "text-blue-500", bg: "bg-blue-500/10", link: "/targets" },
-    { label: "Templates", value: data.stats.total_templates, icon: Box, color: "text-purple-500", bg: "bg-purple-500/10", link: "/templates" },
-    { label: "VMs", value: data.stats.total_vms, icon: Monitor, color: "text-green-500", bg: "bg-green-500/10", link: "/vms" },
-    { label: "Actions", value: data.stats.total_actions, icon: Zap, color: "text-amber-500", bg: "bg-amber-500/10", link: "/actions" },
+    { label: "Targets", value: data.stats.total_targets, icon: Server, color: "text-info", bg: "bg-info/10 border-info/20", link: "/targets" },
+    { label: "Templates", value: data.stats.total_templates, icon: Box, color: "text-primary", bg: "bg-primary/10 border-primary/20", link: "/templates" },
+    { label: "VMs", value: data.stats.total_vms, icon: Monitor, color: "text-success", bg: "bg-success/10 border-success/20", link: "/vms" },
+    { label: "Actions", value: data.stats.total_actions, icon: Zap, color: "text-warning", bg: "bg-warning/10 border-warning/20", link: "/actions" },
   ];
 
   // Merge deployments and executions into a single activity feed, sorted by date
@@ -156,15 +156,15 @@ export default function Dashboard() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((s) => (
           <Link key={s.label} to={s.link}>
-            <Card className="hover:border-primary/50 cursor-pointer transition-colors">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">{s.label}</CardTitle>
-                <div className={`h-10 w-10 rounded-lg ${s.bg} flex items-center justify-center`}>
-                  <s.icon className={`h-5 w-5 ${s.color}`} />
+            <Card className="group hover:border-primary/40 cursor-pointer transition-colors">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">{s.label}</CardTitle>
+                <div className={`h-8 w-8 rounded-md border ${s.bg} flex items-center justify-center`}>
+                  <s.icon className={`h-4 w-4 ${s.color}`} />
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="text-4xl font-bold">{s.value}</div>
+                <div className="text-3xl font-semibold tracking-tight tabular-nums leading-none">{s.value}</div>
               </CardContent>
             </Card>
           </Link>

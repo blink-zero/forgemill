@@ -125,7 +125,7 @@ function TargetForm({ form, setForm, onSubmit, onCancel, submitLabel, title, isE
             <span className="text-xs text-muted-foreground ml-1">(disable only for self-signed certs)</span>
           </div>
           <div className="sm:col-span-2 flex items-start gap-2 rounded-md border border-border bg-muted/50 p-3">
-            <ShieldCheck className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
+            <ShieldCheck className="h-4 w-4 text-success mt-0.5 shrink-0" />
             <p className="text-xs text-muted-foreground">
               Credentials are encrypted at rest using AES-256-GCM and are never logged or exposed via the API.
               They are only used to communicate directly with your hypervisor over HTTPS.
@@ -462,7 +462,7 @@ export default function Targets() {
                           {providerLabel(t.type)}
                           <span className="mx-1.5">·</span>
                           {t.username}
-                          <span className="inline-flex items-center gap-0.5 ml-2 text-green-500"><ShieldCheck className="h-3 w-3" /> encrypted</span>
+                          <span className="inline-flex items-center gap-0.5 ml-2 text-success"><ShieldCheck className="h-3 w-3" /> encrypted</span>
                         </p>
                         <p className="text-[11px] text-muted-foreground/80 mt-0.5" title={t.last_connected_at ? new Date(t.last_connected_at).toLocaleString() : undefined}>
                           Last connected {timeAgo(t.last_connected_at)}
@@ -518,8 +518,8 @@ export default function Targets() {
                 </div>
               )}
               {actionModal.phase === "test-success" && (
-                <div className="h-10 w-10 rounded-full bg-green-500/10 flex items-center justify-center shrink-0">
-                  <Wifi className="h-5 w-5 text-green-500" />
+                <div className="h-10 w-10 rounded-full bg-success/10 flex items-center justify-center shrink-0">
+                  <Wifi className="h-5 w-5 text-success" />
                 </div>
               )}
               {actionModal.phase === "test-failed" && (
@@ -528,8 +528,8 @@ export default function Targets() {
                 </div>
               )}
               {actionModal.phase === "sync-done" && (
-                <div className="h-10 w-10 rounded-full bg-green-500/10 flex items-center justify-center shrink-0">
-                  <RefreshCw className="h-5 w-5 text-green-500" />
+                <div className="h-10 w-10 rounded-full bg-success/10 flex items-center justify-center shrink-0">
+                  <RefreshCw className="h-5 w-5 text-success" />
                 </div>
               )}
               <div>
@@ -539,8 +539,8 @@ export default function Targets() {
             </div>
 
             {actionModal.phase === "sync-done" && actionModal.templatesFound !== undefined && (
-              <div className="rounded-md border bg-green-500/5 border-green-500/30 p-3 text-center">
-                <p className="text-2xl font-bold text-green-500">{actionModal.templatesFound}</p>
+              <div className="rounded-md border bg-success/5 border-success/30 p-3 text-center">
+                <p className="text-2xl font-bold text-success">{actionModal.templatesFound}</p>
                 <p className="text-xs text-muted-foreground">template{actionModal.templatesFound !== 1 ? "s" : ""} found</p>
               </div>
             )}
@@ -615,16 +615,17 @@ export default function Targets() {
 
       {/* Delete Confirmation Modal */}
       {deleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => !deleting && setDeleteModal(null)}>
-          <div className="bg-card border rounded-lg shadow-xl max-w-md w-full mx-4 p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
-                <AlertTriangle className="h-5 w-5 text-destructive" />
+        <div className="overlay" onClick={() => !deleting && setDeleteModal(null)}>
+          <div className="dialog-panel max-w-md p-5 space-y-4" onClick={(e) => e.stopPropagation()} role="alertdialog" aria-modal="true" aria-labelledby="delete-target-title">
+            <div className="flex items-start gap-3">
+              <div className="h-9 w-9 rounded-md border border-destructive/30 bg-destructive/10 flex items-center justify-center shrink-0">
+                <AlertTriangle className="h-4.5 w-4.5 text-destructive" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold">Delete Target</h3>
-                <p className="text-sm text-muted-foreground">
-                  This will permanently delete <strong>{deleteModal.target.name}</strong> and all associated data.
+                <div className="text-2xs font-semibold uppercase tracking-[0.08em] text-destructive mb-0.5">Irreversible action</div>
+                <h3 id="delete-target-title" className="text-[15px] font-semibold leading-tight">Delete Target</h3>
+                <p className="text-13 text-muted-foreground mt-1">
+                  This will permanently delete <strong className="text-foreground">{deleteModal.target.name}</strong> and all associated data.
                 </p>
               </div>
             </div>
@@ -672,9 +673,9 @@ export default function Targets() {
               </div>
             )}
 
-            <div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 px-3 py-2 flex items-start gap-2">
-              <Info className="h-4 w-4 text-yellow-500 shrink-0 mt-0.5" />
-              <p className="text-xs text-yellow-600 dark:text-yellow-400">
+            <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 flex items-start gap-2">
+              <Info className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+              <p className="text-xs text-warning">
                 This action cannot be undone. VMs on the hypervisor will not be affected — only Forgemill's records are removed.
               </p>
             </div>
@@ -683,7 +684,7 @@ export default function Targets() {
               <Button variant="outline" onClick={() => setDeleteModal(null)} disabled={deleting}>
                 Cancel
               </Button>
-              <Button variant="destructive" onClick={handleDeleteConfirm} disabled={deleting}>
+              <Button variant="danger" onClick={handleDeleteConfirm} disabled={deleting}>
                 {deleting ? (
                   <>
                     <RefreshCw className="h-4 w-4 mr-2 animate-spin" />

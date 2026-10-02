@@ -479,11 +479,11 @@ export default function Deploy() {
               </div>
             )}
             {preflight && preflight.warnings && preflight.warnings.length > 0 && (
-              <div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 p-3 space-y-1.5">
-                <div className="flex items-center gap-1.5 text-sm font-medium text-yellow-600 dark:text-yellow-400">
+              <div className="rounded-md border border-warning/30 bg-warning/5 p-3 space-y-1.5">
+                <div className="flex items-center gap-1.5 text-sm font-medium text-warning">
                   <AlertTriangle className="h-4 w-4" /> Worth a second look
                 </div>
-                <ul className="text-xs text-yellow-600/90 dark:text-yellow-400/90 list-disc list-inside space-y-0.5">
+                <ul className="text-xs text-warning/90 list-disc list-inside space-y-0.5">
                   {preflight.warnings.map((w, i) => <li key={i}>{w}</li>)}
                 </ul>
               </div>

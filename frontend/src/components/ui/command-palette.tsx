@@ -413,7 +413,7 @@ export function CommandPalette() {
                                 <button
                                   onClick={(e) => handlePower(e, item, "on")}
                                   disabled={poweringVm === item.id}
-                                  className="rounded p-1.5 text-muted-foreground hover:bg-green-500/20 hover:text-green-500 disabled:opacity-50"
+                                  className="rounded p-1.5 text-muted-foreground hover:bg-success/20 hover:text-success disabled:opacity-50"
                                   aria-label="Power on"
                                   title="Power on"
                                 >
@@ -432,8 +432,8 @@ export function CommandPalette() {
                             <span
                               className={cn(
                                 "flex-shrink-0 rounded px-2 py-0.5 text-xs font-medium",
-                                item.badgeVariant === "success" && "bg-green-600/20 text-green-500",
-                                item.badgeVariant === "warning" && "bg-yellow-600/20 text-yellow-500",
+                                item.badgeVariant === "success" && "bg-success/20 text-success",
+                                item.badgeVariant === "warning" && "bg-warning/20 text-warning",
                                 item.badgeVariant === "secondary" && "bg-muted text-muted-foreground",
                                 !item.badgeVariant && "bg-muted text-muted-foreground"
                               )}

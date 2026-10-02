@@ -115,7 +115,7 @@ export default function DeployLive() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Deployment #{deployId}</h1>
         <div className="flex items-center gap-2">
-          {connected && <span className="text-xs text-green-500">Live</span>}
+          {connected && <span className="text-xs text-success">Live</span>}
           <Badge variant={statusVariant(status)}>{status}</Badge>
         </div>
       </div>
@@ -167,7 +167,7 @@ export default function DeployLive() {
             </div>
 
             {isFinished && (
-              <div className={`flex items-center gap-2 p-3 rounded-md ${status === "completed" ? "bg-green-500/10 text-green-500" : "bg-destructive/10 text-destructive"}`}>
+              <div className={`flex items-center gap-2 p-3 rounded-md ${status === "completed" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
                 {status === "completed" ? <CheckCircle className="h-5 w-5" /> : <XCircle className="h-5 w-5" />}
                 <span className="text-sm font-medium">
                   {status === "completed" ? "Deployment completed successfully" : status === "cancelled" ? "Deployment cancelled" : deployment.error_message || "Deployment failed"}
@@ -186,15 +186,15 @@ export default function DeployLive() {
       )}
 
       {credentials && (
-        <Card className="border-yellow-500/50">
+        <Card className="border-warning/50">
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
-              <Key className="h-5 w-5 text-yellow-500" />
+              <Key className="h-5 w-5 text-warning" />
               <CardTitle>VM Credentials</CardTitle>
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center gap-2 p-3 rounded-md bg-yellow-500/10 text-yellow-600 dark:text-yellow-400">
+            <div className="flex items-center gap-2 p-3 rounded-md bg-warning/10 text-warning">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               <span className="text-sm font-medium">Change this password immediately after first login. It will expire on first use.</span>
             </div>
@@ -259,7 +259,7 @@ export default function DeployLive() {
               logs.map((log, i) => (
                 <div key={i} className="flex gap-2">
                   <span className="text-muted-foreground shrink-0">{log.time}</span>
-                  <span className={log.level === "error" ? "text-destructive" : log.level === "warn" ? "text-yellow-500" : "text-foreground"}>
+                  <span className={log.level === "error" ? "text-destructive" : log.level === "warn" ? "text-warning" : "text-foreground"}>
                     {log.message}
                   </span>
                 </div>

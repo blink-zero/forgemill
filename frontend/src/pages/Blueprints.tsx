@@ -3,6 +3,7 @@ import { blueprints, templates as templatesApi, targets as targetsApi } from "@/
 import type { Blueprint, Template, Target } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Plus, Rocket, Trash2, Edit2, Info, Loader2 } from "lucide-react";
@@ -13,6 +14,7 @@ import { useTableSort } from "@/hooks/useTableSort";
 import { Select } from "@/components/ui/select";
 
 export default function BlueprintsPage() {
+  const { confirm: showConfirm } = useConfirm();
   const [bpList, setBpList] = useState<Blueprint[]>([]);
   const viewMode = usePreference("view_mode", "cards");
   const { sorted: bpSorted, sortField: bpSortField, sortDir: bpSortDir, toggleSort: bpToggleSort } = useTableSort(bpList, "name");
@@ -57,7 +59,15 @@ export default function BlueprintsPage() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("Delete this blueprint?")) return;
+    const bp = bpList.find((b) => b.id === id);
+    const ok = await showConfirm({
+      title: "Delete Blueprint",
+      message: `Delete blueprint "${bp?.name ?? id}"?`,
+      consequences: ["Nothing already deployed from it is affected.", "The saved configuration cannot be recovered."],
+      confirmLabel: "Delete blueprint",
+      variant: "destructive",
+    });
+    if (!ok) return;
     await blueprints.delete(id);
     fetchData();
   };
@@ -86,7 +96,7 @@ export default function BlueprintsPage() {
       {/* Info card explaining blueprints */}
       <Card className="border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20">
         <CardContent className="flex gap-4 p-4">
-          <Info className="h-5 w-5 text-blue-500 mt-0.5 shrink-0" />
+          <Info className="h-5 w-5 text-info mt-0.5 shrink-0" />
           <div className="space-y-2 text-sm">
             <p className="font-medium text-blue-900 dark:text-blue-100">What are Blueprints?</p>
             <p className="text-blue-800 dark:text-blue-200">

@@ -200,8 +200,8 @@ export default function FactoryBuild() {
         </div>
       </div>
 
-      <div className="rounded-lg border bg-blue-500/5 border-blue-500/20 px-4 py-3 flex items-start gap-3">
-        <Info className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
+      <div className="rounded-lg border bg-info/5 border-info/20 px-4 py-3 flex items-start gap-3">
+        <Info className="h-5 w-5 text-info shrink-0 mt-0.5" />
         <div>
           <p className="text-sm font-medium">Build from ISO</p>
           <p className="text-xs text-muted-foreground">Create new VM templates from OS installation media. Packer handles the unattended install — Forgemill manages the lifecycle.</p>
@@ -624,8 +624,8 @@ export default function FactoryBuild() {
           </Card>
 
           {error && (
-            <Card className="p-4 border-red-500/50 bg-red-500/5">
-              <p className="text-sm text-red-500">{error}</p>
+            <Card className="p-4 border-destructive/50 bg-destructive/5">
+              <p className="text-sm text-destructive">{error}</p>
             </Card>
           )}
 
