@@ -62,7 +62,7 @@ export function Sidebar() {
         {navSections.map((section, idx) => (
           <div key={idx} className={cn(idx > 0 && (collapsed ? "mt-2 pt-2 border-t border-sidebar-border/60" : "mt-3"))}>
             {!collapsed && section.heading && (
-              <div className="px-2 pt-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/80">
+              <div className="px-2 pt-1 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/80">
                 {section.heading}
               </div>
             )}

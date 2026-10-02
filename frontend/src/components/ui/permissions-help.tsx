@@ -30,7 +30,7 @@ export function PermissionsHelp({ providerType, ariaLabel, className }: Permissi
   // Position the portal'd panel relative to the trigger button each time it
   // opens and while the viewport scrolls / resizes. Using a portal ensures
   // the panel escapes any parent stacking context (sidebar, overflow-auto
-  // main, backdrop-blur header) and renders above everything on screen.
+  // main, backdrop-blur-sm header) and renders above everything on screen.
   useEffect(() => {
     if (!open) return;
     const reposition = () => {
@@ -186,7 +186,7 @@ export function PermissionsHelp({ providerType, ariaLabel, className }: Permissi
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex h-4 w-4 items-center justify-center text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+        className="inline-flex h-4 w-4 items-center justify-center text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring rounded"
         aria-label={ariaLabel ?? "Show required permissions"}
         aria-expanded={open}
         title="Required permissions"

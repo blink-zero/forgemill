@@ -15,13 +15,13 @@ import { cn } from "@/lib/utils";
     appears after the user has already said "yes, this one".
 */
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-13 font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 active:translate-y-px [&>svg]:shrink-0",
+  "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-13 font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 active:translate-y-px [&>svg]:shrink-0",
   {
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground edge-highlight shadow-xs hover:bg-primary/90",
         destructive:
-          "border border-destructive/40 bg-destructive/[0.06] text-destructive hover:bg-destructive/[0.12] hover:border-destructive/60",
+          "border border-destructive/40 bg-destructive/6 text-destructive hover:bg-destructive/12 hover:border-destructive/60",
         danger: "bg-destructive text-destructive-foreground edge-highlight shadow-xs hover:bg-destructive/90",
         outline: "border border-border bg-card text-foreground shadow-xs hover:bg-muted hover:border-input",
         secondary: "bg-secondary text-secondary-foreground hover:bg-accent",
