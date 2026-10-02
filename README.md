@@ -4,14 +4,28 @@
 
 Self-hosted VM deployment and lifecycle management for VMware vCenter, ESXi, and Proxmox VE — one web UI, one REST API, one CLI.
 
-[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Release](https://img.shields.io/github/v/release/blink-zero/forgemill?logo=github&label=release)](https://github.com/blink-zero/forgemill/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/blink-zero/forgemill/ci.yml?branch=main&logo=githubactions&logoColor=white&label=CI)](https://github.com/blink-zero/forgemill/actions/workflows/ci.yml)
+[![Docker](https://img.shields.io/badge/ghcr.io-blink--zero%2Fforgemill-2496ED?logo=docker&logoColor=white)](https://github.com/blink-zero/forgemill/pkgs/container/forgemill)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
-![Forgemill demo](docs/demo.gif)
+![Forgemill demo — dashboard, targets, templates, deploy wizard, VM inventory and lifecycle, actions, history](docs/demo.gif)
 
 Forgemill is a self-hosted platform that brings template building, VM deployment, lifecycle management, and post-deploy automation behind a single modern interface. Point it at your hypervisors, build golden templates from ISO with Packer, deploy VMs with cloud-init, and run SSH-based actions against your fleet — all from the same app.
+
+```bash
+docker run -d --name forgemill -p 8080:8080 -v forgemill-data:/app/data \
+  -e FORGEMILL_JWT_SECRET="$(openssl rand -hex 32)" \
+  -e FORGEMILL_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+  -e FORGEMILL_ADMIN_PASSWORD="change-me" \
+  ghcr.io/blink-zero/forgemill:latest
+```
+
+Then open `http://localhost:8080`, add a target, sync its templates, deploy. Full options in [Quick start](#quick-start).
+
+> **Talk to it from Claude:** [forgemill-mcp](https://github.com/blink-zero/forgemill-mcp) exposes the whole API as MCP tools — read-only by default, mutations behind one flag. See [MCP server](#mcp-server-claude--agents).
 
 ## Table of contents
 
@@ -25,6 +39,7 @@ Forgemill is a self-hosted platform that brings template building, VM deployment
 - [Features](#features)
 - [Built-in actions](#built-in-actions)
 - [CLI tool](#cli-tool)
+- [MCP server (Claude / agents)](#mcp-server-claude--agents)
 - [API overview](#api-overview)
 - [Architecture](#architecture)
 - [Security](#security)
@@ -46,12 +61,13 @@ If you already run full-blown cloud platforms or need multi-tenancy, Forgemill i
 
 - **Multi-hypervisor** — vCenter, standalone ESXi, Proxmox VE, behind a unified API
 - **Template Factory** — ISO-to-template pipeline with Packer; versioning, scheduled rebuilds, update detection on ISO checksum change
-- **One-click deploy** — cloud-init customisation, bulk deploys, reusable blueprints
-- **Lifecycle in one place** — power, snapshots, resize, disk expand, console, credential reveal
-- **Post-deploy actions** — reusable bash scripts run over SSH with streaming output, parameters, and execution history
+- **One-click deploy** — cloud-init customisation, pre-flight validation before anything is created, bulk deploys, reusable blueprints
+- **Lifecycle in one place** — power, snapshots, resize, disk expand, add network adapter, console, credential reveal, uptime / runtime tracking
+- **Post-deploy actions** — reusable bash scripts run over SSH with streaming output, parameters, versioning with rollback, import / export
 - **In-app notifications** — bell + drawer for deploy / execution / build / template-update events
-- **Auth that scales** — local accounts, LDAP / AD with group→role mapping, per-user API keys, JWT with revocation
+- **Auth that scales** — local accounts, LDAP / AD with group→role mapping, per-user API keys with scoped roles, JWT with revocation
 - **Webhooks + audit log** — HMAC-signed webhooks for external systems, comprehensive audit trail for compliance
+- **MCP server** — companion [forgemill-mcp](https://github.com/blink-zero/forgemill-mcp) lets Claude and other agents operate Forgemill safely
 - **Runs as one container** — single Docker image, SQLite-backed, no external services required
 
 ## Supported hypervisors
@@ -60,7 +76,9 @@ If you already run full-blown cloud platforms or need multi-tenancy, Forgemill i
 |------------|-----------|-------|
 | **VMware vCenter** | govmomi (vSphere API) | Full VM lifecycle, folders, clusters, resource pools, native templates |
 | **VMware ESXi (standalone)** | govmomi (direct host) | VM lifecycle, snapshots, resize. No folders / native templates without vCenter |
-| **Proxmox VE** | Proxmox REST API | KVM/QEMU VMs, snapshots, cloning, templates, resize. Ticket or API-token auth |
+| **Proxmox VE** | Proxmox REST API | KVM/QEMU VMs, snapshots, cloning, templates, resize, optional 802.1Q VLAN tag on deploy. Ticket or API-token auth |
+
+Hypervisor capabilities are declared per provider and the UI adapts to them — e.g. folder placement and disk provisioning only appear for vSphere, VLAN tagging only for Proxmox, adding a network adapter to a running VM only where the provider supports a hot-add.
 
 ## Supported OS templates (Factory builder)
 
@@ -201,18 +219,23 @@ This prevents secrets from appearing in `docker inspect` output or process listi
 
 ### VM deployment
 - Template-based cloning with customization specs
+- **Pre-flight check** — validates the VM name, name collisions, and that the chosen network / datastore / folder / cluster actually resolve on the target, *before* anything is created
 - Real-time progress streaming over WebSocket
-- Configurable CPU, memory, disk, network, datastore
-- Resource pool and folder placement (vSphere)
+- Configurable CPU, memory, disk, network, datastore; thin / thick / eager-zero provisioning (vSphere); optional VLAN tag (Proxmox)
+- Resource pool, host and folder placement (vSphere)
 - Cloud-init: hostname, SSH keys, password, user-data injection
 - Platform-aware advanced options with smart defaults per hypervisor
+- **Deployment manifest + timeline** — one receipt per deployment: inputs, outcome, who triggered it, where the credentials live, and the merged log / audit timeline
 
 ### VM lifecycle management
 - Power operations: start, stop, restart, suspend
 - Snapshot management: create, revert, delete
 - Live resource resizing: CPU, memory, disk expansion
+- **Add a network adapter** to an existing VM — hot-add on vSphere, no power cycle, network picked from the target's live inventory
+- **Uptime and runtime tracking** — current-state duration, last power-off, cumulative lifetime runtime (frozen while suspended, never reset); searchable with `state:stopped`, `uptime>30d`, `age>14d`
 - Web console access (noVNC / VMRC)
-- Managed VM inventory with live status tracking
+- Managed VM inventory with live status tracking and orphan detection on sync
+- **Delete preview** — see exactly what a delete would do (hypervisor destroy vs. untrack, dependent snapshots / executions) before confirming
 - Reveal deploy credentials (AES-256 at rest, decrypted only on reveal, syntax-highlighted for readability)
 
 ### Blueprints and bulk deployment
@@ -226,6 +249,8 @@ This prevents secrets from appearing in `docker inspect` output or process listi
 - Real-time execution output streaming via WebSocket
 - Execution history with redacted secrets in logs
 - Merge actions into cloud-init user-data for zero-touch provisioning
+- **Versioned** — every edit to a custom action keeps its history; roll back to any previous version
+- **Import / export** — download custom actions as JSON, import them on another instance (bad entries fail individually, the rest still import); searchable tags
 - See [Built-in actions](#built-in-actions) below for what ships in the box
 
 ### In-app notifications
@@ -334,6 +359,29 @@ forgemill-cli templates list --json
 
 ---
 
+## MCP server (Claude / agents)
+
+[**forgemill-mcp**](https://github.com/blink-zero/forgemill-mcp) is a Model Context Protocol server that wraps this API, so Claude Desktop, Claude Code, or any MCP client can work with your Forgemill instance in natural language:
+
+> "Which VMs on pve-01 have been running longer than 30 days?"
+> "Preview a deploy of web-03 from ubuntu-24.04-cloudinit onto vcenter-lab, then do it."
+> "Attach a second NIC on dvPG-Backend to api-01."
+
+- **Read-only by default** — the mutating tools (deploy, power, snapshot, resize, add NIC, run actions, …) only register when `FORGEMILL_MCP_ALLOW_MUTATIONS=true`
+- Authenticates with a Forgemill API key, so it inherits exactly the role and scope you issue the key with
+- Every call still goes through Forgemill's RBAC and audit log
+
+```bash
+docker run -d -p 3030:3030 \
+  -e FORGEMILL_URL=https://forgemill.example.com \
+  -e FORGEMILL_API_KEY=fm_xxx \
+  ghcr.io/blink-zero/forgemill-mcp:latest
+```
+
+Setup for each client, the full tool list, and example prompts are in the [forgemill-mcp README](https://github.com/blink-zero/forgemill-mcp#readme).
+
+---
+
 ## API overview
 
 Forgemill exposes a RESTful API at `/api`. All endpoints require authentication via JWT bearer token or API key. The tables below are an overview — the full surface is discoverable by the app itself.
@@ -354,7 +402,9 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 | `POST` | `/api/targets` | Create target (admin) |
 | `POST` | `/api/targets/:id/test` | Test connection (admin) |
 | `POST` | `/api/targets/:id/sync` | Sync templates from target (admin) |
-| `GET` | `/api/targets/:id/resources` | List datastores, networks, folders |
+| `GET` | `/api/targets/:id/resources` | List datastores, networks, folders, hosts |
+| `GET` | `/api/targets/:id/delete-preview` | What deleting the target would affect |
+| `GET` | `/api/targets/types` | Provider metadata: features, deploy fields, NIC adapter types |
 
 ### Templates
 
@@ -369,9 +419,12 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/api/deploy` | Start a VM deployment |
+| `POST` | `/api/deploy/preflight` | Validate a deploy request without creating anything |
 | `GET` | `/api/deploy/:id` | Deployment status |
 | `POST` | `/api/deploy/:id/cancel` | Cancel deployment |
 | `POST` | `/api/deploy/bulk` | Start bulk deployment |
+| `GET` | `/api/deployments/:id/manifest` | Single receipt: inputs, outcome, credentials pointer, undo options |
+| `GET` | `/api/deployments/:id/timeline` | Logs + audit events merged chronologically |
 | `WS` | `/api/ws/deploy/:id` | Live progress stream |
 
 ### Managed VMs
@@ -385,6 +438,7 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 | `POST` | `/api/vms/:id/snapshots/:snapId/revert` | Revert to snapshot (admin) |
 | `DELETE` | `/api/vms/:id/snapshots/:snapId` | Delete snapshot (admin) |
 | `PUT` | `/api/vms/:id/resize` | Resize CPU/memory (admin) |
+| `GET` | `/api/vms/:id/disks` | List disks (admin) |
 | `PUT` | `/api/vms/:id/disks/:key/expand` | Expand a disk (admin) |
 | `POST` | `/api/vms/:id/nics` | Attach an additional network adapter — vSphere only (admin) |
 | `GET` | `/api/vms/:id/console` | Console URL (admin) |
@@ -393,8 +447,8 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 | `POST` | `/api/vms/:id/execute` | Run action on VM (admin) |
 | `GET` | `/api/vms/:id/executions` | List executions for VM |
 | `POST` | `/api/vms/:id/sync` | Sync single VM status |
-| `POST` | `/api/vms/sync-all` | Sync all VM statuses |
-| `DELETE` | `/api/vms/:id` | Delete / untrack VM (admin) |
+| `POST` | `/api/vms/sync-all` | Sync all VM statuses (`?dry_run=true` previews orphans) |
+| `DELETE` | `/api/vms/:id` | Delete / untrack VM (admin; `?dry_run=true` previews, `?force=true` untracks only) |
 
 ### Actions (post-deploy automation)
 
@@ -402,8 +456,11 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 |--------|----------|-------------|
 | `GET` | `/api/actions` | List all actions |
 | `POST` | `/api/actions` | Create custom action (admin) |
-| `PUT` | `/api/actions/:id` | Update action (admin) |
+| `PUT` | `/api/actions/:id` | Update action — creates a new version (admin) |
 | `DELETE` | `/api/actions/:id` | Delete action (admin) |
+| `POST` | `/api/actions/import` | Bulk-import exported actions (admin) |
+| `GET` | `/api/actions/:id/versions` | Version history |
+| `POST` | `/api/actions/:id/rollback` | Roll back to a previous version (admin) |
 | `GET` | `/api/executions/:id` | Execution details |
 | `POST` | `/api/executions/:id/cancel` | Cancel running execution |
 | `WS` | `/api/ws/execution/:id` | Live execution output stream |
@@ -482,11 +539,11 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 +---------------------------------------------------------+
 |                    Frontend (React)                     |
 |          TypeScript • Vite • Tailwind CSS               |
-|               Radix UI • React Router                   |
+|                     React Router                        |
 +----------------------------+----------------------------+
                              | REST API + WebSocket
 +----------------------------+----------------------------+
-|                   Backend (Go 1.24)                     |
+|                   Backend (Go 1.26)                     |
 |  +----------+  +------------+  +---------------------+  |
 |  |   chi    |  |  gorilla/  |  |  Template Factory   |  |
 |  |  router  |  | websocket  |  |  (Packer engine)    |  |
@@ -512,8 +569,8 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Go 1.24, chi/v5 router, gorilla/websocket |
-| Frontend | React 18, TypeScript 5.7, Vite 6, Tailwind CSS |
+| Backend | Go 1.26, chi/v5 router, gorilla/websocket |
+| Frontend | React 18, TypeScript 5, Vite 6, Tailwind CSS 3 |
 | Database | SQLite with WAL mode (modernc.org/sqlite) |
 | Auth | JWT (HS256), bcrypt, LDAP/AD, API keys |
 | Encryption | AES-256-GCM with HKDF-SHA256 key derivation |
@@ -562,7 +619,7 @@ internal/
 frontend/
   src/
     api/                  # Axios API client
-    components/           # React UI components (Radix UI)
+    components/           # React UI components (Tailwind, shadcn-style)
     hooks/                # Auth, WebSocket hooks
     pages/                # Page components
     types/                # TypeScript interfaces
