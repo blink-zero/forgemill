@@ -1,6 +1,6 @@
 import { useTimezone } from "@/hooks/useTimezone";
 import { useEffect, useState, useRef, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { vms as vmApi, executions as execApi, actions as actionsApi, targets as targetApi } from "@/api/client";
 import type { DeletePreview } from "@/api/client";
 import { useProviders } from "@/context/ProviderContext";
@@ -97,7 +97,11 @@ export default function VMDetail() {
   const [nicsLoading, setNicsLoading] = useState(false);
   const [nicsError, setNicsError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
-  const [tab, setTab] = useState<Tab>("overview");
+  // Initial tab from ?tab= (the VMs card menu deep-links to snapshots); falls
+  // back to overview for anything unrecognised.
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get("tab");
+  const [tab, setTab] = useState<Tab>(initialTab === "snapshots" || initialTab === "actions" ? initialTab : "overview");
 
   const vmId = Number(id);
   // 8.14: Track timeouts for cleanup on unmount
