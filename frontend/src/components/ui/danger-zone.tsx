@@ -29,9 +29,9 @@ export function DangerZone({ title = "Danger zone", description, children, class
   return (
     <section
       aria-label={typeof title === "string" ? title : "Danger zone"}
-      className={cn("rounded-lg border border-destructive/30 bg-destructive/[0.03] overflow-hidden", className)}
+      className={cn("rounded-lg border border-destructive/30 bg-destructive/3 overflow-hidden", className)}
     >
-      <header className="flex items-start gap-2 px-3 py-2 border-b border-destructive/20 bg-destructive/[0.05]">
+      <header className="flex items-start gap-2 px-3 py-2 border-b border-destructive/20 bg-destructive/5">
         <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" aria-hidden="true" />
         <div className="min-w-0">
           <div className="text-2xs font-semibold uppercase tracking-[0.08em] text-destructive">{title}</div>

@@ -479,7 +479,7 @@ export default function ActionsPage() {
                   onChange={(e) => { setForm({ ...form, script: e.target.value }); if (e.target.value) validateScript(e.target.value); }}
                   placeholder={"#!/bin/bash\nset -euo pipefail\n\napt-get update -y\napt-get install -y nginx\nsystemctl enable --now nginx"}
                   rows={10}
-                  className="w-full rounded-md border border-input bg-gray-950 text-success px-3 py-2 text-sm shadow-sm placeholder:text-gray-600 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono resize-y"
+                  className="w-full rounded-md border border-input bg-gray-950 text-success px-3 py-2 text-sm shadow-xs placeholder:text-gray-600 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring font-mono resize-y"
                 />
                 {configError && <p className="text-xs text-destructive">{configError}</p>}
                 <p className="text-xs text-muted-foreground">Bash script that runs with sudo privileges on the target VM. Max 64KB.</p>

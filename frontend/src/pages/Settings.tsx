@@ -570,7 +570,7 @@ export default function SettingsPage() {
                           <td className="px-4 py-3">
                             {isAdmin && !isSelf ? (
                               <select
-                                className="text-sm border border-input rounded-md px-2 py-1 bg-background text-foreground hover:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&>option]:bg-background [&>option]:text-foreground"
+                                className="text-sm border border-input rounded-md px-2 py-1 bg-background text-foreground hover:border-ring focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring [&>option]:bg-background [&>option]:text-foreground"
                                 value={u.role}
                                 onChange={async (e) => {
                                   const newRole = e.target.value;

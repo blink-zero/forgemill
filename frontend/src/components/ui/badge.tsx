@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
   cue for state (running / stopped / failed) at a glance.
 */
 const badgeVariants = cva(
-  "inline-flex items-center gap-1.5 whitespace-nowrap rounded border px-1.5 py-px text-2xs font-medium leading-4 transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  "inline-flex items-center gap-1.5 whitespace-nowrap rounded border px-1.5 py-px text-2xs font-medium leading-4 transition-colors focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2",
   {
     variants: {
       variant: {

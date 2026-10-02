@@ -96,7 +96,7 @@ export function DropdownMenuItem({
       className={cn(
         "flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left transition-colors",
         "hover:bg-accent hover:text-accent-foreground",
-        "focus-visible:outline-none focus-visible:bg-accent focus-visible:text-accent-foreground",
+        "focus-visible:outline-hidden focus-visible:bg-accent focus-visible:text-accent-foreground",
         disabled && "opacity-50 cursor-not-allowed hover:bg-transparent",
         destructive && "text-destructive hover:bg-destructive/10 hover:text-destructive",
         className

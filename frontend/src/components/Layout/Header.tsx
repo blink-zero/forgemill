@@ -53,7 +53,7 @@ export function Header() {
 
   return (
     <>
-      <header className="relative z-30 grid h-12 shrink-0 grid-cols-[1fr_minmax(0,24rem)_1fr] items-center gap-4 border-b border-border bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75 px-4 sm:px-6">
+      <header className="relative z-30 grid h-12 shrink-0 grid-cols-[1fr_minmax(0,24rem)_1fr] items-center gap-4 border-b border-border bg-background/90 backdrop-blur-sm supports-backdrop-filter:bg-background/75 px-4 sm:px-6">
         {/* Left: hamburger (mobile) + breadcrumbs (desktop) */}
         <div className="flex items-center gap-3 min-w-0">
           <Button

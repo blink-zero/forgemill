@@ -350,7 +350,7 @@ function TimelineTab({ deployId }: { deployId: number }) {
                     <span className="flex items-center gap-1"><User className="h-3 w-3" />{ev.actor}</span>
                   )}
                 </div>
-                <p className="text-sm mt-0.5 break-words">{ev.message}</p>
+                <p className="text-sm mt-0.5 wrap-break-word">{ev.message}</p>
               </div>
             </li>
           ))}

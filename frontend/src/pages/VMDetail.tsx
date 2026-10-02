@@ -1,6 +1,6 @@
 import { useTimezone } from "@/hooks/useTimezone";
 import { useEffect, useState, useRef, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { vms as vmApi, executions as execApi, actions as actionsApi, targets as targetApi } from "@/api/client";
 import type { DeletePreview } from "@/api/client";
 import { useProviders } from "@/context/ProviderContext";
@@ -97,7 +97,11 @@ export default function VMDetail() {
   const [nicsLoading, setNicsLoading] = useState(false);
   const [nicsError, setNicsError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
-  const [tab, setTab] = useState<Tab>("overview");
+  // Initial tab from ?tab= (the VMs card menu deep-links to snapshots); falls
+  // back to overview for anything unrecognised.
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get("tab");
+  const [tab, setTab] = useState<Tab>(initialTab === "snapshots" || initialTab === "actions" ? initialTab : "overview");
 
   const vmId = Number(id);
   // 8.14: Track timeouts for cleanup on unmount
@@ -789,7 +793,7 @@ export default function VMDetail() {
                 title="Untrack VM"
                 description="Forget it here; it keeps running on the hypervisor."
                 expanded={deleteMode === "untrack" && (
-                  <div className="border border-warning/30 rounded-md p-3 space-y-2 bg-warning/[0.06]">
+                  <div className="border border-warning/30 rounded-md p-3 space-y-2 bg-warning/6">
                     <p className="text-2xs text-warning">Remove this VM from Forgemill only. The VM will continue running on the hypervisor — it just won't be tracked here anymore.</p>
                     <p className="text-2xs text-warning/80">⚠ This cannot be reversed. Untracked VMs cannot currently be re-imported into Forgemill.</p>
                     {deletePreviewLoading && (
@@ -816,7 +820,7 @@ export default function VMDetail() {
                 title="Destroy VM"
                 description="Power off and delete it from the hypervisor, then remove it here."
                 expanded={deleteMode === "destroy" && (
-                  <div className="border border-destructive/30 rounded-md p-3 space-y-3 bg-destructive/[0.06]">
+                  <div className="border border-destructive/30 rounded-md p-3 space-y-3 bg-destructive/6">
                     <p className="text-2xs text-destructive">This will permanently destroy this VM on the hypervisor and remove it from Forgemill. This cannot be undone.</p>
                     {deletePreviewLoading && (
                       <p className="text-2xs text-destructive/80">Checking what else this affects…</p>
@@ -1400,7 +1404,7 @@ function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState: string
       )}
 
       {!isPoweredOn && (
-        <div className="bg-warning/[0.06] border border-warning/30 rounded-md p-3 text-13 text-warning flex items-center gap-2">
+        <div className="bg-warning/6 border border-warning/30 rounded-md p-3 text-13 text-warning flex items-center gap-2">
           <AlertTriangle className="h-4 w-4" />
           VM must be powered on to execute actions.
         </div>
