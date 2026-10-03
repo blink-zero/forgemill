@@ -237,13 +237,22 @@ func remoteShell(execID int64) string {
 	return fmt.Sprintf("bash -c 'exec -a %s bash'", execMarker(execID))
 }
 
-// remoteKillCommand terminates the process group of the job whose bash runs
-// as argv[0] == marker: TERM first, KILL two seconds later. The pgrep pattern
-// is anchored so it cannot match this command's own shell (whose command line
-// also contains the marker). Always exits 0 — the caller cares about the
-// outcome only through the original session.
+// killJobScript is the POSIX-sh body that terminates the process group of
+// the job whose bash runs as argv[0] == marker: TERM first, KILL two seconds
+// later. pkill -g is used rather than the shell's kill builtin because dash
+// (/bin/sh on Debian/Ubuntu) rejects `kill -- -<pgid>` ("Illegal number"),
+// which is exactly how the first version of this fix left `sleep` orphans
+// behind. The pgrep pattern is anchored so it cannot match the shell running
+// this script (whose command line also contains the marker). Always exits 0.
+func killJobScript(marker string) string {
+	return fmt.Sprintf(`pid=$(pgrep -n -f "^%s$") && pgid=$(ps -o pgid= -p "$pid" | tr -d " ") && pkill -TERM -g "$pgid" && sleep 2 && pkill -KILL -g "$pgid"; true`, marker)
+}
+
+// remoteKillCommand wraps killJobScript for the guest: run as root (the job
+// itself runs under sudo) and silenced — the caller cares about the outcome
+// only through the original session.
 func remoteKillCommand(marker string) string {
-	return fmt.Sprintf(`sudo sh -c 'pid=$(pgrep -n -f "^%s$") && pgid=$(ps -o pgid= -p "$pid" | tr -d " ") && kill -TERM -- -"$pgid" && sleep 2 && kill -KILL -- -"$pgid"' >/dev/null 2>&1; true`, marker)
+	return fmt.Sprintf(`sudo sh -c '%s' >/dev/null 2>&1; true`, killJobScript(marker))
 }
 
 // remoteKill runs remoteKillCommand on a fresh session of the same client,
