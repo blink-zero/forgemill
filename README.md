@@ -188,7 +188,7 @@ All configuration is via environment variables. For sensitive values, Forgemill 
 | `FORGEMILL_CORS_ORIGINS` | *(empty)* | Comma-separated allowed CORS origins |
 | `FORGEMILL_TLS_CERT` | – | Path to TLS certificate for native HTTPS |
 | `FORGEMILL_TLS_KEY` | – | Path to TLS private key |
-| `FORGEMILL_TRUSTED_PROXIES` | – | Comma-separated trusted reverse proxy IPs |
+| `FORGEMILL_TRUSTED_PROXIES` | – | Comma-separated reverse-proxy IPs or CIDRs. `X-Forwarded-For` / `X-Real-IP` are honoured **only** for requests arriving from these addresses |
 | `FORGEMILL_ALLOW_PRIVATE_WEBHOOKS` | `false` | Allow webhook delivery to private/RFC1918 IPs |
 | `FORGEMILL_FRONTEND_PATH` | `./frontend/dist` | Path to built frontend assets |
 
