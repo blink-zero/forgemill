@@ -68,11 +68,9 @@ func init() {
 var apiTokenRe = regexp.MustCompile(`^.+@.+!.+=.+$`)
 
 // Provider implements the provider.Provider interface for Proxmox VE.
-// TargetHostKeyStore provides TOFU (Trust-On-First-Use) SSH host key storage for targets.
-type TargetHostKeyStore interface {
-	GetTargetSSHHostKeyFP(targetID int64) (string, error)
-	UpdateTargetSSHHostKeyFP(targetID int64, fingerprint string) error
-}
+// TargetHostKeyStore is the TOFU fingerprint store; the definition lives in
+// the provider package so the service can wire it without importing this one.
+type TargetHostKeyStore = provider.TargetHostKeyStore
 
 type Provider struct {
 	hostname      string
@@ -151,6 +149,9 @@ func (p *Provider) SetNode(node string) {
 	p.node = node
 	p.mu.Unlock()
 }
+
+// Provider opts in to TOFU wiring by the service (see provider.HostKeyTrusting).
+var _ provider.HostKeyTrusting = (*Provider)(nil)
 
 // SetTOFU configures Trust-On-First-Use SSH host key verification for this target.
 // If set, SSH connections to the Proxmox host will verify/store the host key fingerprint.

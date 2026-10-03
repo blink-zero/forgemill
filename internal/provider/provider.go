@@ -284,3 +284,18 @@ type VMInfo struct {
 	DiskGB     int    `json:"disk_gb"`
 	GuestID    string `json:"guest_id"`
 }
+
+// TargetHostKeyStore persists one SSH host-key fingerprint per target for
+// trust-on-first-use verification of SSH connections a provider opens to
+// the hypervisor itself (Proxmox snippet uploads). The DB implements it.
+type TargetHostKeyStore interface {
+	GetTargetSSHHostKeyFP(targetID int64) (string, error)
+	UpdateTargetSSHHostKeyFP(targetID int64, fingerprint string) error
+}
+
+// HostKeyTrusting is implemented by providers that talk SSH to the target
+// and want TOFU host-key verification. The service wires it right after
+// constructing the provider; without it the provider accepts any host key.
+type HostKeyTrusting interface {
+	SetTOFU(targetID int64, store TargetHostKeyStore)
+}
