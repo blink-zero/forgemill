@@ -82,7 +82,7 @@ if [ "${#need_pkgs[@]}" -gt 0 ]; then
     echo ">>> Installing: ${need_pkgs[*]}"
     if [ -f /etc/os-release ]; then . /etc/os-release; fi
     case "${ID_LIKE:-$ID}" in
-        *debian*|*ubuntu*|ubuntu|debian)
+        *debian*|*ubuntu*)
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -y >/dev/null
             apt-get install -y "${need_pkgs[@]}"
