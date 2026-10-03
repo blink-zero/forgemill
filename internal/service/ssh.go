@@ -56,7 +56,7 @@ func validateScript(script string) error {
 // If hkStore is non-nil, TOFU host key verification is applied:
 //   - First connection (no stored fingerprint): accept and store the key
 //   - Subsequent connections: verify the key matches the stored fingerprint
-func sshExecute(ctx context.Context, host string, port int, username, password, script, paramEnvBlock string, outputFn func(line string), hkStore HostKeyStore, vmID int64) (int, error) {
+func sshExecute(ctx context.Context, host string, port int, username, password, script, paramEnvBlock string, outputFn func(line string), hkStore HostKeyStore, vmID, execID int64) (int, error) {
 	if port == 0 {
 		port = 22
 	}
@@ -130,7 +130,12 @@ func sshExecute(ctx context.Context, host string, port int, username, password, 
 	// systemctl, etc.) require root. Cloud-init runs as root natively, but
 	// SSH sessions run as the deploy user, so sudo is needed.
 	// Using heredoc avoids quoting issues with single/double quotes in scripts.
-	wrappedScript := "sudo bash <<'FORGEMILL_SCRIPT'\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\n" + paramEnvBlock + script + "\nFORGEMILL_SCRIPT"
+	//
+	// The inner bash is exec'd under a per-execution argv[0] (execMarker) so a
+	// cancel can find the job's process group from a second session and kill
+	// it — OpenSSH ignores signal requests on sessions without a PTY, so the
+	// in-band SIGTERM alone never reached the guest.
+	wrappedScript := "sudo " + remoteShell(execID) + " <<'FORGEMILL_SCRIPT'\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\n" + paramEnvBlock + script + "\nFORGEMILL_SCRIPT"
 
 	if err := session.Start(wrappedScript); err != nil {
 		return -1, fmt.Errorf("ssh start: %w", err)
@@ -185,15 +190,25 @@ func sshExecute(ctx context.Context, host string, port int, username, password, 
 
 	select {
 	case <-ctx.Done():
-		// Context cancelled — attempt to signal remote process
+		// Cancelled or timed out. Kill the job on the guest from a second
+		// session (the only thing that reliably works without a PTY), still
+		// send the in-band signals for servers that honour them, then tear
+		// our session down so the output reader hits EOF — the execution
+		// record must flip to cancelled even if the guest ignored everything.
+		if execID > 0 {
+			remoteKill(client, execMarker(execID))
+		}
 		_ = session.Signal(ssh.SIGTERM)
-		// Give it a moment to die, then close
 		select {
 		case <-waitDone:
-		case <-time.After(5 * time.Second):
+		case <-time.After(2 * time.Second):
 			_ = session.Signal(ssh.SIGKILL)
 		}
-		<-outputDone
+		_ = session.Close()
+		select {
+		case <-outputDone:
+		case <-time.After(2 * time.Second):
+		}
 		return -1, ctx.Err()
 
 	case err := <-waitDone:
@@ -205,5 +220,58 @@ func sshExecute(ctx context.Context, host string, port int, username, password, 
 			return -1, fmt.Errorf("ssh wait: %w", err)
 		}
 		return 0, nil
+	}
+}
+
+
+// execMarker is the argv[0] the remote job runs under, unique per execution.
+func execMarker(execID int64) string { return fmt.Sprintf("forgemill-exec-%d", execID) }
+
+// remoteShell is the command sudo runs for the script. With an execution ID
+// the script's bash is exec'd under execMarker so remoteKill can find it;
+// without one (legacy callers) it is a plain bash.
+func remoteShell(execID int64) string {
+	if execID <= 0 {
+		return "bash"
+	}
+	return fmt.Sprintf("bash -c 'exec -a %s bash'", execMarker(execID))
+}
+
+// killJobScript is the POSIX-sh body that terminates the process group of
+// the job whose bash runs as argv[0] == marker: TERM first, KILL two seconds
+// later. pkill -g is used rather than the shell's kill builtin because dash
+// (/bin/sh on Debian/Ubuntu) rejects `kill -- -<pgid>` ("Illegal number"),
+// which is exactly how the first version of this fix left `sleep` orphans
+// behind. The pgrep pattern is anchored so it cannot match the shell running
+// this script (whose command line also contains the marker). Always exits 0.
+func killJobScript(marker string) string {
+	return fmt.Sprintf(`pid=$(pgrep -n -f "^%s$") && pgid=$(ps -o pgid= -p "$pid" | tr -d " ") && pkill -TERM -g "$pgid" && sleep 2 && pkill -KILL -g "$pgid"; true`, marker)
+}
+
+// remoteKillCommand wraps killJobScript for the guest: run as root (the job
+// itself runs under sudo) and silenced — the caller cares about the outcome
+// only through the original session.
+func remoteKillCommand(marker string) string {
+	return fmt.Sprintf(`sudo sh -c '%s' >/dev/null 2>&1; true`, killJobScript(marker))
+}
+
+// remoteKill runs remoteKillCommand on a fresh session of the same client,
+// bounded so a hung guest cannot hold the cancel path hostage.
+func remoteKill(client *ssh.Client, marker string) {
+	s, err := client.NewSession()
+	if err != nil {
+		slog.Warn("cancel: could not open session to kill remote job", "error", err)
+		return
+	}
+	defer s.Close()
+	done := make(chan error, 1)
+	go func() { done <- s.Run(remoteKillCommand(marker)) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			slog.Warn("cancel: remote kill command failed", "error", err)
+		}
+	case <-time.After(8 * time.Second):
+		slog.Warn("cancel: remote kill command did not return in time")
 	}
 }

