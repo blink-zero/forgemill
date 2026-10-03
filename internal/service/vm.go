@@ -415,6 +415,10 @@ func (s *VMService) SyncAll(ctx context.Context, dryRun bool) (*SyncAllResult, e
 			for _, hvm := range hypervisorVMs {
 				hypervisorRefs[hvm.ID] = hvm
 			}
+		} else {
+			// The sync continues per VM via GetVMStatus, but orphan detection
+			// is skipped for this target — say so in the result, not just the log.
+			result.Errors = append(result.Errors, fmt.Sprintf("target %d: list VMs failed, orphan detection skipped: %v", targetID, listErr))
 		}
 
 		for _, vm := range targetVMs {
