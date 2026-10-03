@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/forgemill/forgemill/internal/clock"
 	"github.com/forgemill/forgemill/internal/db"
 	"github.com/forgemill/forgemill/internal/db/models"
@@ -128,6 +130,9 @@ func validateDeployRequest(req *DeployRequest) error {
 	}
 	if req.CPU < 1 || req.CPU > 128 {
 		return invalidDeploy("CPU must be between 1 and 128")
+	}
+	if err := validateSSHPublicKeys(req.SSHPublicKey); err != nil {
+		return invalidDeploy("invalid SSH public key: %v", err)
 	}
 	if req.MemoryMB < 256 || req.MemoryMB > 1048576 {
 		return invalidDeploy("memory must be between 256MB and 1TB")
@@ -745,4 +750,28 @@ func (s *DeployService) Cancel(id int64) error {
 
 func (s *DeployService) ListHistory(f db.DeploymentFilter) (*db.PaginatedDeployments, error) {
 	return s.db.ListDeployments(f)
+}
+
+// validateSSHPublicKeys accepts an empty value or one or more
+// authorized_keys-format lines (ssh-ed25519 / ssh-rsa / ecdsa-sha2-* / sk-*,
+// optional comment). A key the hypervisor's cloud-init would reject must be
+// caught here, before any VM is cloned.
+func validateSSHPublicKeys(keys string) error {
+	for _, line := range strings.Split(keys, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if _, _, _, _, err := ssh.ParseAuthorizedKey([]byte(line)); err != nil {
+			return fmt.Errorf("%q: %w", truncateForError(line), err)
+		}
+	}
+	return nil
+}
+
+func truncateForError(s string) string {
+	if len(s) > 40 {
+		return s[:40] + "…"
+	}
+	return s
 }

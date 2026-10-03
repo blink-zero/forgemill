@@ -2,6 +2,8 @@
 package proxmox
 
 import (
+	"sort"
+	"errors"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -652,27 +654,16 @@ func (p *Provider) DeployVM(ctx context.Context, spec *provider.DeploySpec) (*pr
 
 applyConfig:
 
-	if len(configData) > 0 {
-		configPath := fmt.Sprintf("/nodes/%s/qemu/%s/config", url.PathEscape(vmNode), newIDStr)
-		slog.Info("configuring VM after clone", "vmid", newID, "node", vmNode, "config_keys", redactConfigKeys(configData))
-		// Retry up to 5 times with 3s delay — Proxmox may still hold a lock after clone completes
-		var configErr error
-		for attempt := 0; attempt < 5; attempt++ {
-			if attempt > 0 {
-				slog.Info("retrying VM config", "vmid", newID, "attempt", attempt+1)
-				if configErr = clock.Sleep(ctx, 3*time.Second); configErr != nil {
-					break // cancelled: the next doPut would fail with the same ctx error
-				}
-			}
-			configErr = p.doPut(ctx, configPath, configData)
-			if configErr == nil {
-				slog.Info("VM configured successfully", "vmid", newID)
-				break
-			}
-		}
-		if configErr != nil {
-			slog.Error("failed to configure VM after clone (all retries exhausted)", "vmid", newID, "error", configErr)
-		}
+	// PV-P4: hardware first, cloud-init second — two PUTs. A failure in either
+	// fails the deployment with Proxmox's reason and removes the clone;
+	// completing "successfully" with the template's CPU/memory (or without
+	// credentials) is never acceptable.
+	hardwareCfg, cloudInitCfg := splitPostCloneConfig(configData)
+	if err := p.applyVMConfig(ctx, vmNode, newIDStr, "hardware", hardwareCfg); err != nil {
+		return nil, fmt.Errorf("configure VM %d after clone: %w; %s", newID, err, p.rollbackClone(ctx, newIDStr))
+	}
+	if err := p.applyVMConfig(ctx, vmNode, newIDStr, "cloud-init", cloudInitCfg); err != nil {
+		return nil, fmt.Errorf("configure VM %d after clone: %w; %s", newID, err, p.rollbackClone(ctx, newIDStr))
 	}
 
 	// Resize disk if requested size differs from template
@@ -841,13 +832,16 @@ func (p *Provider) DeleteVM(ctx context.Context, vmID string) error {
 	node := p.nodeFor(ctx, vmID)
 	// PV-P7: Graceful shutdown before deletion
 	_ = p.PowerOff(ctx, vmID)
-	// Poll until stopped or timeout
+	// Poll until stopped or timeout. GetVMStatus reports the canonical
+	// "poweredOff", not Proxmox's raw "stopped" — comparing against the raw
+	// value made every delete wait the full 30 s even on a VM that was
+	// already off.
 	for i := 0; i < 30; i++ {
 		status, err := p.GetVMStatus(ctx, vmID)
 		if err != nil {
 			break
 		}
-		if status.PowerState == "stopped" {
+		if status.PowerState == "poweredOff" {
 			break
 		}
 		if clock.Sleep(ctx, time.Second) != nil {
@@ -1376,7 +1370,7 @@ func (p *Provider) doGet(ctx context.Context, path string) ([]byte, error) {
 	}
 	if statusCode >= 300 {
 		slog.Debug("proxmox GET failed", "path", path, "status", statusCode, "body", string(body))
-		return nil, fmt.Errorf("proxmox request failed (HTTP %d)", statusCode)
+		return nil, newAPIError(statusCode, body)
 	}
 	return body, nil
 }
@@ -1412,7 +1406,7 @@ func (p *Provider) doPost(ctx context.Context, path string, data url.Values) ([]
 	}
 	if statusCode >= 300 {
 		slog.Debug("proxmox POST failed", "path", path, "status", statusCode, "body", string(body))
-		return nil, fmt.Errorf("proxmox request failed (HTTP %d)", statusCode)
+		return nil, newAPIError(statusCode, body)
 	}
 	return body, nil
 }
@@ -1448,7 +1442,7 @@ func (p *Provider) doPut(ctx context.Context, path string, data url.Values) erro
 	}
 	if statusCode >= 300 {
 		slog.Debug("proxmox PUT failed", "path", path, "status", statusCode, "body", string(body))
-		return fmt.Errorf("proxmox request failed (HTTP %d)", statusCode)
+		return newAPIError(statusCode, body)
 	}
 	return nil
 }
@@ -1822,4 +1816,120 @@ func netmaskToCIDR(mask string) string {
 		}
 	}
 	return strconv.Itoa(bits)
+}
+
+// apiError is a non-2xx answer from the Proxmox API with the reason Proxmox
+// gave (its "message" plus any per-parameter "errors"), so a rejected
+// request can be explained to the user instead of just "HTTP 400".
+type apiError struct {
+	Status  int
+	Message string
+}
+
+func (e *apiError) Error() string {
+	if e.Message == "" {
+		return fmt.Sprintf("proxmox request failed (HTTP %d)", e.Status)
+	}
+	return fmt.Sprintf("proxmox request failed (HTTP %d): %s", e.Status, e.Message)
+}
+
+// newAPIError extracts Proxmox's explanation from an error body of the form
+// {"message":"Parameter verification failed.\n","errors":{"sshkeys":"invalid format"}}.
+func newAPIError(status int, body []byte) error {
+	var payload struct {
+		Message string            `json:"message"`
+		Errors  map[string]string `json:"errors"`
+	}
+	msg := ""
+	if json.Unmarshal(body, &payload) == nil {
+		msg = strings.TrimSpace(payload.Message)
+		if len(payload.Errors) > 0 {
+			keys := make([]string, 0, len(payload.Errors))
+			for k := range payload.Errors {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			parts := make([]string, 0, len(keys))
+			for _, k := range keys {
+				parts = append(parts, k+": "+strings.TrimSpace(payload.Errors[k]))
+			}
+			if msg != "" {
+				msg += " — "
+			}
+			msg += strings.Join(parts, "; ")
+		}
+	}
+	if len(msg) > 300 {
+		msg = msg[:300] + "…"
+	}
+	return &apiError{Status: status, Message: msg}
+}
+
+// isRetryableConfigError reports whether a failed config write is worth
+// retrying: Proxmox still holding the clone lock (reported as 5xx and/or a
+// "lock" message) can clear on its own; a 4xx parameter rejection cannot.
+func isRetryableConfigError(err error) bool {
+	var ae *apiError
+	if errors.As(err, &ae) {
+		return ae.Status >= 500 || strings.Contains(strings.ToLower(ae.Message), "lock")
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "lock")
+}
+
+// hardwareConfigKeys are applied in their own PUT, before the cloud-init
+// keys, so a rejected cloud-init value can no longer take the CPU/memory
+// override down with it (and vice versa).
+var hardwareConfigKeys = map[string]bool{"cores": true, "memory": true, "net0": true}
+
+// splitPostCloneConfig divides the post-clone settings into the hardware
+// PUT and the cloud-init PUT. Either may be empty.
+func splitPostCloneConfig(all url.Values) (hardware, cloudInit url.Values) {
+	hardware, cloudInit = url.Values{}, url.Values{}
+	for k, v := range all {
+		if hardwareConfigKeys[k] {
+			hardware[k] = v
+		} else {
+			cloudInit[k] = v
+		}
+	}
+	return hardware, cloudInit
+}
+
+// applyVMConfig writes one group of config keys to a freshly cloned VM,
+// retrying while Proxmox reports the clone lock (up to ~30 s) and failing
+// fast on anything it will never accept.
+func (p *Provider) applyVMConfig(ctx context.Context, node, vmID, label string, data url.Values) error {
+	if len(data) == 0 {
+		return nil
+	}
+	path := fmt.Sprintf("/nodes/%s/qemu/%s/config", url.PathEscape(node), url.PathEscape(vmID))
+	slog.Info("configuring VM after clone", "vmid", vmID, "node", node, "part", label, "config_keys", redactConfigKeys(data))
+	const attempts = 10
+	var err error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		err = p.doPut(ctx, path, data)
+		if err == nil {
+			return nil
+		}
+		if !isRetryableConfigError(err) || attempt == attempts {
+			break
+		}
+		slog.Info("retrying VM config", "vmid", vmID, "part", label, "attempt", attempt+1, "error", err)
+		if serr := clock.Sleep(ctx, 3*time.Second); serr != nil {
+			return serr
+		}
+	}
+	return fmt.Errorf("%s config: %w", label, err)
+}
+
+// rollbackClone removes a clone whose post-clone configuration failed, so a
+// failed deployment doesn't leave a VM with the wrong shape (and no
+// credentials) behind. Returns a human-readable note for the error message.
+func (p *Provider) rollbackClone(ctx context.Context, vmID string) string {
+	slog.Warn("removing clone after failed post-clone configuration", "vmid", vmID)
+	if err := p.DeleteVM(ctx, vmID); err != nil {
+		slog.Error("rollback of failed clone did not complete", "vmid", vmID, "error", err)
+		return fmt.Sprintf("clone %s was left on the hypervisor (removal failed: %v)", vmID, err)
+	}
+	return fmt.Sprintf("clone %s has been removed", vmID)
 }
