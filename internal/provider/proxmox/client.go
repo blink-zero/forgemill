@@ -772,6 +772,20 @@ func (p *Provider) PowerOn(ctx context.Context, vmID string) error {
 }
 
 // PV-P7: Graceful ACPI shutdown first, then hard stop fallback.
+// hardStop is `qm stop`: an immediate power-off with no guest involvement,
+// waited to completion. Used by DeleteVM; the user-facing PowerOff keeps its
+// graceful ACPI attempt.
+func (p *Provider) hardStop(ctx context.Context, node, vmID string) error {
+	body, err := p.doPost(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/status/stop", url.PathEscape(node), url.PathEscape(vmID)), nil)
+	if err != nil {
+		return err
+	}
+	if upid, err := extractUPID(body); err == nil {
+		return p.awaitTask(ctx, upid, 60)
+	}
+	return nil
+}
+
 func (p *Provider) PowerOff(ctx context.Context, vmID string) error {
 	node := p.nodeFor(ctx, vmID)
 	// Try graceful ACPI shutdown first
@@ -830,22 +844,16 @@ func (p *Provider) Restart(ctx context.Context, vmID string) error {
 
 func (p *Provider) DeleteVM(ctx context.Context, vmID string) error {
 	node := p.nodeFor(ctx, vmID)
-	// PV-P7: Graceful shutdown before deletion
-	_ = p.PowerOff(ctx, vmID)
-	// Poll until stopped or timeout. GetVMStatus reports the canonical
-	// "poweredOff", not Proxmox's raw "stopped" — comparing against the raw
-	// value made every delete wait the full 30 s even on a VM that was
-	// already off.
-	for i := 0; i < 30; i++ {
-		status, err := p.GetVMStatus(ctx, vmID)
-		if err != nil {
-			break
-		}
-		if status.PowerState == "poweredOff" {
-			break
-		}
-		if clock.Sleep(ctx, time.Second) != nil {
-			break // cancelled: the delete request below reports the ctx error
+
+	// A VM being destroyed is hard-stopped, not shut down gracefully: the
+	// disk is about to be deleted so there is nothing for the guest to
+	// preserve, and the ACPI path (90 s guest timeout, then a poll) is what
+	// pushed destroys past API clients' timeouts (#207). This mirrors the
+	// vSphere provider, which powers off and destroys. Best effort — if the
+	// stop fails Proxmox will refuse the delete below and say why.
+	if status, err := p.GetVMStatus(ctx, vmID); err == nil && status.PowerState != "poweredOff" {
+		if err := p.hardStop(ctx, node, vmID); err != nil {
+			slog.Warn("proxmox destroy: hard stop failed, attempting delete anyway", "vmid", vmID, "error", err)
 		}
 	}
 

@@ -182,6 +182,23 @@ func newFakePVE(t *testing.T) *fakePVE {
 		f.mu.Unlock()
 		writeRaw(w, upid("qmstart"))
 	})
+	mux.HandleFunc("/api2/json/nodes/pve/qemu/100/status/stop", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.stopped = true // the stop takes effect
+		f.mu.Unlock()
+		writeRaw(w, upid("qmstop"))
+	})
+	mux.HandleFunc("/api2/json/nodes/pve/qemu/100/status/shutdown", func(w http.ResponseWriter, r *http.Request) { writeRaw(w, upid("qmshutdown")) })
+	mux.HandleFunc("/api2/json/nodes/pve/qemu/100", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			w.WriteHeader(405)
+			return
+		}
+		f.mu.Lock()
+		f.deleted = true
+		f.mu.Unlock()
+		writeRaw(w, upid("qmdestroy"))
+	})
 	mux.HandleFunc("/api2/json/nodes/pve/qemu/101/status/shutdown", func(w http.ResponseWriter, r *http.Request) { writeRaw(w, upid("qmshutdown")) })
 	mux.HandleFunc("/api2/json/nodes/pve/qemu/101/status/stop", func(w http.ResponseWriter, r *http.Request) { writeRaw(w, upid("qmstop")) })
 	mux.HandleFunc("/api2/json/nodes/pve/qemu/101", func(w http.ResponseWriter, r *http.Request) {
