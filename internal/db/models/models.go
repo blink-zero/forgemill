@@ -387,3 +387,14 @@ type ActionExecution struct {
 	CreatedBy       int64             `json:"created_by"`
 	CreatedAt       time.Time         `json:"created_at"`
 }
+
+// VMEvent is one line of a VM's operational history: what the hypervisor
+// did or refused during an operation on it.
+type VMEvent struct {
+	ID        int64     `json:"id"`
+	VMID      int64     `json:"vm_id"`
+	TargetID  int64     `json:"target_id,omitempty"`
+	Level     string    `json:"level"` // info | warn | error
+	Message   string    `json:"message"`
+	CreatedAt time.Time `json:"created_at"`
+}

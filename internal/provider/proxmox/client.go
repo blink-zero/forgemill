@@ -668,28 +668,35 @@ applyConfig:
 		return nil, fmt.Errorf("configure VM %d after clone: %w; %s", newID, err, p.rollbackClone(ctx, newIDStr))
 	}
 
-	// Resize disk if requested size differs from template
+	// Resize disk if requested size differs from template. A failure here
+	// means the VM exists with the template's disk — reported as a partial
+	// deploy (the service keeps the VM and fails the deployment) rather than
+	// logged and forgotten.
 	if spec.DiskGB > 0 {
 		disk, err := p.findDiskByIndex(ctx, vmNode, newIDStr, 0)
 		if err != nil {
-			slog.Warn("failed to find disk for resize", "vmid", newID, "error", err)
-		} else {
-			resizeData := url.Values{
-				"disk": {disk},
-				"size": {fmt.Sprintf("%dG", spec.DiskGB)},
-			}
-			if err := p.doPut(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/resize", url.PathEscape(vmNode), newIDStr), resizeData); err != nil {
-				slog.Warn("failed to resize disk after clone", "vmid", newID, "size_gb", spec.DiskGB, "error", err)
-			}
+			return nil, &provider.PartialDeployError{VMID: newIDStr, Err: fmt.Errorf("resize disk to %d GB: find disk: %w", spec.DiskGB, err)}
 		}
+		resizeData := url.Values{
+			"disk": {disk},
+			"size": {fmt.Sprintf("%dG", spec.DiskGB)},
+		}
+		if err := p.doPut(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/resize", url.PathEscape(vmNode), newIDStr), resizeData); err != nil {
+			return nil, &provider.PartialDeployError{VMID: newIDStr, Err: fmt.Errorf("resize disk %s to %d GB: %w", disk, spec.DiskGB, err)}
+		}
+		provider.Infof(ctx, "Resized disk after clone", "vmid", newID, "disk", disk, "size_gb", spec.DiskGB)
 	}
 
-	// PV-P6: Start VM after clone
+	// PV-P6: Start VM after clone. A VM that does not start never runs
+	// cloud-init, so this too is a partial deploy, not a warning.
 	startBody, err := p.doPost(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/status/start", url.PathEscape(vmNode), newIDStr), nil)
 	if err != nil {
-		slog.Warn("failed to start VM after clone", "vmid", newID, "error", err)
-	} else if startUPID, err := extractUPID(startBody); err == nil {
-		_ = p.awaitTask(ctx, startUPID, 60)
+		return nil, &provider.PartialDeployError{VMID: newIDStr, Err: fmt.Errorf("start VM: %w", err)}
+	}
+	if startUPID, err := extractUPID(startBody); err == nil {
+		if err := p.awaitTask(ctx, startUPID, 60); err != nil {
+			return nil, &provider.PartialDeployError{VMID: newIDStr, Err: fmt.Errorf("start VM: %w", err)}
+		}
 	}
 
 	result := &provider.DeployResult{
@@ -855,7 +862,7 @@ func (p *Provider) DeleteVM(ctx context.Context, vmID string) error {
 	// stop fails Proxmox will refuse the delete below and say why.
 	if status, err := p.GetVMStatus(ctx, vmID); err == nil && status.PowerState != "poweredOff" {
 		if err := p.hardStop(ctx, node, vmID); err != nil {
-			slog.Warn("proxmox destroy: hard stop failed, attempting delete anyway", "vmid", vmID, "error", err)
+			provider.Warnf(ctx, "Destroy: hard stop failed, attempting delete anyway", "vmid", vmID, "error", err)
 		}
 	}
 
@@ -1469,7 +1476,7 @@ func (p *Provider) nodeFor(ctx context.Context, vmID string) string {
 
 	node, err := p.resolveVMNode(ctx, vmID)
 	if err != nil {
-		slog.Warn("proxmox: could not resolve VM node, using connected node", "vmid", vmID, "node", p.node, "error", err)
+		provider.Warnf(ctx, "Could not resolve the VM's node, using the connected node", "vmid", vmID, "node", p.node, "error", err)
 		return p.node
 	}
 	return node
@@ -1894,9 +1901,9 @@ func (p *Provider) applyVMConfig(ctx context.Context, node, vmID, label string, 
 // failed deployment doesn't leave a VM with the wrong shape (and no
 // credentials) behind. Returns a human-readable note for the error message.
 func (p *Provider) rollbackClone(ctx context.Context, vmID string) string {
-	slog.Warn("removing clone after failed post-clone configuration", "vmid", vmID)
+	provider.Warnf(ctx, "Removing clone after failed post-clone configuration", "vmid", vmID)
 	if err := p.DeleteVM(ctx, vmID); err != nil {
-		slog.Error("rollback of failed clone did not complete", "vmid", vmID, "error", err)
+		provider.Errorf(ctx, "Rollback of the failed clone did not complete", "vmid", vmID, "error", err)
 		return fmt.Sprintf("clone %s was left on the hypervisor (removal failed: %v)", vmID, err)
 	}
 	return fmt.Sprintf("clone %s has been removed", vmID)

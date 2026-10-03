@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"strconv"
 	"strings"
@@ -160,7 +159,7 @@ func (p *Provider) AddDisk(ctx context.Context, vmID string, spec provider.DiskS
 			}
 		}
 	} else {
-		slog.Warn("disk added but post-add config read failed", "vmID", vmID, "error", err)
+		provider.Warnf(ctx, "Disk added but the post-add config read failed", "vmID", vmID, "error", err)
 	}
 	return disk, nil
 }
