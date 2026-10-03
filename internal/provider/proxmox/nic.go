@@ -188,10 +188,7 @@ func (p *Provider) AddNIC(ctx context.Context, vmID string, spec provider.NICSpe
 		return nil, fmt.Errorf("VLAN tag must be between 1 and 4094")
 	}
 
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node
-	}
+	node := p.nodeFor(ctx, vmID)
 
 	config, err := p.getVMConfig(ctx, node, vmID)
 	if err != nil {
@@ -316,10 +313,7 @@ func (p *Provider) isRunning(ctx context.Context, node, vmID string) bool {
 // (link not down), so a stopped VM's adapters read as "connects at
 // power-on" rather than "disconnected".
 func (p *Provider) ListNICs(ctx context.Context, vmID string) ([]provider.NIC, error) {
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node
-	}
+	node := p.nodeFor(ctx, vmID)
 	config, err := p.getVMConfig(ctx, node, vmID)
 	if err != nil {
 		return nil, err
