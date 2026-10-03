@@ -55,6 +55,7 @@ func init() {
 			LinkedClones:     true,
 			VLANTagging:      true,
 			NICAttach:        true,
+			DiskAttach:       true,
 		},
 		DeployFields: []provider.DeployField{
 			{Key: "datastore", Label: "Storage", Resource: "datastores"},
@@ -1225,43 +1226,11 @@ func (p *Provider) ResizeVM(ctx context.Context, vmID string, cpu int, memoryMB 
 // PV-P9: Discover actual disk interface name instead of assuming scsi{n}.
 func (p *Provider) ListDisks(ctx context.Context, vmID string) ([]provider.Disk, error) {
 	node := p.nodeFor(ctx, vmID)
-
 	config, err := p.getVMConfig(ctx, node, vmID)
 	if err != nil {
 		return nil, err
 	}
-
-	prefixes := []string{"scsi", "virtio", "ide", "sata"}
-	var disks []provider.Disk
-	idx := 0
-	for _, prefix := range prefixes {
-		for i := 0; i < 30; i++ {
-			key := fmt.Sprintf("%s%d", prefix, i)
-			if !config.Has(key) {
-				continue
-			}
-			// Parse size from "local:vm-100-disk-0,size=32G" style values
-			sizeGB := 0
-			if s := config.Str(key); s != "" {
-				for _, part := range strings.Split(s, ",") {
-					if strings.HasPrefix(part, "size=") {
-						sizeStr := strings.TrimPrefix(part, "size=")
-						sizeStr = strings.TrimSuffix(sizeStr, "G")
-						if n, err := strconv.Atoi(sizeStr); err == nil {
-							sizeGB = n
-						}
-					}
-				}
-			}
-			disks = append(disks, provider.Disk{
-				Key:    idx,
-				Label:  key,
-				SizeGB: sizeGB,
-			})
-			idx++
-		}
-	}
-	return disks, nil
+	return enumerateDisks(config), nil
 }
 
 func (p *Provider) ExpandDisk(ctx context.Context, vmID string, diskKey int, newSizeGB int) error {
@@ -1689,19 +1658,9 @@ func (p *Provider) findDiskByIndex(ctx context.Context, node, vmID string, diskK
 	if err != nil {
 		return "", err
 	}
-
-	// Look for disk interfaces in order: scsi, virtio, ide, sata
-	prefixes := []string{"scsi", "virtio", "ide", "sata"}
-	idx := 0
-	for _, prefix := range prefixes {
-		for i := 0; i < 30; i++ {
-			key := fmt.Sprintf("%s%d", prefix, i)
-			if config.Has(key) {
-				if idx == diskKey {
-					return key, nil
-				}
-				idx++
-			}
+	for _, d := range enumerateDisks(config) {
+		if d.Key == diskKey {
+			return d.Label, nil
 		}
 	}
 	// Fallback to scsi{diskKey} if not found by index

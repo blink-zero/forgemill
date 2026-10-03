@@ -22,6 +22,9 @@ var (
 	// ErrRequiresPowerOff: the change (CPU/memory resize without hot-add,
 	// etc.) can only be made while the VM is powered off.
 	ErrRequiresPowerOff = errors.New("VM must be powered off for this change")
+	// ErrDatastoreNotFound: the datastore/storage named in a DiskSpec does not
+	// exist on the target (or isn't visible to the VM's host/node).
+	ErrDatastoreNotFound = errors.New("datastore not found")
 )
 
 // PV-X1: All Provider interface methods now accept context.Context for
@@ -52,6 +55,11 @@ type Provider interface {
 	ResizeVM(ctx context.Context, vmID string, cpu int, memoryMB int) error
 	ListDisks(ctx context.Context, vmID string) ([]Disk, error)
 	ExpandDisk(ctx context.Context, vmID string, diskKey int, newSizeGB int) error
+	// AddDisk attaches an additional virtual disk to an existing VM and
+	// returns it as the hypervisor reports it afterwards. No power cycle;
+	// existing devices are untouched. A datastore/storage that doesn't
+	// resolve returns ErrDatastoreNotFound (wrapped).
+	AddDisk(ctx context.Context, vmID string, spec DiskSpec) (*Disk, error)
 	// AddNIC attaches an additional virtual network adapter to an existing
 	// VM and returns the adapter as the hypervisor reports it afterwards.
 	// Providers that don't implement it return ErrNotSupported (wrapped);
@@ -209,6 +217,28 @@ type Disk struct {
 	Key    int    `json:"key"`
 	Label  string `json:"label"`
 	SizeGB int    `json:"size_gb"`
+	// Datastore (vSphere) or storage (Proxmox) the disk lives on.
+	Datastore string `json:"datastore,omitempty"`
+	// Provisioning is "thin" or "thick" where the hypervisor reports it
+	// (vSphere); Proxmox reports the volume format (qcow2, raw) if known.
+	Provisioning string `json:"provisioning,omitempty"`
+	// Backing is the disk file (vSphere "[ds] vm/vm_1.vmdk") or volume
+	// (Proxmox "local-lvm:vm-100-disk-1").
+	Backing string `json:"backing,omitempty"`
+	// Pending (Proxmox): saved to the config but only attaches at the next
+	// power cycle because the VM's hotplug setting excludes "disk".
+	Pending bool `json:"pending,omitempty"`
+}
+
+// DiskSpec describes a virtual disk to attach with AddDisk.
+type DiskSpec struct {
+	SizeGB int
+	// Datastore (vSphere) or storage (Proxmox) name, in the form
+	// GetResources reports it. Empty = the same one as the VM's first disk.
+	Datastore string
+	// Provisioning is "thin" or "thick" on providers that publish
+	// ProviderMetadata.DiskProvisioningTypes; empty = provider default.
+	Provisioning string
 }
 
 // NICSpec describes a network adapter to attach with AddNIC.

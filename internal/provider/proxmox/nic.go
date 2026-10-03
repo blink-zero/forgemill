@@ -177,6 +177,12 @@ func (p *Provider) bridgeExists(ctx context.Context, node, bridge string) (bool,
 // only takes effect at the next power cycle. A read failure is reported
 // as not-pending with a log line; the attach itself already succeeded.
 func (p *Provider) netChangePending(ctx context.Context, node, vmID, key string) bool {
+	return p.changePending(ctx, node, vmID, key)
+}
+
+// changePending reports whether a config key is sitting in the VM's
+// pending-changes list (hot-plug not possible; applies at next power cycle).
+func (p *Provider) changePending(ctx context.Context, node, vmID, key string) bool {
 	body, err := p.doGet(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/pending", url.PathEscape(node), url.PathEscape(vmID)))
 	if err != nil {
 		slog.Warn("could not read pending changes after NIC add", "vmID", vmID, "error", err)
