@@ -64,3 +64,18 @@ func TestRetryAfterSeconds(t *testing.T) {
 		}
 	}
 }
+
+func TestRateLimiterCountsRejectionsForDiagnostics(t *testing.T) {
+	before := RateLimitRejections()
+	rl := NewRateLimiter(rate.Limit(1), 1)
+	defer rl.Stop()
+	h := rl.Limit(okHandler())
+	for i := 0; i < 3; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.RemoteAddr = "10.9.9.9:1234"
+		h.ServeHTTP(httptest.NewRecorder(), req)
+	}
+	if got := RateLimitRejections() - before; got != 2 {
+		t.Errorf("burst 1 then two refusals should count 2 rejections, got %d", got)
+	}
+}

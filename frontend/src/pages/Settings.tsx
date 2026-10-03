@@ -1,16 +1,16 @@
 import { useEffect, useState, Fragment } from "react";
-import { useSearchParams } from "react-router-dom";
-import { users as usersApi, settings as settingsApi, webhooks as webhooksApi, apiKeys as apiKeysApi, auditLogs as auditLogsApi, factoryApi } from "@/api/client";
+import { Link, useSearchParams } from "react-router-dom";
+import { users as usersApi, settings as settingsApi, webhooks as webhooksApi, apiKeys as apiKeysApi, auditLogs as auditLogsApi, factoryApi, diagnostics as diagnosticsApi } from "@/api/client";
 import type { PaginatedAuditLogs } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useTimezone, COMMON_TIMEZONES } from "@/hooks/useTimezone";
-import type { User, Webhook, APIKey, PrereqStatus } from "@/types";
+import type { User, Webhook, APIKey, PrereqStatus, Diagnostics } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon, Copy, Send, Pencil, Check, UserCheck, UserX, LogOut as LogOutIcon, MoreHorizontal, Search, Wifi } from "lucide-react";
+import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon, Copy, Send, Pencil, Check, UserCheck, UserX, LogOut as LogOutIcon, MoreHorizontal, Search, Wifi, RefreshCw, Activity } from "lucide-react";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { ForgemillLogo } from "@/components/ForgemillLogo";
 import { Select } from "@/components/ui/select";
@@ -31,9 +31,9 @@ const WEBHOOK_EVENTS = [
   "execution.completed",
 ] as const;
 
-type SettingsTab = "users" | "webhooks" | "apikeys" | "preferences" | "auditlog" | "about";
-const SETTINGS_TABS: readonly SettingsTab[] = ["users", "webhooks", "apikeys", "preferences", "auditlog", "about"];
-const ADMIN_ONLY_TABS: ReadonlySet<string> = new Set(["webhooks", "auditlog"]);
+type SettingsTab = "users" | "webhooks" | "apikeys" | "preferences" | "auditlog" | "diagnostics" | "about";
+const SETTINGS_TABS: readonly SettingsTab[] = ["users", "webhooks", "apikeys", "preferences", "auditlog", "diagnostics", "about"];
+const ADMIN_ONLY_TABS: ReadonlySet<string> = new Set(["webhooks", "auditlog", "diagnostics"]);
 const isSettingsTab = (v: string | null): v is SettingsTab => v !== null && (SETTINGS_TABS as readonly string[]).includes(v);
 
 export default function SettingsPage() {
@@ -88,6 +88,21 @@ export default function SettingsPage() {
   const [auditUntil, setAuditUntil] = useState("");
   const [auditRetentionDays, setAuditRetentionDays] = useState<number>(90);
   const [auditRetentionSaving, setAuditRetentionSaving] = useState(false);
+  // Diagnostics (admin): one snapshot per visit, refresh on demand.
+  const [diag, setDiag] = useState<Diagnostics | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagError, setDiagError] = useState<string | null>(null);
+  const refreshDiagnostics = () => {
+    setDiagLoading(true);
+    diagnosticsApi.get()
+      .then((res) => { setDiag(res.data); setDiagError(null); })
+      .catch((e: unknown) => setDiagError(getErrorMessage(e, "Failed to load diagnostics")))
+      .finally(() => setDiagLoading(false));
+  };
+  useEffect(() => {
+    if (isAdmin && tab === "diagnostics") refreshDiagnostics();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, tab]);
   const [targetCheckMins, setTargetCheckMins] = useState<number>(0);
   const [targetCheckSaving, setTargetCheckSaving] = useState(false);
 
@@ -395,6 +410,7 @@ export default function SettingsPage() {
     { key: "apikeys", label: "API Keys" },
     { key: "preferences", label: "Preferences" },
     { key: "auditlog", label: "Audit Log", adminOnly: true },
+    { key: "diagnostics", label: "Diagnostics", adminOnly: true },
     { key: "about", label: "About" },
   ];
 
@@ -1209,6 +1225,121 @@ export default function SettingsPage() {
                 </Button>
               </div>
             </div>
+          )}
+        </div>
+      )}
+
+      {tab === "diagnostics" && isAdmin && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-13 text-muted-foreground">What the hypervisors did or refused, per target and per VM — the things that used to need the server log.{diag && <> Snapshot from {formatDateTime(diag.generated_at)}.</>}</p>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={refreshDiagnostics} disabled={diagLoading}>
+              <RefreshCw className={`h-3.5 w-3.5 ${diagLoading ? "animate-spin" : ""}`} /> Refresh
+            </Button>
+          </div>
+          {diagError && (
+            <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+              <p className="text-xs text-warning">{diagError}</p>
+            </div>
+          )}
+          {diag && (
+            <>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Card><CardContent className="p-4">
+                  <p className="text-2xs uppercase tracking-[0.08em] text-muted-foreground">Build</p>
+                  <p className="font-mono text-sm mt-1">{diag.build.version}{diag.build.commit && diag.build.commit !== "unknown" ? ` · ${diag.build.commit.slice(0, 7)}` : ""}</p>
+                  {diag.build.date && diag.build.date !== "unknown" && <p className="text-2xs text-muted-foreground mt-0.5">{diag.build.date}</p>}
+                </CardContent></Card>
+                <Card><CardContent className="p-4">
+                  <p className="text-2xs uppercase tracking-[0.08em] text-muted-foreground">Rate limiter</p>
+                  <p className="text-sm mt-1 tabular-nums"><span className="font-semibold">{diag.rate_limited_requests}</span> requests refused since start</p>
+                  <p className="text-2xs text-muted-foreground mt-0.5">A climbing number here explains "the page went blank".</p>
+                </CardContent></Card>
+                <Card><CardContent className="p-4">
+                  <p className="text-2xs uppercase tracking-[0.08em] text-muted-foreground">Problems</p>
+                  <p className="text-sm mt-1 tabular-nums"><span className="font-semibold">{diag.recent_vm_events.length}</span> VM warnings · <span className="font-semibold">{diag.recent_failed_deployments.length}</span> failed deployments · <span className="font-semibold">{diag.recent_server_errors.length}</span> server errors</p>
+                  <p className="text-2xs text-muted-foreground mt-0.5">Most recent 50 / 20 / 50.</p>
+                </CardContent></Card>
+              </div>
+
+              <Card>
+                <CardHeader><CardTitle className="flex items-center gap-2"><Wifi className="h-4 w-4" /> Targets</CardTitle></CardHeader>
+                <CardContent>
+                  {diag.targets.length === 0 ? <p className="text-sm text-muted-foreground">No targets.</p> : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead><tr className="text-left text-xs text-muted-foreground border-b">
+                          <th className="py-2 pr-3 font-medium">Target</th><th className="py-2 pr-3 font-medium">Status</th><th className="py-2 pr-3 font-medium">Last connected</th><th className="py-2 pr-3 font-medium">Last sync</th><th className="py-2 font-medium">Sync errors</th>
+                        </tr></thead>
+                        <tbody>
+                          {diag.targets.map((t) => (
+                            <tr key={t.id} className="border-b last:border-0 align-top">
+                              <td className="py-2 pr-3 whitespace-nowrap"><span className="font-medium">{t.name}</span> <span className="text-muted-foreground text-xs">{t.type}</span></td>
+                              <td className="py-2 pr-3"><Badge variant={t.status === "connected" ? "success" : t.status === "error" ? "destructive" : "secondary"} dot>{t.status}</Badge></td>
+                              <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">{t.last_connected_at ? formatDateTime(t.last_connected_at) : "—"}</td>
+                              <td className="py-2 pr-3 whitespace-nowrap">{t.last_sync ? <>{t.last_sync.synced} synced, {t.last_sync.orphaned} orphaned <span className="text-muted-foreground text-xs">· {formatDateTime(t.last_sync.at)}</span></> : <span className="text-muted-foreground">not since start</span>}</td>
+                              <td className="py-2 text-xs">{t.last_sync?.errors?.length ? <ul className="space-y-0.5 text-warning">{t.last_sync.errors.map((e, i) => <li key={i} className="font-mono break-all">{e}</li>)}</ul> : <span className="text-muted-foreground">—</span>}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader><CardTitle className="flex items-center gap-2"><Activity className="h-4 w-4" /> Recent VM warnings</CardTitle></CardHeader>
+                <CardContent>
+                  {diag.recent_vm_events.length === 0 ? <p className="text-sm text-muted-foreground">No warnings or errors recorded against any VM.</p> : (
+                    <ul className="divide-y">
+                      {diag.recent_vm_events.map((e) => (
+                        <li key={e.id} className="py-2 flex items-start gap-3 text-sm">
+                          <Badge variant={e.level === "error" ? "destructive" : "warning"} className="mt-0.5 shrink-0">{e.level}</Badge>
+                          <div className="min-w-0">
+                            <p className="break-words">{e.message}</p>
+                            <p className="text-2xs text-muted-foreground mt-0.5"><Link to={`/vms/${e.vm_id}`} className="hover:underline">VM #{e.vm_id}</Link> · {formatDateTime(e.created_at)}</p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader><CardTitle className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> Recent failed deployments</CardTitle></CardHeader>
+                <CardContent>
+                  {diag.recent_failed_deployments.length === 0 ? <p className="text-sm text-muted-foreground">No failed deployments.</p> : (
+                    <ul className="divide-y">
+                      {diag.recent_failed_deployments.map((d) => (
+                        <li key={d.id} className="py-2 text-sm">
+                          <p><Link to={`/deploy/${d.id}`} className="font-medium hover:underline">{d.vm_name}</Link> <span className="text-muted-foreground text-xs">on {d.target_name}{d.completed_at ? ` · ${formatDateTime(d.completed_at)}` : ""}</span></p>
+                          <p className="text-xs text-destructive break-words mt-0.5">{d.error_message}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader><CardTitle>Recent server errors</CardTitle></CardHeader>
+                <CardContent>
+                  {diag.recent_server_errors.length === 0 ? <p className="text-sm text-muted-foreground">No server-side errors since start.</p> : (
+                    <ul className="divide-y">
+                      {diag.recent_server_errors.map((e, i) => (
+                        <li key={i} className="py-2 text-sm">
+                          <p><Badge variant="destructive" className="mr-2">{e.status}</Badge>{e.message} <span className="text-muted-foreground text-xs">· {formatDateTime(e.time)}</span></p>
+                          {e.error && <p className="text-xs text-muted-foreground font-mono break-all mt-0.5">{e.error}</p>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+            </>
           )}
         </div>
       )}
