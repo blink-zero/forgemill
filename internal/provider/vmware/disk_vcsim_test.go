@@ -142,3 +142,26 @@ func TestAddDiskRejectsDatastoreTheVMsHostCannotSee(t *testing.T) {
 		t.Errorf("default placement must still work: %v", err)
 	}
 }
+
+func TestVMwareExtrasValidatorResolvesNetworkAndDatastoreInTheDatacenter(t *testing.T) {
+	ctx := context.Background()
+	p := newSimProvider(t, simulator.VPX(), false)
+	if err := p.ValidateNICSpec(ctx, "DC0", provider.NICSpec{Network: "VM Network", VLANTag: 0}); err != nil {
+		t.Errorf("known network: %v", err)
+	}
+	if err := p.ValidateNICSpec(ctx, "DC0", provider.NICSpec{Network: "nope"}); !errors.Is(err, provider.ErrNetworkNotFound) {
+		t.Errorf("unknown network must be ErrNetworkNotFound: %v", err)
+	}
+	if err := p.ValidateNICSpec(ctx, "DC0", provider.NICSpec{Network: "VM Network", AdapterType: "pcnet32"}); err == nil {
+		t.Error("unknown adapter model must be refused")
+	}
+	if err := p.ValidateDiskSpec(ctx, "DC0", provider.DiskSpec{SizeGB: 5, Datastore: "LocalDS_0", Provisioning: "thick"}); err != nil {
+		t.Errorf("known datastore: %v", err)
+	}
+	if err := p.ValidateDiskSpec(ctx, "DC0", provider.DiskSpec{SizeGB: 5, Datastore: "nope"}); !errors.Is(err, provider.ErrDatastoreNotFound) {
+		t.Errorf("unknown datastore: %v", err)
+	}
+	if err := p.ValidateDiskSpec(ctx, "DC0", provider.DiskSpec{SizeGB: 5, Provisioning: "sparse"}); err == nil {
+		t.Error("unknown provisioning must be refused")
+	}
+}

@@ -145,29 +145,55 @@ func (p *Provider) getVMConfig(ctx context.Context, node, vmID string) (qemuConf
 	return result.Data, nil
 }
 
-// bridgeExists reports whether the node lists an interface of type bridge
-// with that name. A failed read returns an error so the caller can skip
-// the check rather than block a valid request on a transient fault.
-func (p *Provider) bridgeExists(ctx context.Context, node, bridge string) (bool, error) {
+// bridgeInfo looks a bridge up in the node's interface list — the same list
+// GetResources offers — and reports whether it exists and whether it is VLAN
+// aware (bridge_vlan_aware=1). A failed read returns an error so the caller
+// can skip the check rather than block a valid request on a transient fault.
+func (p *Provider) bridgeInfo(ctx context.Context, node, bridge string) (exists, vlanAware bool, err error) {
 	body, err := p.doGet(ctx, fmt.Sprintf("/nodes/%s/network", url.PathEscape(node)))
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	var result struct {
 		Data []struct {
-			Iface string `json:"iface"`
-			Type  string `json:"type"`
+			Iface     string      `json:"iface"`
+			Type      string      `json:"type"`
+			VLANAware interface{} `json:"bridge_vlan_aware"` // 1 / "1" when enabled, absent otherwise
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return false, err
+		return false, false, err
 	}
 	for _, n := range result.Data {
 		if n.Type == "bridge" && n.Iface == bridge {
-			return true, nil
+			return true, fmt.Sprint(n.VLANAware) == "1", nil
 		}
 	}
-	return false, nil
+	return false, false, nil
+}
+
+// bridgeExists is kept for callers that only care about presence.
+func (p *Provider) bridgeExists(ctx context.Context, node, bridge string) (bool, error) {
+	exists, _, err := p.bridgeInfo(ctx, node, bridge)
+	return exists, err
+}
+
+// checkBridgeForNIC applies the two checks Proxmox itself would only report
+// after accepting the config: the bridge must exist on the node, and a VLAN
+// tag needs a VLAN-aware bridge (otherwise the NIC fails to hot-plug now and
+// the VM fails to boot later).
+func (p *Provider) checkBridgeForNIC(ctx context.Context, node, bridge string, vlanTag int) error {
+	exists, vlanAware, err := p.bridgeInfo(ctx, node, bridge)
+	if err != nil {
+		return nil // transient read failure: let Proxmox decide
+	}
+	if !exists {
+		return fmt.Errorf("%w: bridge %q on node %s", provider.ErrNetworkNotFound, bridge, node)
+	}
+	if vlanTag > 0 && !vlanAware {
+		return fmt.Errorf("%w: bridge %q on node %s is not VLAN aware — enable \"VLAN aware\" on the bridge or omit the VLAN tag", provider.ErrVLANUnsupportedOnNetwork, bridge, node)
+	}
+	return nil
 }
 
 // netChangePending reports whether the netN key is sitting in the VM's
@@ -238,18 +264,28 @@ func (p *Provider) AddNIC(ctx context.Context, vmID string, spec provider.NICSpe
 	}
 	key := fmt.Sprintf("net%d", slot)
 
-	// Check the bridge exists on the VM's node before writing. Proxmox would
-	// reject an unknown bridge itself, but doPut folds the response body
-	// into a generic "HTTP 400" — checking the node's interface list first
-	// (the same list GetResources offers) is what lets the API answer with
-	// a specific "network not found" instead of a bare failure.
-	if known, err := p.bridgeExists(ctx, node, bridge); err == nil && !known {
-		return nil, fmt.Errorf("%w: bridge %q on node %s", provider.ErrNetworkNotFound, bridge, node)
+	// Check the bridge (exists, VLAN aware if a tag is requested) before
+	// writing, so the API answers with a specific reason instead of a bare
+	// hot-plug failure — and so a config Proxmox would never be able to boot
+	// is not saved at all.
+	if err := p.checkBridgeForNIC(ctx, node, bridge, spec.VLANTag); err != nil {
+		return nil, err
 	}
 
 	data := url.Values{key: {buildNetConfig(model, bridge, spec.VLANTag, !spec.Connected)}}
 	configPath := fmt.Sprintf("/nodes/%s/qemu/%s/config", url.PathEscape(node), url.PathEscape(vmID))
 	if err := p.doPut(ctx, configPath, data); err != nil {
+		// A hot-plug failure ("hotplug problem - … netdev_add failed") still
+		// leaves the new key in the VM's config as a pending change, which
+		// would be applied — and fail — at the next boot. Take it back out.
+		if strings.Contains(strings.ToLower(err.Error()), "hotplug problem") {
+			if derr := p.doPut(ctx, configPath, url.Values{"delete": {key}}); derr != nil {
+				provider.Warnf(ctx, "Hot-plug of "+key+" failed and the pending config could not be removed — remove it manually before the next boot", "vmID", vmID, "error", derr)
+			} else {
+				provider.Warnf(ctx, "Hot-plug of "+key+" failed; the pending config was removed so the VM boots cleanly", "vmID", vmID)
+			}
+			return nil, fmt.Errorf("add network device %s: hot-plug failed on the running VM: %w", key, err)
+		}
 		return nil, fmt.Errorf("add network device %s: %w", key, err)
 	}
 
@@ -386,4 +422,31 @@ func (p *Provider) ListNICs(ctx context.Context, vmID string) ([]provider.NIC, e
 		nics = append(nics, nic)
 	}
 	return nics, nil
+}
+
+// ValidateNICSpec implements provider.ExtrasValidator: the bridge must exist
+// on the connected node and be VLAN aware when a tag is requested.
+func (p *Provider) ValidateNICSpec(ctx context.Context, _ string, spec provider.NICSpec) error {
+	bridge := strings.TrimSpace(spec.Network)
+	if bridge == "" {
+		return fmt.Errorf("network (bridge) is required")
+	}
+	if _, err := normalizeNICAdapterType(spec.AdapterType); err != nil {
+		return err
+	}
+	return p.checkBridgeForNIC(ctx, p.node, bridge, spec.VLANTag)
+}
+
+// ValidateDiskSpec implements provider.ExtrasValidator: a named storage must
+// exist in the cluster; provisioning cannot be chosen per disk here.
+func (p *Provider) ValidateDiskSpec(ctx context.Context, _ string, spec provider.DiskSpec) error {
+	if spec.SizeGB <= 0 {
+		return fmt.Errorf("size_gb must be positive")
+	}
+	if storage := strings.TrimSpace(spec.Datastore); storage != "" {
+		if known, err := p.storageExists(ctx, storage); err == nil && !known {
+			return fmt.Errorf("%w: storage %q", provider.ErrDatastoreNotFound, storage)
+		}
+	}
+	return nil
 }

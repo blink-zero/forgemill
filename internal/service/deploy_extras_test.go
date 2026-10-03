@@ -182,3 +182,24 @@ func TestDeployExtrasAreValidatedAgainstTheProviderBeforeAnything(t *testing.T) 
 		t.Errorf("preflight should block: %+v %v", res, err)
 	}
 }
+
+func TestPreflightBlocksExtrasTheProviderWouldRefuse(t *testing.T) {
+	s, _, tmplID, targetID := newDeployTestService(t)
+	req := DeployRequest{TemplateID: tmplID, TargetID: targetID, VMName: "web-07", CPU: 2, MemoryMB: 2048, DiskGB: 20,
+		ExtraNICs:  []ExtraNIC{{Network: "bad-net"}, {Network: "ok-net"}},
+		ExtraDisks: []ExtraDisk{{SizeGB: 5, Datastore: "bad-ds"}, {SizeGB: 5}}}
+	res, err := s.Preflight(context.Background(), &req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Valid {
+		t.Fatalf("preflight should block, got %+v", res)
+	}
+	joined := strings.Join(res.Blockers, "\n")
+	if !strings.Contains(joined, "extra network adapter 1: network not found") || !strings.Contains(joined, "extra disk 1: datastore not found") {
+		t.Errorf("blockers should name the extra and the reason:\n%s", joined)
+	}
+	if strings.Contains(joined, "adapter 2") || strings.Contains(joined, "disk 2") {
+		t.Errorf("valid extras must not be blocked:\n%s", joined)
+	}
+}

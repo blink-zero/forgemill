@@ -303,6 +303,25 @@ func (s *DeployService) Preflight(ctx context.Context, req *DeployRequest) (*Pre
 				for _, verr := range p.ValidateDeploySpec(ctx, deploySpecForValidation(req)) {
 					addBlocker("%s", verr.Error())
 				}
+				// Extras: a bad network / VLAN on a non-VLAN-aware bridge / unknown
+				// datastore is a blocker now rather than a failed deployment after
+				// the clone (which would leave a VM to clean up).
+				if v, ok := p.(provider.ExtrasValidator); ok {
+					for i, n := range req.ExtraNICs {
+						connected := true
+						if n.Connected != nil {
+							connected = *n.Connected
+						}
+						if err := v.ValidateNICSpec(ctx, req.Datacenter, provider.NICSpec{Network: strings.TrimSpace(n.Network), AdapterType: strings.ToLower(strings.TrimSpace(n.AdapterType)), Connected: connected, VLANTag: n.VLANTag}); err != nil {
+							addBlocker("extra network adapter %d: %v", i+1, err)
+						}
+					}
+					for i, d := range req.ExtraDisks {
+						if err := v.ValidateDiskSpec(ctx, req.Datacenter, provider.DiskSpec{SizeGB: d.SizeGB, Datastore: strings.TrimSpace(d.Datastore), Provisioning: strings.ToLower(strings.TrimSpace(d.Provisioning))}); err != nil {
+							addBlocker("extra disk %d: %v", i+1, err)
+						}
+					}
+				}
 			}
 		}
 	}
@@ -562,8 +581,10 @@ func sanitizeHypervisorError(err error) string {
 	msg := err.Error()
 	// Strip URL patterns that might contain hostnames (but not credentials — govmomi doesn't include those)
 	// Keep it simple: just truncate and clean up
-	if len(msg) > 200 {
-		msg = msg[:200] + "..."
+	// Hypervisor reasons are now carried through (Proxmox "message — key:
+	// detail", vSphere faults); keep them readable rather than clipped.
+	if len(msg) > 600 {
+		msg = msg[:600] + "..."
 	}
 	// Remove common govmomi prefixes that add noise
 	msg = strings.TrimPrefix(msg, "ServerFaultCode: ")

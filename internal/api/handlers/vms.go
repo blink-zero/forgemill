@@ -395,6 +395,7 @@ func addNICErrorResponse(err error) (status int, msg string, logIt bool) {
 		return http.StatusNotFound, "VM not found", false
 	case errors.Is(err, provider.ErrNotSupported),
 		errors.Is(err, provider.ErrNetworkNotFound),
+		errors.Is(err, provider.ErrVLANUnsupportedOnNetwork),
 		errors.Is(err, provider.ErrInvalidAdapterType),
 		errors.Is(err, service.ErrInvalidNICSpec):
 		return http.StatusBadRequest, err.Error(), false

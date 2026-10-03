@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -442,4 +443,23 @@ func TestSyncAllStillUsesStatusWhenListingUnavailable(t *testing.T) {
 	if res.Orphaned != 0 {
 		t.Errorf("no VM may be treated as orphaned when the listing failed, got %d", res.Orphaned)
 	}
+}
+
+// ExtrasValidator on the fake: "bad-net" / "bad-ds" are refused, VLAN on
+// "flat" is refused, everything else is fine.
+func (f *fakeNICProvider) ValidateNICSpec(_ context.Context, _ string, spec provider.NICSpec) error {
+	if spec.Network == "bad-net" {
+		return fmt.Errorf("%w: %q", provider.ErrNetworkNotFound, spec.Network)
+	}
+	if spec.Network == "flat" && spec.VLANTag > 0 {
+		return fmt.Errorf("%w: bridge %q", provider.ErrVLANUnsupportedOnNetwork, spec.Network)
+	}
+	return nil
+}
+
+func (f *fakeNICProvider) ValidateDiskSpec(_ context.Context, _ string, spec provider.DiskSpec) error {
+	if spec.Datastore == "bad-ds" {
+		return fmt.Errorf("%w: %q", provider.ErrDatastoreNotFound, spec.Datastore)
+	}
+	return nil
 }
