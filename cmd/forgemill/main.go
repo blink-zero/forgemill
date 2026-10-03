@@ -100,10 +100,10 @@ func main() {
 	webhookSvc.SetDecryptor(enc) // V3-M14: Wire decryptor for HMAC signing with encrypted secrets
 	notificationSvc := service.NewNotificationService(database)
 	notificationSvc.StartRetentionCleanup(context.Background())
-	vmSvc.StartEventRetention(context.Background())
 	deploySvc := service.NewDeployService(database, targetSvc, hub, webhookSvc, enc)
 	deploySvc.SetNotificationService(notificationSvc)
 	vmSvc := service.NewVMService(database, targetSvc, enc)
+	vmSvc.StartEventRetention(context.Background())
 	executorSvc := service.NewExecutorService(database, targetSvc, enc, executionHub)
 	executorSvc.SetNotificationService(notificationSvc)
 	// Auto-sync VMs after deployments complete
