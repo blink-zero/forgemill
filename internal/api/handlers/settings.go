@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -37,12 +38,12 @@ func (h *SettingsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 
 // B-3: Allowlist of valid setting keys to prevent arbitrary key storage.
 var allowedSettingKeys = map[string]bool{
-	"motd":                           true,
-	"theme":                          true,
-	"session_timeout":                true,
-	"default_target_id":              true,
-	"audit_retention_days":           true,
-	"target_check_interval_minutes":  true,
+	"motd":                          true,
+	"theme":                         true,
+	"session_timeout":               true,
+	"default_target_id":             true,
+	"audit_retention_days":          true,
+	"target_check_interval_minutes": true,
 }
 
 func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
@@ -356,7 +357,7 @@ func (h *SettingsHandler) UpdateUserRole(w http.ResponseWriter, r *http.Request)
 	oldRole := targetUser.Role
 
 	if err := h.db.UpdateUserRole(targetID, req.Role); err != nil {
-		if strings.Contains(err.Error(), "invalid role") {
+		if errors.Is(err, db.ErrInvalidRole) {
 			writeError(w, "invalid role — must be admin, user, or viewer", http.StatusBadRequest)
 			return
 		}

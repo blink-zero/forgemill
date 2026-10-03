@@ -2,10 +2,10 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -120,7 +120,7 @@ func (h *FactoryHandler) StartBuild(w http.ResponseWriter, r *http.Request) {
 		slog.Error("failed to start build", "error", err)
 		// Return controlled message — do not pass raw internal errors to client
 		msg := "failed to start build"
-		if strings.Contains(err.Error(), "in progress") || strings.Contains(err.Error(), "already") {
+		if errors.Is(err, factory.ErrBuildInProgress) {
 			msg = "another build is already in progress for this target"
 		}
 		writeError(w, msg, http.StatusConflict)

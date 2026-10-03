@@ -326,3 +326,16 @@ func TestListNICsVMNotFound(t *testing.T) {
 		t.Fatalf("expected ErrVMNotFound, got %v", err)
 	}
 }
+
+func TestResizeSurfacesRequiresPowerOffSentinel(t *testing.T) {
+	svc, database, vmID := newNICTestService(t, "esxi")
+	// Powered-on VM: the service refuses before touching the provider, and
+	// the error is the sentinel the handler maps to 409 — not matched text.
+	if err := database.UpdateManagedVMState(vmID, "poweredOn", "", nil, nil, nil, 0); err != nil {
+		t.Fatalf("set state: %v", err)
+	}
+	err := svc.Resize(context.Background(), vmID, 4, 0)
+	if !errors.Is(err, ErrRequiresPowerOff) {
+		t.Fatalf("expected ErrRequiresPowerOff, got %v", err)
+	}
+}

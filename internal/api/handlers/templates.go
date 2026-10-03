@@ -1,10 +1,11 @@
 package handlers
 
 import (
+	"database/sql"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/forgemill/forgemill/internal/api/middleware"
 	"github.com/forgemill/forgemill/internal/service"
@@ -50,7 +51,7 @@ func (h *TemplateHandler) GetDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	detail, err := h.svc.GetDetail(r.Context(), id)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, "template not found", http.StatusNotFound)
 			return
 		}
@@ -68,7 +69,7 @@ func (h *TemplateHandler) DeletePreview(w http.ResponseWriter, r *http.Request) 
 	}
 	preview, err := h.svc.DeletePreview(id)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, "template not found", http.StatusNotFound)
 			return
 		}
@@ -87,7 +88,7 @@ func (h *TemplateHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	destroy := r.URL.Query().Get("destroy") == "true"
 	keepVMs := r.URL.Query().Get("keep_vms") == "true"
 	if err := h.svc.Delete(r.Context(), id, destroy, keepVMs); err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, "template not found", http.StatusNotFound)
 			return
 		}
