@@ -3,6 +3,7 @@ package vmware
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/vmware/govmomi/simulator"
@@ -54,16 +55,33 @@ func TestAddDiskAttachesThinDiskOnTheVMsDatastoreAndListsIt(t *testing.T) {
 
 func TestAddDiskThickOnExplicitDatastoreAndUnknownDatastoreError(t *testing.T) {
 	ctx := context.Background()
-	p := newSimProvider(t, simulator.VPX(), false)
+	// Two datastores, so "explicit datastore" is distinguishable from "the
+	// VM's own": the live retest found an explicit choice silently landing
+	// on the VM's datastore because only the backing file name places a disk.
+	model := simulator.VPX()
+	model.Datastore = 2
+	p := newSimProvider(t, model, false)
 	m, _ := vmProps(t, ctx, p, "DC0", "DC0_H0_VM0", []string{"config.hardware"})
 	vmRef := m.Reference().Value
 
-	disk, err := p.AddDisk(ctx, vmRef, provider.DiskSpec{SizeGB: 4, Datastore: "LocalDS_0", Provisioning: "thick"})
+	before, err := p.ListDisks(ctx, vmRef)
+	if err != nil || len(before) == 0 {
+		t.Fatalf("ListDisks: %v %v", before, err)
+	}
+	other := "LocalDS_1"
+	if before[0].Datastore == other {
+		other = "LocalDS_0"
+	}
+
+	disk, err := p.AddDisk(ctx, vmRef, provider.DiskSpec{SizeGB: 4, Datastore: other, Provisioning: "thick"})
 	if err != nil {
 		t.Fatalf("AddDisk: %v", err)
 	}
-	if disk.Provisioning != "thick" || disk.Datastore != "LocalDS_0" {
-		t.Errorf("want thick on LocalDS_0, got %+v", disk)
+	if disk.Provisioning != "thick" || disk.Datastore != other {
+		t.Errorf("want thick on %s (not the VM's %s), got %+v", other, before[0].Datastore, disk)
+	}
+	if !strings.HasPrefix(disk.Backing, "["+other+"]") {
+		t.Errorf("backing file must live on the requested datastore: %q", disk.Backing)
 	}
 	if _, err := p.AddDisk(ctx, vmRef, provider.DiskSpec{SizeGB: 4, Datastore: "nope"}); !errors.Is(err, provider.ErrDatastoreNotFound) {
 		t.Errorf("unknown datastore must be ErrDatastoreNotFound, got %v", err)

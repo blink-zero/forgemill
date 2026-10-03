@@ -89,6 +89,12 @@ func (p *Provider) AddDisk(ctx context.Context, vmID string, spec provider.DiskS
 	}
 
 	var dsRef types.ManagedObjectReference
+	// vSphere places a new disk by its backing *file name*, not by the
+	// backing's datastore reference: an empty name means "next to the VM's
+	// files", whatever datastore was referenced. So an explicit datastore
+	// has to be expressed as a "[datastore]" path prefix, which makes
+	// vSphere create the VMDK in a VM-named folder on that datastore.
+	fileName := ""
 	if strings.TrimSpace(spec.Datastore) != "" {
 		// Scope the finder to the VM's datacenter — the only one whose
 		// datastores this VM can use — exactly as AddNIC does for networks.
@@ -115,6 +121,7 @@ func (p *Provider) AddDisk(ctx context.Context, vmID string, spec provider.DiskS
 			return nil, fmt.Errorf("find datastore %q: %w", spec.Datastore, err)
 		}
 		dsRef = ds.Reference()
+		fileName = "[" + ds.Name() + "]"
 	} else {
 		dsRef, err = defaultDatastoreFor(ctx, client.Client, vm, before)
 		if err != nil {
@@ -132,6 +139,9 @@ func (p *Provider) AddDisk(ctx context.Context, vmID string, spec provider.DiskS
 	if b, ok := disk.Backing.(*types.VirtualDiskFlatVer2BackingInfo); ok {
 		b.ThinProvisioned = types.NewBool(provisioning == "thin")
 		b.EagerlyScrub = types.NewBool(false)
+		if fileName != "" {
+			b.FileName = fileName
+		}
 	}
 
 	if err := vm.AddDevice(ctx, disk); err != nil {
