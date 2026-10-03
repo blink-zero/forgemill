@@ -1832,15 +1832,6 @@ func deriveBaseName(osDefID string) string {
 	return osDefID + "-template"
 }
 
-func (db *DB) getFamilyByBaseNameAndTarget(baseName string, targetID int64) (*models.TemplateFamily, error) {
-	f := &models.TemplateFamily{}
-	err := db.conn.QueryRow(
-		`SELECT id, base_name, target_id, os_definition_id, latest_version, created_at
-		 FROM template_families WHERE base_name = ? AND target_id = ?`,
-		baseName, targetID,
-	).Scan(&f.ID, &f.BaseName, &f.TargetID, &f.OSDefinitionID, &f.LatestVersion, &f.CreatedAt)
-	return f, err
-}
 
 // getFamilyByOSAndTarget looks up a family by OS definition + target combination.
 // This is the canonical lookup — family identity is (os_definition_id, target_id),

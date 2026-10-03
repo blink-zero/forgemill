@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { Monitor, FileBox, Server, Zap, Search, Loader2, X, Power, Play, Square } from "lucide-react";
+import { Monitor, FileBox, Server, Zap, Search, Loader2, X, Play, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { vms as vmApi, templates, targets, actions } from "@/api/client";
 import type { ManagedVM, Template, Target, Action } from "@/types";

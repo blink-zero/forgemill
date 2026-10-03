@@ -190,12 +190,3 @@ func (p *Provider) getClient(ctx context.Context) (*govmomi.Client, error) {
 	}
 	return p.client, nil
 }
-
-// defaultDatacenter returns the datacenter path to use.
-// ESXi has a single implicit datacenter named "ha-datacenter".
-func (p *Provider) defaultDatacenter() string {
-	if p.esxiMode {
-		return "ha-datacenter"
-	}
-	return ""
-}

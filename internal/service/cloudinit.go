@@ -13,9 +13,9 @@ import (
 // cloudConfig represents the subset of cloud-init cloud-config keys that
 // actions may contribute. Only these keys are merged from action fragments.
 type cloudConfig struct {
-	Packages   []string          `yaml:"packages,omitempty"   json:"packages,omitempty"`
-	Runcmd     []string          `yaml:"runcmd,omitempty"     json:"runcmd,omitempty"`
-	WriteFiles []cloudWriteFile  `yaml:"write_files,omitempty" json:"write_files,omitempty"`
+	Packages   []string         `yaml:"packages,omitempty"   json:"packages,omitempty"`
+	Runcmd     []string         `yaml:"runcmd,omitempty"     json:"runcmd,omitempty"`
+	WriteFiles []cloudWriteFile `yaml:"write_files,omitempty" json:"write_files,omitempty"`
 }
 
 type cloudWriteFile struct {
@@ -150,7 +150,7 @@ func buildFullCloudInitUserdata(passwordHash, plainPassword, sshPublicKey, hostn
 	b.WriteString("  expire: false\n")
 	if plainPassword != "" {
 		b.WriteString("  users:\n")
-		b.WriteString(fmt.Sprintf("    - name: forgemill\n"))
+		b.WriteString("    - name: forgemill\n")
 		b.WriteString(fmt.Sprintf("      password: %s\n", plainPassword))
 		b.WriteString("      type: text\n")
 	}

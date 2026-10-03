@@ -7,7 +7,7 @@ import { useProviders } from "@/context/ProviderContext";
 import { usePageSize } from "@/hooks/usePageSize";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
-import type { ManagedVM, VMSnapshot, Action, ActionExecution, ActionParameter, ResourceItem, VMNIC } from "@/types";
+import type { ManagedVM, VMSnapshot, Action, ActionExecution, ResourceItem, VMNIC } from "@/types";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,8 +21,8 @@ import { useNowTick } from "@/hooks/useNowTick";
 import { vmLifecycleLabel, totalLifetimeRuntimeMs, formatDuration } from "@/lib/vmLifecycle";
 import { timeAgo } from "@/lib/utils";
 import {
-  Power, Play, Square, RotateCcw, Pause, Trash2,
-  Camera, Undo2, ExternalLink, Cpu, MemoryStick, HardDrive, ArrowLeft,
+  Play, Square, RotateCcw, Pause, Trash2,
+  Camera, Undo2, ExternalLink, Cpu, MemoryStick, HardDrive,
   RefreshCw, KeyRound, Eye, EyeOff, Copy, Terminal, X,
   CheckCircle, XCircle, Loader2, AlertTriangle, Settings2,
   Clock, History, Network,

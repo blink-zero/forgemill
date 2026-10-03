@@ -1,43 +1,8 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { targets as targetApi } from "@/api/client";
+import type { ProviderMetadata } from "@/types";
 
-// Provider metadata from backend
-export interface ProviderDefaults {
-  port: number;
-  username: string;
-  name_placeholder: string;
-  hostname_placeholder: string;
-}
-
-export interface ProviderFeatures {
-  folders: boolean;
-  clusters: boolean;
-  disk_provisioning: boolean;
-  linked_clones: boolean;
-  vlan_tagging: boolean;
-  nic_attach: boolean;
-}
-
-export interface DeployField {
-  key: string;
-  label: string;
-  resource: string;
-  placeholder?: string;
-}
-
-export interface ProviderMetadata {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  defaults: ProviderDefaults;
-  hints: Record<string, string>;
-  features: ProviderFeatures;
-  deploy_fields: DeployField[];
-  // Adapter models AddNIC accepts, first is the default. Absent when
-  // features.nic_attach is false.
-  nic_adapter_types?: string[];
-}
+export type { ProviderDefaults, ProviderFeatures, DeployField, ProviderMetadata } from "@/types";
 
 interface ProviderContextType {
   providers: ProviderMetadata[];
