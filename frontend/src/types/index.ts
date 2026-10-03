@@ -265,34 +265,6 @@ export interface VMSnapshot {
   created_at: string;
 }
 
-export interface Blueprint {
-  id: number;
-  name: string;
-  description: string;
-  template_id: number | null;
-  target_id: number | null;
-  config_json: string;
-  created_by: number;
-  created_at: string;
-  updated_at: string;
-  template_name: string;
-  target_name: string;
-}
-
-export interface BulkDeployment {
-  id: number;
-  name: string;
-  status: string;
-  total_vms: number;
-  completed_vms: number;
-  failed_vms: number;
-  parallel: boolean;
-  created_by: number;
-  created_at: string;
-  completed_at: string | null;
-  deployments: Deployment[];
-}
-
 export interface AuthSource {
   id: number;
   name: string;
@@ -509,4 +481,42 @@ export interface VMNIC {
   // Guest-reported IPs on this adapter (IPv4 first); empty when guest
   // tools / the guest agent aren't reporting.
   addresses: string[];
+}
+
+// Provider metadata from backend
+export interface ProviderDefaults {
+  port: number;
+  username: string;
+  name_placeholder: string;
+  hostname_placeholder: string;
+}
+
+export interface ProviderFeatures {
+  folders: boolean;
+  clusters: boolean;
+  disk_provisioning: boolean;
+  linked_clones: boolean;
+  vlan_tagging: boolean;
+  nic_attach: boolean;
+}
+
+export interface DeployField {
+  key: string;
+  label: string;
+  resource: string;
+  placeholder?: string;
+}
+
+export interface ProviderMetadata {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  defaults: ProviderDefaults;
+  hints: Record<string, string>;
+  features: ProviderFeatures;
+  deploy_fields: DeployField[];
+  // Adapter models AddNIC accepts, first is the default. Absent when
+  // features.nic_attach is false.
+  nic_adapter_types?: string[];
 }

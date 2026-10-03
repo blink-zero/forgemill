@@ -1,6 +1,6 @@
 import { useEffect, useState, Fragment } from "react";
 import { users as usersApi, settings as settingsApi, webhooks as webhooksApi, apiKeys as apiKeysApi, auditLogs as auditLogsApi, factoryApi } from "@/api/client";
-import type { AuditLog, PaginatedAuditLogs } from "@/api/client";
+import type { PaginatedAuditLogs } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useTimezone, COMMON_TIMEZONES } from "@/hooks/useTimezone";
 import type { User, Webhook, APIKey, PrereqStatus } from "@/types";
@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon, Copy, Send, Pencil, Check, Info, UserCheck, UserX, LogOut as LogOutIcon, MoreHorizontal, Search, Wifi } from "lucide-react";
+import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon, Copy, Send, Pencil, Check, UserCheck, UserX, LogOut as LogOutIcon, MoreHorizontal, Search, Wifi } from "lucide-react";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { ForgemillLogo } from "@/components/ForgemillLogo";
 import { Select } from "@/components/ui/select";
@@ -164,8 +164,8 @@ export default function SettingsPage() {
       setShowForm(false);
       setForm({ username: "", password: "", display_name: "", role: "user" });
       refreshUsers();
-    } catch (e: any) {
-      const msg = e?.response?.data?.error || e?.message || "Failed to create user";
+    } catch (e: unknown) {
+      const msg = getErrorMessage(e, "Failed to create user");
       setFormError(msg);
     }
   };
@@ -181,8 +181,9 @@ export default function SettingsPage() {
       setPwdMsg("Password updated ✓");
       setNewPwd("");
       setTimeout(() => { setPwdUserId(null); setPwdMsg(""); }, 1500);
-    } catch (e: any) {
-      setPwdMsg(e?.response?.data?.error || "Failed to change password");
+    } catch (e: unknown) {
+      const apiErr = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setPwdMsg(apiErr || "Failed to change password");
     }
   };
 
@@ -193,7 +194,7 @@ export default function SettingsPage() {
       await usersApi.delete(user.id);
       toast(`User "${user.username}" deleted.`);
       refreshUsers();
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast(getErrorMessage(e, "Failed to delete user"), "error");
     }
   };
@@ -213,7 +214,7 @@ export default function SettingsPage() {
       await usersApi.setActive(user.id, next);
       toast(next ? `User "${user.username}" enabled.` : `User "${user.username}" disabled and signed out.`);
       refreshUsers();
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast(getErrorMessage(e, "Failed to update status"), "error");
     }
   };
@@ -229,7 +230,7 @@ export default function SettingsPage() {
       await usersApi.forceLogout(user.id);
       toast(`Signed "${user.username}" out of all sessions.`);
       refreshUsers();
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast(getErrorMessage(e, "Failed to force logout"), "error");
     }
   };
@@ -241,7 +242,7 @@ export default function SettingsPage() {
       setUsersList(usersList.map((u) => (u.id === userId ? { ...u, display_name: name } : u)));
       setEditingNameUserId(null);
       toast("Display name updated");
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast(getErrorMessage(e, "Failed to update display name"), "error");
     }
   };
@@ -270,8 +271,8 @@ export default function SettingsPage() {
       }
       resetWebhookForm();
       refreshWebhooks();
-    } catch (e: any) {
-      setWebhookFormError(e?.response?.data?.error || e?.message || "Failed to save webhook");
+    } catch (e: unknown) {
+      setWebhookFormError(getErrorMessage(e, "Failed to save webhook"));
     }
   };
 
@@ -335,8 +336,8 @@ export default function SettingsPage() {
       setShowApiKeyForm(false);
       setApiKeyForm({ name: "", expires_at: "", role: "", scope: "" });
       refreshApiKeys();
-    } catch (e: any) {
-      setApiKeyFormError(e?.response?.data?.error || e?.message || "Failed to create API key");
+    } catch (e: unknown) {
+      setApiKeyFormError(getErrorMessage(e, "Failed to create API key"));
     }
   };
 

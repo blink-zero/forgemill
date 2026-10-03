@@ -9,6 +9,10 @@ import (
 	"github.com/forgemill/forgemill/internal/db"
 	"github.com/forgemill/forgemill/internal/db/models"
 	"github.com/forgemill/forgemill/internal/provider"
+	// Blank imports register the in-tree providers' metadata and factories
+	// (init side effects), exactly as cmd/forgemill/main.go does.
+	_ "github.com/forgemill/forgemill/internal/provider/proxmox"
+	_ "github.com/forgemill/forgemill/internal/provider/vmware"
 )
 
 // nicTestKey satisfies crypto.NewEncryptor's 32-char minimum.

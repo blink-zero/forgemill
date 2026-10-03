@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InfoTip } from "@/components/ui/tooltip";
-import { ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Rocket, Info, Settings2, Box, Loader2, Hammer, RotateCcw, Search, AlertTriangle, AlertCircle } from "lucide-react";
+import { ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Rocket, Settings2, Box, Loader2, Hammer, RotateCcw, Search, AlertTriangle, AlertCircle } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { getErrorMessage } from "@/lib/utils";

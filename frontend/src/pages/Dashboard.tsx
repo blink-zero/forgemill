@@ -5,7 +5,7 @@ import type { DashboardData } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Server, Box, Rocket, Monitor, Zap, Plus, ArrowRight, Terminal, Clock, Loader2 } from "lucide-react";
+import { Server, Box, Rocket, Monitor, Zap, Plus, ArrowRight, Terminal, Clock } from "lucide-react";
 import ProviderIcon, { providerLabel } from "@/components/ProviderIcon";
 import { SkeletonCard, Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/ui/page-header";

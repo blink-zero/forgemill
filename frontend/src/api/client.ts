@@ -13,8 +13,6 @@ import type {
   PaginatedResponse,
   ManagedVM,
   VMSnapshot,
-  Blueprint,
-  BulkDeployment,
   AuthSource,
   OSDefinition,
   TemplateBuild,
@@ -32,9 +30,9 @@ import type {
   Webhook,
   APIKey,
   APIKeyCreateResponse,
-  Notification,
   NotificationListResponse,
   VMNIC,
+  ProviderMetadata,
 } from "@/types";
 
 const api = axios.create({
@@ -104,7 +102,7 @@ export const targets = {
   list: () => api.get<Target[]>("/targets"),
   get: (id: number) => api.get<Target>(`/targets/${id}`),
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getTypes: () => api.get<{ types: any[] }>("/targets/types"),
+  getTypes: () => api.get<{ types: ProviderMetadata[] }>("/targets/types"),
   create: (data: Partial<Target> & { password: string }) =>
     api.post<Target>("/targets", data),
   update: (id: number, data: Partial<Target> & { password?: string }) =>
@@ -202,22 +200,6 @@ export const vms = {
   console: (id: number) => api.get<{ url: string }>(`/vms/${id}/console`),
   credentials: (id: number) => api.get<{ username: string; password: string }>(`/vms/${id}/credentials`),
   resetHostKey: (id: number) => api.post(`/vms/${id}/reset-host-key`),
-};
-
-export const blueprints = {
-  list: () => api.get<Blueprint[]>("/blueprints"),
-  get: (id: number) => api.get<Blueprint>(`/blueprints/${id}`),
-  create: (data: Partial<Blueprint>) => api.post<Blueprint>("/blueprints", data),
-  update: (id: number, data: Partial<Blueprint>) => api.put<Blueprint>(`/blueprints/${id}`, data),
-  delete: (id: number) => api.delete(`/blueprints/${id}`),
-  deploy: (id: number, data: { vm_name: string }) =>
-    api.post<Deployment>(`/blueprints/${id}/deploy`, data),
-};
-
-export const bulkDeploy = {
-  list: () => api.get<BulkDeployment[]>("/deploy/bulk"),
-  get: (id: number) => api.get<BulkDeployment>(`/deploy/bulk/${id}`),
-  create: (data: Record<string, unknown>) => api.post<BulkDeployment>("/deploy/bulk", data),
 };
 
 export const authSources = {

@@ -534,9 +534,6 @@ func (e *Engine) handleCancel(buildID int64, log *strings.Builder) {
 	})
 }
 
-func (e *Engine) runCommand(ctx context.Context, dir string, sendLog func(string), name string, args ...string) error {
-	return e.runCommandEnv(ctx, dir, nil, sendLog, name, args...)
-}
 
 func (e *Engine) runCommandEnv(ctx context.Context, dir string, env []string, sendLog func(string), name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)

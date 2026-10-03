@@ -9,8 +9,6 @@ import (
 	"github.com/forgemill/forgemill/internal/db"
 	"github.com/forgemill/forgemill/internal/db/models"
 	"github.com/forgemill/forgemill/internal/provider"
-	"github.com/forgemill/forgemill/internal/provider/proxmox"
-	"github.com/forgemill/forgemill/internal/provider/vmware"
 )
 
 type TargetService struct {
@@ -176,42 +174,9 @@ func (s *TargetService) getProvider(id int64) (provider.Provider, error) {
 		return factory(target.Hostname, target.Port, target.Username, password, target.ValidateCerts), nil
 	}
 
-	// FALLBACK: Hardcoded switch for backward compatibility.
-	//
-	// WHY THIS EXISTS:
-	// The provider registry (above) is the preferred path for modularity, but this
-	// fallback ensures existing functionality works even if init() registration fails
-	// due to import issues, panics, or edge cases we haven't anticipated.
-	//
-	// WHEN TO REMOVE:
-	// This fallback can be safely removed after:
-	//   1. At least 1-2 weeks of production use with the registry approach
-	//   2. Multiple successful deploy cycles on all platforms (vcenter, esxi, proxmox)
-	//   3. At least one Template Factory build per platform
-	//   4. Container restarts and updates without issues
-	//   5. Confidence that the registry approach handles all edge cases
-	//
-	// COST OF KEEPING: ~15 lines of code, zero runtime overhead when registry works.
-	// COST OF REMOVING TOO EARLY: Total provider failure if init() ever fails.
-	//
-	// Added: 2026-03-10 as part of provider modularity refactor.
-	switch target.Type {
-	case "vcenter":
-		return vmware.New(target.Hostname, target.Port, target.Username, password, target.ValidateCerts), nil
-	case "esxi":
-		return vmware.NewESXi(target.Hostname, target.Port, target.Username, password, target.ValidateCerts), nil
-	case "proxmox":
-		port := target.Port
-		if port == 443 {
-			port = 8006
-		}
-		p := proxmox.New(target.Hostname, port, target.Username, password, target.ValidateCerts)
-		// Configure TOFU for SSH host key verification
-		p.SetTOFU(target.ID, s.db)
-		return p, nil
-	default:
-		return nil, fmt.Errorf("unsupported target type: %s", target.Type)
-	}
+	// Both in-tree providers register themselves in init(); an unknown type
+	// here means a row with a type this build doesn't ship a provider for.
+	return nil, fmt.Errorf("unsupported target type: %s", target.Type)
 }
 
 func guessIcon(osType string) string {
