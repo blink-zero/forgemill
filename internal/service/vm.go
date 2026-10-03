@@ -694,10 +694,6 @@ func (s *VMService) ExpandDisk(ctx context.Context, id int64, diskKey, newSizeGB
 		return fmt.Errorf("VM not found: %w", err)
 	}
 
-	if newSizeGB <= vm.DiskGB {
-		return fmt.Errorf("new disk size must be larger than current size (%dGB)", vm.DiskGB)
-	}
-
 	p, err := s.targets.GetProvider(vm.TargetID)
 	if err != nil {
 		return fmt.Errorf("get provider: %w", err)
@@ -708,12 +704,42 @@ func (s *VMService) ExpandDisk(ctx context.Context, id int64, diskKey, newSizeGB
 		return fmt.Errorf("connect: %w", err)
 	}
 
+	// Compare against the size of the disk actually being expanded. The
+	// guard used to compare with vm.DiskGB — the VM's primary/total size —
+	// which blocked any growth of a smaller secondary disk (#181).
+	disks, err := p.ListDisks(ctx, vm.VMRef)
+	if err != nil {
+		return fmt.Errorf("list disks: %w", err)
+	}
+	var target *provider.Disk
+	for i := range disks {
+		if disks[i].Key == diskKey {
+			target = &disks[i]
+			break
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("%w: disk %d not found on this VM", ErrInvalidDiskSize, diskKey)
+	}
+	label := target.Label
+	if label == "" {
+		label = fmt.Sprintf("disk %d", diskKey)
+	}
+	if newSizeGB <= target.SizeGB {
+		return fmt.Errorf("%w: new size must be larger than the current size of %s (%dGB)", ErrInvalidDiskSize, label, target.SizeGB)
+	}
+
 	if err := p.ExpandDisk(ctx, vm.VMRef, diskKey, newSizeGB); err != nil {
 		return err
 	}
 
-	// Update DB with new disk size
-	if err := s.db.UpdateManagedVMResources(id, vm.CPU, vm.MemoryMB, newSizeGB); err != nil {
+	// Grow the recorded size by the delta (vm.DiskGB is the VM-level figure,
+	// not this disk's); the scheduled sync below makes it exact.
+	recorded := newSizeGB
+	if vm.DiskGB > 0 {
+		recorded = vm.DiskGB + (newSizeGB - target.SizeGB)
+	}
+	if err := s.db.UpdateManagedVMResources(id, vm.CPU, vm.MemoryMB, recorded); err != nil {
 		slog.Error("failed to update VM disk_gb after expand", "vm_id", id, "error", err)
 	}
 	s.scheduleSyncAll(5 * time.Second)
@@ -753,6 +779,9 @@ var (
 	// ErrRequiresPowerOff is the provider sentinel re-exported so handlers
 	// depend on the service package only.
 	ErrRequiresPowerOff = provider.ErrRequiresPowerOff
+	// ErrInvalidDiskSize marks an expand request the caller got wrong: unknown
+	// disk key, or a size that is not larger than that disk's current size.
+	ErrInvalidDiskSize = errors.New("invalid disk size")
 )
 
 // AddNICRequest is the service-level input for AddNIC.
