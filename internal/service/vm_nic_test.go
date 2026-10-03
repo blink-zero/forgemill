@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/forgemill/forgemill/internal/crypto"
@@ -387,10 +388,25 @@ func TestSyncAllFallsBackToStatusWhenListingLacksIPForRunningVM(t *testing.T) {
 
 func TestSyncAllStillUsesStatusWhenListingUnavailable(t *testing.T) {
 	svc, _, _ := newNICTestService(t, "esxi") // fakeNIC.vms nil => ListVMs errors
-	if _, err := svc.SyncAll(context.Background(), false); err != nil {
+	res, err := svc.SyncAll(context.Background(), false)
+	if err != nil {
 		t.Fatalf("SyncAll: %v", err)
 	}
 	if fakeNIC.statusCalls != 1 {
 		t.Errorf("with no listing every VM needs a status call; got %d", fakeNIC.statusCalls)
+	}
+	// Operators must be able to see from the result that orphan detection
+	// was skipped, not only from a Warn log line.
+	found := false
+	for _, e := range res.Errors {
+		if strings.Contains(e, "orphan detection skipped") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("listing failure should be reported in result.Errors, got %v", res.Errors)
+	}
+	if res.Orphaned != 0 {
+		t.Errorf("no VM may be treated as orphaned when the listing failed, got %d", res.Orphaned)
 	}
 }
