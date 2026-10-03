@@ -285,6 +285,10 @@ func (h *VMHandler) ExpandDisk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svc.ExpandDisk(r.Context(), id, int(diskKey), req.NewSizeGB); err != nil {
+		if errors.Is(err, service.ErrInvalidDiskSize) {
+			writeError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		writeErrorLog(w, "failed to expand disk", http.StatusInternalServerError, err)
 		return
 	}
