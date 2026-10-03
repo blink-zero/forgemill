@@ -407,3 +407,30 @@ For deployments behind the configured proxy the observed `RemoteAddr` is identic
 6. **Q-1, Q-2, Q-3** — frontend split and DB scanners, each gated by the screenshot diff / `go test`.
 7. **Q-4** — `DeployVM` decomposition, last, with `vcsim` coverage in place.
 8. Track **R-6** and **R-7** as bugs (they change behaviour, deliberately).
+
+## 5. Execution status (2026-10-03)
+
+Every item was delivered as its own PR into `dev`, each gated by `go build/vet/test`, `tsc`, `vite build` and — for anything touching rendered output — the Playwright screenshot diff against the previous `dev` build.
+
+| item(s) | PR | notes |
+|---|---|---|
+| R-1, R-2, R-3 — error contracts | #183 | sentinels + `errors.Is`; SQLite unique-constraint by result code |
+| P-1, P-2, P-3, P-4 (and R-4) — sync hot path | #184 | `nodeFor` cache; `SyncAll` uses the listing; one config fetch per op |
+| S-1, S-2 — trusted-proxy RealIP | #185 | `FORGEMILL_TRUSTED_PROXIES`; README row |
+| Q-5, Q-6, Q-7, Q-8, Q-9, T-1, T-2, T-4 — dead code & strictness | #187 | `noUnusedLocals`/`noUnusedParameters` on; Q-10 withdrawn (CLI stdout, not logs); Q-8 surfaced the Proxmox `SetTOFU` gap → #186 |
+| Q-3 — one scanner per table | #188 | API JSON byte-identical on the read endpoints |
+| Q-2 — shared status helpers | #189 | mappings kept verbatim; reconciliation deferred on purpose |
+| Q-1 — `VMDetail` split | #190 | `pages/vm/*`; one `copyText` |
+| X-1 — harness in-repo + CI gate | #191 | `frontend/e2e/`, `ui-regression.yml`; made OS-definition order deterministic |
+| Q-4 — `DeployVM` decomposition | #192 | vcsim-backed tests for clone, errors and the ESXi fallback |
+| R-5 — socket closed on unmount | #193 | |
+| P-6 — visibility-aware polling | #194 | hidden tabs stop polling (deliberate) |
+| R-10 — single `GetAction` | #195 | |
+| P-7 — `time.AfterFunc` | #196 | |
+| R-11 — listing failure in `SyncAllResult` | #197 | additive |
+| P-5 — single-statement `GetStats` | #198 | |
+| R-9 — context-aware sleeps | #199 | `internal/clock.Sleep` |
+| R-8 — swallowed catches | #200 | seven sites now toast; deliberate silences documented in the PR |
+| T-3 — `qemuConfig` accessors | #201 | named map + `Str`/`Int`/`Has` rather than a fixed struct |
+| R-6, R-7 — behavioural bugs | #181, #182 | tracked as issues, not folded into the parity work |
+| — Proxmox SSH TOFU never wired on the registry path | #186 | found during Q-8; behavioural, tracked |
