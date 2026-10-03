@@ -40,6 +40,11 @@ async function mockHypervisor(page) {
         { key: 4001, label: "Network adapter 2", adapter_type: "vmxnet3", network: "dvPG-Backend", mac_address: "00:50:56:AA:BB:02", connected: false, start_connected: true, addresses: [] },
         { key: 4002, label: "Network adapter 3", adapter_type: "e1000e", network: "dvPG-Backend", mac_address: "00:50:56:AA:BB:03", connected: false, pending: true, addresses: [] }]) })
     : route.continue());
+  await page.route("**/api/vms/*/disks", (route) => route.request().method() === "GET"
+    ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([
+        { key: 2000, label: "Hard disk 1", size_gb: 40, datastore: "ds-nvme-01", provisioning: "thin", backing: "[ds-nvme-01] web-01/web-01.vmdk" },
+        { key: 2001, label: "Hard disk 2", size_gb: 100, datastore: "ds-sata-01", provisioning: "thick", backing: "[ds-nvme-01] web-01/web-01_1.vmdk" }]) })
+    : route.continue());
   await page.route("**/api/vms/*/credentials", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ username: "forgemill", password: "s3cr3t-Pa55" }) }));
   // The only server-clock value the tour renders: the admin's last login,
   // stamped at real time by the login the tour itself just performed. Pin it
@@ -93,9 +98,12 @@ async function run(theme) {
   await page.getByRole("button", { name: /^Resize$/ }).click(); await sleep(400);
   const addNic = page.getByRole("button", { name: /Add Network Adapter/ });
   if (await addNic.count()) { await addNic.click(); await sleep(1200); }
+  const addDisk = page.getByRole("button", { name: /^Add Disk$/ });
+  if (await addDisk.count()) { await addDisk.click(); await sleep(1200); }
   await shot("06b-vm-operations-open", true);
   await page.getByRole("button", { name: /^Resize$/ }).click(); await sleep(300);
   if (await addNic.count()) { await addNic.click(); await sleep(300); }
+  if (await addDisk.count()) { await addDisk.click(); await sleep(300); }
   const reveal = page.getByRole("button", { name: /Reveal Credentials/ }).first();
   if (await reveal.count()) { await reveal.click(); await sleep(900); await shot("06c-vm-credentials", true); }
   await page.getByRole("button", { name: "Destroy VM" }).click(); await sleep(600);

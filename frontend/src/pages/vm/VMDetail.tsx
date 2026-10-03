@@ -6,7 +6,7 @@ import type { DeletePreview } from "@/api/client";
 import { useProviders } from "@/context/ProviderContext";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
-import type { ManagedVM, VMSnapshot, ResourceItem, VMNIC } from "@/types";
+import type { ManagedVM, VMSnapshot, ResourceItem, VMNIC, VMDisk } from "@/types";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +27,7 @@ import { getErrorMessage, copyText } from "@/lib/utils";
 import { powerVariant, powerLabel } from "@/lib/status";
 
 import { NetworkAdaptersCard } from "./NetworkAdaptersCard";
+import { DisksCard } from "./DisksCard";
 import { CredentialsCard } from "./CredentialsCard";
 import { ActionsTab } from "./ActionsTab";
 
@@ -54,9 +55,21 @@ export default function VMDetail() {
   const [resizeCPU, setResizeCPU] = useState(0);
   const [resizeMem, setResizeMem] = useState(0);
   const [showExpandDisk, setShowExpandDisk] = useState(false);
-  const [disks, setDisks] = useState<{ key: number; label: string; size_gb: number }[]>([]);
+  // Live disk inventory (GET /vms/:id/disks) — shared by the Disks card,
+  // the Expand Disk panel and the Add Disk flow. null = not loaded yet.
+  const [diskList, setDiskList] = useState<VMDisk[] | null>(null);
+  const [disksLoading, setDisksLoading] = useState(false);
+  const [disksError, setDisksError] = useState<string | null>(null);
+  const disks = diskList ?? [];
   const [expandDiskKey, setExpandDiskKey] = useState<number | null>(null);
   const [expandDiskSize, setExpandDiskSize] = useState(0);
+  // Add Disk — offered when the target's provider advertises features.disk_attach.
+  const [showAddDisk, setShowAddDisk] = useState(false);
+  const [addDiskSize, setAddDiskSize] = useState(20);
+  const [addDiskDatastore, setAddDiskDatastore] = useState("");
+  const [addDiskProvisioning, setAddDiskProvisioning] = useState("");
+  const [diskDatastores, setDiskDatastores] = useState<ResourceItem[]>([]);
+  const [diskDatastoresLoading, setDiskDatastoresLoading] = useState(false);
   // Add Network Adapter — only offered when the VM's target type advertises
   // features.nic_attach (vSphere today). Networks come from the target's live
   // resource inventory, the same list the deploy form uses.
@@ -182,17 +195,32 @@ export default function VMDetail() {
     }
   };
 
-  const loadDisks = async () => {
+  const loadDisks = useCallback(async (): Promise<VMDisk[]> => {
+    if (isNaN(vmId)) return [];
+    setDisksLoading(true);
     try {
       const res = await vmApi.listDisks(vmId);
       const data = res.data || [];
-      setDisks(data);
-      if (data.length > 0) {
-        setExpandDiskKey(data[0].key);
-        setExpandDiskSize(data[0].size_gb + 10);
-      }
+      setDiskList(data);
+      setDisksError(null);
+      return data;
     } catch (e) {
-      toast(getErrorMessage(e, "Failed to load disks"), "error");
+      setDiskList([]);
+      setDisksError(getErrorMessage(e, "Could not read disks from the hypervisor"));
+      return [];
+    } finally {
+      setDisksLoading(false);
+    }
+  }, [vmId]);
+
+  useEffect(() => { loadDisks(); }, [loadDisks]);
+
+  // Expand Disk opens on a fresh read and pre-selects the first disk.
+  const openExpandDisk = async () => {
+    const data = await loadDisks();
+    if (data.length > 0) {
+      setExpandDiskKey(data[0].key);
+      setExpandDiskSize(data[0].size_gb + 10);
     }
   };
 
@@ -203,6 +231,7 @@ export default function VMDetail() {
       await vmApi.expandDisk(vmId, expandDiskKey, { new_size_gb: expandDiskSize });
       setShowExpandDisk(false);
       reload();
+      loadDisks();
       toast("Disk expanded successfully");
     } catch (e) {
       toast(getErrorMessage(e, "Failed to expand disk"), "error");
@@ -245,6 +274,50 @@ export default function VMDetail() {
   // so the UI never offers a model the backend would reject.
   const nicAdapterTypes = nicProviderMeta?.nic_adapter_types?.length ? nicProviderMeta.nic_adapter_types : ["vmxnet3"];
   const nicVlanSupported = Boolean(nicProviderMeta?.features?.vlan_tagging);
+  const diskAttachSupported = Boolean(nicProviderMeta?.features?.disk_attach);
+  // Provisioning is only offered where the provider publishes choices
+  // (vSphere: thin/thick); Proxmox's storage decides, so no selector.
+  const diskProvisioningTypes = nicProviderMeta?.disk_provisioning_types ?? [];
+
+  const loadDiskDatastores = async () => {
+    if (!vm) return;
+    if (!addDiskProvisioning && diskProvisioningTypes.length > 0) setAddDiskProvisioning(diskProvisioningTypes[0]);
+    setDiskDatastoresLoading(true);
+    try {
+      const res = await targetApi.resources(vm.target_id);
+      setDiskDatastores(res.data?.datastores || []);
+    } catch (e) {
+      toast(getErrorMessage(e, "Failed to load target datastores"), "error");
+    } finally {
+      setDiskDatastoresLoading(false);
+    }
+  };
+
+  const doAddDisk = async () => {
+    if (addDiskSize <= 0) return;
+    setActing(true);
+    try {
+      const res = await vmApi.addDisk(vmId, {
+        size_gb: addDiskSize,
+        ...(addDiskDatastore ? { datastore: addDiskDatastore } : {}),
+        ...(addDiskProvisioning ? { provisioning: addDiskProvisioning } : {}),
+      });
+      const disk = res.data?.disk;
+      const summary = disk?.label ? `${disk.label} (${disk.size_gb} GB${disk.datastore ? ` on ${disk.datastore}` : ""})` : `${addDiskSize} GB disk`;
+      if (disk?.pending) {
+        toast(`${summary} saved — it attaches at the next power cycle (disk hot-plug is disabled on this VM)`);
+      } else {
+        toast(`${summary} attached — partition and format it inside the guest`);
+      }
+      setShowAddDisk(false);
+      reload();
+      loadDisks();
+    } catch (e) {
+      toast(getErrorMessage(e, "Failed to add disk"), "error");
+    } finally {
+      setActing(false);
+    }
+  };
 
   const loadNICNetworks = async () => {
     if (!vm) return;
@@ -478,6 +551,9 @@ export default function VMDetail() {
             {/* Network adapters — live from the hypervisor */}
             <NetworkAdaptersCard nics={nics} loading={nicsLoading} error={nicsError} onRefresh={loadNICs} onCopy={copyAndNotify} />
 
+            {/* Disks — live from the hypervisor */}
+            <DisksCard disks={diskList} loading={disksLoading} error={disksError} onRefresh={loadDisks} />
+
             </div>
             <div className="space-y-4">
             {/* Power & Management */}
@@ -521,7 +597,7 @@ export default function VMDetail() {
                 <div className="pt-2 space-y-2">
                   <div className="flex items-center gap-1.5">
                     <Button size="sm" variant="outline" className="flex-1 justify-start gap-2" onClick={async () => {
-                      if (!showExpandDisk) await loadDisks();
+                      if (!showExpandDisk) await openExpandDisk();
                       setShowExpandDisk(!showExpandDisk);
                     }}>
                       <HardDrive className="h-3.5 w-3.5" /> Expand Disk
@@ -566,6 +642,52 @@ export default function VMDetail() {
                     </div>
                   )}
                 </div>
+
+                {diskAttachSupported && (
+                  <div className="pt-2 space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <Button size="sm" variant="outline" className="flex-1 justify-start gap-2" onClick={async () => {
+                        if (!showAddDisk) await loadDiskDatastores();
+                        setShowAddDisk(!showAddDisk);
+                      }}>
+                        <HardDrive className="h-3.5 w-3.5" /> Add Disk
+                      </Button>
+                      <InfoTip text="Attaches a new, empty virtual disk to this VM without a power cycle — hot-added on vSphere, and on Proxmox when the VM's hotplug setting includes disk (otherwise it attaches at the next power cycle). The guest sees a raw block device: partition and format it inside the OS afterwards." />
+                    </div>
+                    {showAddDisk && (
+                      <div className="space-y-2 border rounded-md p-3 bg-muted/30">
+                        <div>
+                          <Label className="text-xs">Size (GB)</Label>
+                          <Input type="number" min={1} max={65536} value={addDiskSize || ""} onChange={(e) => setAddDiskSize(Number(e.target.value))} placeholder="20" />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Datastore</Label>
+                          {diskDatastoresLoading ? (
+                            <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" /> Loading datastores…</p>
+                          ) : (
+                            <Select value={addDiskDatastore} onChange={(e) => setAddDiskDatastore(e.target.value)}>
+                              <option value="">Same as the VM's first disk</option>
+                              {diskDatastores.map((d) => (
+                                <option key={d.id} value={d.name}>{d.name}</option>
+                              ))}
+                            </Select>
+                          )}
+                        </div>
+                        {diskProvisioningTypes.length > 0 && (
+                          <div>
+                            <Label className="text-xs">Provisioning</Label>
+                            <Select value={addDiskProvisioning} onChange={(e) => setAddDiskProvisioning(e.target.value)}>
+                              {diskProvisioningTypes.map((t, i) => (
+                                <option key={t} value={t}>{t}{i === 0 ? " (recommended)" : ""}</option>
+                              ))}
+                            </Select>
+                          </div>
+                        )}
+                        <Button size="sm" onClick={doAddDisk} disabled={acting || addDiskSize <= 0} className="w-full">Attach Disk</Button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {nicAttachSupported && (
                   <div className="pt-2 space-y-2">
