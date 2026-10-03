@@ -36,6 +36,7 @@ type fakeNICProvider struct {
 	expandCalls [][2]int          // (diskKey, newSizeGB) passed to ExpandDisk
 	addDiskSpec []provider.DiskSpec
 	addDiskErr  error
+	deployOK    bool // DeployVM/GetDeployProgress succeed (vm-200) instead of erroring
 }
 
 var fakeNIC *fakeNICProvider
@@ -66,9 +67,15 @@ func (f *fakeNICProvider) GetTemplateDetail(context.Context, string) (*provider.
 	return nil, errTestList
 }
 func (f *fakeNICProvider) DeployVM(context.Context, *provider.DeploySpec) (*provider.DeployResult, error) {
+	if f.deployOK {
+		return &provider.DeployResult{TaskID: "task-1", VMID: "vm-200"}, nil
+	}
 	return nil, errTestList
 }
 func (f *fakeNICProvider) GetDeployProgress(context.Context, string) (*provider.Progress, error) {
+	if f.deployOK {
+		return &provider.Progress{State: provider.ProgressStateSuccess, Percent: 100, Message: "Deployment completed"}, nil
+	}
 	return nil, errTestList
 }
 func (f *fakeNICProvider) PowerOn(context.Context, string) error  { return errTestList }

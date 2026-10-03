@@ -1,13 +1,14 @@
 package service
 
 import (
-	"errors"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,12 +27,12 @@ import (
 var validVMName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
 type DeployService struct {
-	db        *db.DB
-	targets   *TargetService
-	hub       ProgressHub
-	webhooks  *WebhookService
-	notifier  *NotificationService
-	encryptor Encryptor
+	db               *db.DB
+	targets          *TargetService
+	hub              ProgressHub
+	webhooks         *WebhookService
+	notifier         *NotificationService
+	encryptor        Encryptor
 	onDeployComplete func() // called after a deployment completes
 	// V3-H8: Cancel map for deployment goroutine cancellation
 	mu      sync.Mutex
@@ -69,7 +70,7 @@ func NewDeployService(db *db.DB, targets *TargetService, hub ProgressHub, webhoo
 		hub:       hub,
 		webhooks:  webhooks,
 		encryptor: enc,
-		cancels:  make(map[int64]context.CancelFunc),
+		cancels:   make(map[int64]context.CancelFunc),
 	}
 }
 
@@ -97,7 +98,31 @@ type DeployRequest struct {
 	DiskProvisioning string   `json:"disk_provisioning,omitempty"`
 	BulkDeploymentID *int64   `json:"bulk_deployment_id,omitempty"`
 	ActionIDs        []int64  `json:"action_ids,omitempty"`
+	// ExtraDisks / ExtraNICs are attached after the clone succeeds, using the
+	// same provider operations as the standalone Add Disk / Add Network
+	// Adapter endpoints. A failed attach fails the deployment.
+	ExtraDisks []ExtraDisk `json:"extra_disks,omitempty"`
+	ExtraNICs  []ExtraNIC  `json:"extra_nics,omitempty"`
 }
+
+// ExtraDisk is an additional disk requested at deploy time.
+type ExtraDisk struct {
+	SizeGB       int    `json:"size_gb"`
+	Datastore    string `json:"datastore,omitempty"`    // "" = same as the VM's first disk
+	Provisioning string `json:"provisioning,omitempty"` // only where the provider publishes DiskProvisioningTypes
+}
+
+// ExtraNIC is an additional network adapter requested at deploy time.
+type ExtraNIC struct {
+	Network     string `json:"network"`
+	AdapterType string `json:"adapter_type,omitempty"`
+	VLANTag     int    `json:"vlan_tag,omitempty"`
+	Connected   *bool  `json:"connected,omitempty"` // nil = true
+}
+
+// maxDeployExtras bounds the extras per request; more than this is almost
+// certainly a mistake and would keep a deploy busy for a long time.
+const maxDeployExtras = 8
 
 // DeployResponse wraps the deployment record with one-time credential fields.
 type DeployResponse struct {
@@ -117,7 +142,7 @@ var ErrInvalidDeployRequest = errors.New("invalid deploy request")
 // shows it verbatim as a blocker) while matching ErrInvalidDeployRequest.
 type deployRequestError struct{ msg string }
 
-func (e *deployRequestError) Error() string          { return e.msg }
+func (e *deployRequestError) Error() string        { return e.msg }
 func (e *deployRequestError) Is(target error) bool { return target == ErrInvalidDeployRequest }
 
 func invalidDeploy(format string, args ...interface{}) error {
@@ -133,6 +158,22 @@ func validateDeployRequest(req *DeployRequest) error {
 	}
 	if err := validateSSHPublicKeys(req.SSHPublicKey); err != nil {
 		return invalidDeploy("invalid SSH public key: %v", err)
+	}
+	if len(req.ExtraDisks) > maxDeployExtras || len(req.ExtraNICs) > maxDeployExtras {
+		return invalidDeploy("at most %d extra disks and %d extra network adapters per deployment", maxDeployExtras, maxDeployExtras)
+	}
+	for i, d := range req.ExtraDisks {
+		if d.SizeGB < 1 || d.SizeGB > 65536 {
+			return invalidDeploy("extra disk %d: size_gb must be between 1 and 65536", i+1)
+		}
+	}
+	for i, n := range req.ExtraNICs {
+		if strings.TrimSpace(n.Network) == "" {
+			return invalidDeploy("extra network adapter %d: network is required", i+1)
+		}
+		if n.VLANTag != 0 && (n.VLANTag < 1 || n.VLANTag > 4094) {
+			return invalidDeploy("extra network adapter %d: VLAN tag must be between 1 and 4094", i+1)
+		}
 	}
 	if req.MemoryMB < 256 || req.MemoryMB > 1048576 {
 		return invalidDeploy("memory must be between 256MB and 1TB")
@@ -232,6 +273,11 @@ func (s *DeployService) Preflight(ctx context.Context, req *DeployRequest) (*Pre
 	if _, err := s.db.GetTemplate(req.TemplateID); err != nil {
 		addBlocker("template %d not found", req.TemplateID)
 	}
+	if target, err := s.targets.Get(req.TargetID); err == nil {
+		if err := validateExtrasForProvider(req, provider.GetMetadata(target.Type)); err != nil {
+			addBlocker("%s", err.Error())
+		}
+	}
 
 	if req.TargetID != 0 {
 		allVMs, err := s.db.ListManagedVMs()
@@ -274,6 +320,11 @@ func (s *DeployService) Start(req *DeployRequest, userID int64) (*DeployResponse
 	if err != nil {
 		return nil, fmt.Errorf("template not found: %w", err)
 	}
+	if target, err := s.targets.Get(req.TargetID); err == nil {
+		if err := validateExtrasForProvider(req, provider.GetMetadata(target.Type)); err != nil {
+			return nil, err
+		}
+	}
 
 	// Generate temporary credentials for VM access
 	plainPassword, err := generatePassword()
@@ -306,7 +357,7 @@ func (s *DeployService) Start(req *DeployRequest, userID int64) (*DeployResponse
 		ConfigJSON:       string(configJSON),
 		CreatedBy:        userID,
 		BulkDeploymentID: req.BulkDeploymentID,
-		InitialUsername:   defaultUsername,
+		InitialUsername:  defaultUsername,
 		InitialPwdEnc:    encPwd,
 	}
 	if err := s.db.CreateDeployment(deployment); err != nil {
@@ -333,24 +384,24 @@ func (s *DeployService) Start(req *DeployRequest, userID int64) (*DeployResponse
 	}
 
 	spec := &provider.DeploySpec{
-		TemplateName: tpl.Name,
-		VMName:       req.VMName,
-		Datacenter:   req.Datacenter,
-		Cluster:      req.Cluster,
-		Host:         req.Host,
-		Datastore:    req.Datastore,
-		Folder:       req.Folder,
-		Network:      req.Network,
-		VLANTag:      req.VLANTag,
-		CPU:          req.CPU,
-		MemoryMB:     req.MemoryMB,
-		DiskGB:       req.DiskGB,
-		IPAddress:    req.IPAddress,
-		Netmask:      req.Netmask,
-		Gateway:      req.Gateway,
-		DNS:          req.DNS,
-		Hostname:     req.Hostname,
-		DomainName:   req.DomainName,
+		TemplateName:     tpl.Name,
+		VMName:           req.VMName,
+		Datacenter:       req.Datacenter,
+		Cluster:          req.Cluster,
+		Host:             req.Host,
+		Datastore:        req.Datastore,
+		Folder:           req.Folder,
+		Network:          req.Network,
+		VLANTag:          req.VLANTag,
+		CPU:              req.CPU,
+		MemoryMB:         req.MemoryMB,
+		DiskGB:           req.DiskGB,
+		IPAddress:        req.IPAddress,
+		Netmask:          req.Netmask,
+		Gateway:          req.Gateway,
+		DNS:              req.DNS,
+		Hostname:         req.Hostname,
+		DomainName:       req.DomainName,
 		OSType:           tpl.OSType,
 		PasswordHash:     passwordHash,
 		PlainPassword:    plainPassword, // BUG-03: Proxmox needs plaintext for cipassword
@@ -366,7 +417,7 @@ func (s *DeployService) Start(req *DeployRequest, userID int64) (*DeployResponse
 	s.cancels[deployment.ID] = cancel
 	s.mu.Unlock()
 
-	go s.runDeploy(ctx, deployment.ID, req.TargetID, spec)
+	go s.runDeploy(ctx, deployment.ID, req.TargetID, spec, req)
 
 	return &DeployResponse{
 		Deployment:      deployment,
@@ -376,7 +427,7 @@ func (s *DeployService) Start(req *DeployRequest, userID int64) (*DeployResponse
 	}, nil
 }
 
-func (s *DeployService) runDeploy(ctx context.Context, deploymentID, targetID int64, spec *provider.DeploySpec) {
+func (s *DeployService) runDeploy(ctx context.Context, deploymentID, targetID int64, spec *provider.DeploySpec, req *DeployRequest) {
 	// V3-H8: Clean up cancel func when done
 	// F-113: Call cancel() to release context resources and prevent goroutine leak
 	defer func() {
@@ -451,37 +502,23 @@ func (s *DeployService) runDeploy(ctx context.Context, deploymentID, targetID in
 		s.addLog(deploymentID, "info", progress.Message)
 
 		if progress.State == "success" {
+			if req != nil && (len(req.ExtraDisks) > 0 || len(req.ExtraNICs) > 0) {
+				s.addLog(deploymentID, "info", fmt.Sprintf("Attaching %d extra disk(s) and %d extra network adapter(s)", len(req.ExtraDisks), len(req.ExtraNICs)))
+				if err := s.attachDeployExtras(ctx, p, deploymentID, result.VMID, req); err != nil {
+					slog.Error("deployment failed: attach extras", "deployment_id", deploymentID, "error", err)
+					s.failDeploy(deploymentID, fmt.Sprintf("VM was created but %s. The VM is left in place — fix the request and attach it from the VM page, or destroy and redeploy.", sanitizeHypervisorError(err)))
+					// Still track the VM so it can be managed/cleaned up.
+					s.registerDeployedVM(deploymentID, targetID, spec, result.VMID)
+					return
+				}
+			}
 			if err := s.db.UpdateDeploymentStatus(deploymentID, "completed", ""); err != nil {
 				slog.Error("deploy: failed to set completed status", "deployment_id", deploymentID, "error", err)
 			}
 			s.addLog(deploymentID, "info", "Deployment completed successfully")
 			s.sendProgress(deploymentID, "complete", provider.Progress{Percent: 100, State: "completed", Message: "Deployment completed"})
 
-			// Register deployed VM in managed_vms for /api/vms listing
-			vm := &models.ManagedVM{
-				DeploymentID: &deploymentID,
-				TargetID:     targetID,
-				VMName:       spec.VMName,
-				VMRef:        result.VMID,
-				PowerState:   "poweredOn",
-				IPAddress:    spec.IPAddress,
-				CPU:          spec.CPU,
-				MemoryMB:     spec.MemoryMB,
-				DiskGB:       spec.DiskGB,
-				OSType:       "linux",
-				TemplateName: spec.TemplateName,
-			}
-			// Seed lifecycle fields the same way VMService.Create does — a
-			// freshly-deployed VM starts "poweredOn", so this records its
-			// first LastPoweredOnAt/StateChangedAt immediately rather than
-			// leaving them nil until the next sync happens to run.
-			initial, _ := applyPowerStateTransition(vmLifecycleState{PowerState: "unknown"}, vm.PowerState, time.Now())
-			vm.StateChangedAt = initial.StateChangedAt
-			vm.LastPoweredOnAt = initial.LastPoweredOnAt
-			vm.LastPoweredOffAt = initial.LastPoweredOffAt
-			if err := s.db.UpsertManagedVM(vm); err != nil {
-				slog.Error("failed to register managed VM", "deployment_id", deploymentID, "error", err)
-			}
+			s.registerDeployedVM(deploymentID, targetID, spec, result.VMID)
 
 			s.fireWebhook("deploy.completed", deploymentID)
 			if s.onDeployComplete != nil {
@@ -774,4 +811,109 @@ func truncateForError(s string) string {
 		return s[:40] + "…"
 	}
 	return s
+}
+
+// validateExtrasForProvider applies the provider's declared capabilities to
+// the extra disks/NICs — the same rules VMService.AddDisk / AddNIC enforce —
+// so an unsupported request is a 400 (or a preflight blocker) instead of a
+// failed deployment after the clone.
+func validateExtrasForProvider(req *DeployRequest, meta *provider.ProviderMetadata) error {
+	if meta == nil || (len(req.ExtraDisks) == 0 && len(req.ExtraNICs) == 0) {
+		return nil
+	}
+	if len(req.ExtraDisks) > 0 && !meta.Features.DiskAttach {
+		return invalidDeploy("extra disks are not available for %s targets", meta.Name)
+	}
+	for i, d := range req.ExtraDisks {
+		prov := strings.ToLower(strings.TrimSpace(d.Provisioning))
+		if prov == "" {
+			continue
+		}
+		if len(meta.DiskProvisioningTypes) == 0 {
+			return invalidDeploy("extra disk %d: provisioning cannot be chosen per disk on %s targets — the storage decides", i+1, meta.Name)
+		}
+		if !slices.Contains(meta.DiskProvisioningTypes, prov) {
+			return invalidDeploy("extra disk %d: provisioning %q (use %s)", i+1, d.Provisioning, strings.Join(meta.DiskProvisioningTypes, ", "))
+		}
+	}
+	if len(req.ExtraNICs) > 0 && !meta.Features.NICAttach {
+		return invalidDeploy("extra network adapters are not available for %s targets", meta.Name)
+	}
+	for i, n := range req.ExtraNICs {
+		adapter := strings.ToLower(strings.TrimSpace(n.AdapterType))
+		if adapter != "" && len(meta.NICAdapterTypes) > 0 && !slices.Contains(meta.NICAdapterTypes, adapter) {
+			return invalidDeploy("extra network adapter %d: adapter type %q (use %s)", i+1, n.AdapterType, strings.Join(meta.NICAdapterTypes, ", "))
+		}
+		if n.VLANTag != 0 && !meta.Features.VLANTagging {
+			return invalidDeploy("extra network adapter %d: VLAN tag is not supported on %s targets — pick a network/portgroup that carries the VLAN instead", i+1, meta.Name)
+		}
+	}
+	return nil
+}
+
+// attachDeployExtras runs the requested extra disks/NICs against the freshly
+// deployed VM, logging each step into the deployment log. The first failure
+// is returned with the step named; the caller fails the deployment.
+func (s *DeployService) attachDeployExtras(ctx context.Context, p provider.Provider, deploymentID int64, vmRef string, req *DeployRequest) error {
+	for i, d := range req.ExtraDisks {
+		disk, err := p.AddDisk(ctx, vmRef, provider.DiskSpec{SizeGB: d.SizeGB, Datastore: strings.TrimSpace(d.Datastore), Provisioning: strings.ToLower(strings.TrimSpace(d.Provisioning))})
+		if err != nil {
+			return fmt.Errorf("extra disk %d (%d GB): %w", i+1, d.SizeGB, err)
+		}
+		msg := fmt.Sprintf("Attached extra disk %d: %s, %d GB", i+1, disk.Label, disk.SizeGB)
+		if disk.Datastore != "" {
+			msg += " on " + disk.Datastore
+		}
+		if disk.Pending {
+			msg += " (pending — attaches at the next power cycle)"
+		}
+		s.addLog(deploymentID, "info", msg)
+	}
+	for i, n := range req.ExtraNICs {
+		connected := true
+		if n.Connected != nil {
+			connected = *n.Connected
+		}
+		nic, err := p.AddNIC(ctx, vmRef, provider.NICSpec{Network: strings.TrimSpace(n.Network), AdapterType: strings.ToLower(strings.TrimSpace(n.AdapterType)), Connected: connected, VLANTag: n.VLANTag})
+		if err != nil {
+			return fmt.Errorf("extra network adapter %d (%s): %w", i+1, n.Network, err)
+		}
+		msg := fmt.Sprintf("Attached extra network adapter %d: %s on %s (%s)", i+1, nic.Label, nic.Network, nic.AdapterType)
+		if nic.VLANTag > 0 {
+			msg += fmt.Sprintf(", VLAN %d", nic.VLANTag)
+		}
+		if nic.Pending {
+			msg += " (pending — attaches at the next power cycle)"
+		}
+		s.addLog(deploymentID, "info", msg)
+	}
+	return nil
+}
+
+// registerDeployedVM records the deployed VM in managed_vms for /api/vms.
+func (s *DeployService) registerDeployedVM(deploymentID, targetID int64, spec *provider.DeploySpec, vmRef string) {
+	vm := &models.ManagedVM{
+		DeploymentID: &deploymentID,
+		TargetID:     targetID,
+		VMName:       spec.VMName,
+		VMRef:        vmRef,
+		PowerState:   "poweredOn",
+		IPAddress:    spec.IPAddress,
+		CPU:          spec.CPU,
+		MemoryMB:     spec.MemoryMB,
+		DiskGB:       spec.DiskGB,
+		OSType:       "linux",
+		TemplateName: spec.TemplateName,
+	}
+	// Seed lifecycle fields the same way VMService.Create does — a
+	// freshly-deployed VM starts "poweredOn", so this records its first
+	// LastPoweredOnAt/StateChangedAt immediately rather than leaving them
+	// nil until the next sync happens to run.
+	initial, _ := applyPowerStateTransition(vmLifecycleState{PowerState: "unknown"}, vm.PowerState, time.Now())
+	vm.StateChangedAt = initial.StateChangedAt
+	vm.LastPoweredOnAt = initial.LastPoweredOnAt
+	vm.LastPoweredOffAt = initial.LastPoweredOffAt
+	if err := s.db.UpsertManagedVM(vm); err != nil {
+		slog.Error("failed to register managed VM", "deployment_id", deploymentID, "error", err)
+	}
 }
