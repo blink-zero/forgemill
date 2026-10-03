@@ -75,14 +75,14 @@ func (h *ExecutionHub) SendOutput(executionID int64, msg any) {
 				if s, ok := d["status"].(string); ok {
 					if s == "completed" || s == "failed" || s == "cancelled" {
 						h.finished[executionID] = true
-						// Schedule cleanup of buffer after 60s (clients should have connected by then)
-						go func() {
-							time.Sleep(60 * time.Second)
+						// Schedule cleanup of buffer after 60s (clients should have connected by then).
+						// AfterFunc parks a timer, not a goroutine, for the minute.
+						time.AfterFunc(60*time.Second, func() {
 							h.mu.Lock()
 							delete(h.buffers, executionID)
 							delete(h.finished, executionID)
 							h.mu.Unlock()
-						}()
+						})
 					}
 				}
 			}
