@@ -36,6 +36,7 @@ type fakePVE struct {
 	newPuts      []url.Values // accepted config PUTs on 101, in order
 	deleted      bool         // DELETE /qemu/101 was called (rollback)
 	started      bool         // POST /qemu/101/status/start was called
+	resizeFails  bool         // PUT /qemu/101/resize answers 500 "storage full"
 }
 
 func newFakePVE(t *testing.T) *fakePVE {
@@ -184,7 +185,17 @@ func newFakePVE(t *testing.T) *fakePVE {
 			w.WriteHeader(405)
 		}
 	})
-	mux.HandleFunc("/api2/json/nodes/pve/qemu/101/resize", func(w http.ResponseWriter, r *http.Request) { write(w, nil) })
+	mux.HandleFunc("/api2/json/nodes/pve/qemu/101/resize", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		fail := f.resizeFails
+		f.mu.Unlock()
+		if fail {
+			w.WriteHeader(500)
+			_, _ = w.Write([]byte(`{"data":null,"message":"storage 'local-zfs' is full"}`))
+			return
+		}
+		write(w, nil)
+	})
 	mux.HandleFunc("/api2/json/nodes/pve/qemu/101/status/current", func(w http.ResponseWriter, r *http.Request) {
 		write(w, map[string]interface{}{"status": "stopped", "vmid": 101})
 	})

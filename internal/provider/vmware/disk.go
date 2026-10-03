@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"strings"
 
@@ -163,7 +162,7 @@ func (p *Provider) AddDisk(ctx context.Context, vmID string, spec provider.DiskS
 	if err != nil {
 		// The disk exists at this point; failing would invite a retry that
 		// attaches a second one.
-		slog.Warn("disk added but post-add device read failed", "vmID", vmID, "error", err)
+		provider.Warnf(ctx, "Disk added but the post-add device read failed", "vmID", vmID, "error", err)
 		return &provider.Disk{SizeGB: spec.SizeGB, Provisioning: provisioning}, nil
 	}
 	for _, dev := range after.SelectByType((*types.VirtualDisk)(nil)) {
@@ -173,7 +172,7 @@ func (p *Provider) AddDisk(ctx context.Context, vmID string, spec provider.DiskS
 		d := diskFromDevice(dev.(*types.VirtualDisk))
 		return &d, nil
 	}
-	slog.Warn("disk added but not found in post-add device list", "vmID", vmID)
+	provider.Warnf(ctx, "Disk added but not found in the post-add device list", "vmID", vmID)
 	return &provider.Disk{SizeGB: spec.SizeGB, Provisioning: provisioning}, nil
 }
 

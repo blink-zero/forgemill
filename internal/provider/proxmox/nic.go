@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"slices"
 	"strconv"
@@ -185,7 +184,7 @@ func (p *Provider) netChangePending(ctx context.Context, node, vmID, key string)
 func (p *Provider) changePending(ctx context.Context, node, vmID, key string) bool {
 	body, err := p.doGet(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/pending", url.PathEscape(node), url.PathEscape(vmID)))
 	if err != nil {
-		slog.Warn("could not read pending changes after NIC add", "vmID", vmID, "error", err)
+		provider.Warnf(ctx, "Could not read pending changes after the device was added", "vmID", vmID, "error", err)
 		return false
 	}
 	var result struct {
@@ -276,7 +275,7 @@ func (p *Provider) AddNIC(ctx context.Context, vmID string, spec provider.NICSpe
 			}
 		}
 	} else {
-		slog.Warn("network device added but post-add config read failed", "vmID", vmID, "error", err)
+		provider.Warnf(ctx, "Network device added but the post-add config read failed", "vmID", vmID, "error", err)
 	}
 	return nic, nil
 }

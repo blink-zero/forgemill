@@ -64,6 +64,7 @@ var migrations = []struct {
 	{38, migrationV38},
 	{39, migrationV39},
 	{40, migrationV40},
+	{41, migrationV41},
 }
 
 const migrationV1 = `
@@ -1408,6 +1409,21 @@ INSERT INTO schema_version (version) VALUES (38);
 // actually vouch for; it starts accumulating cleanly from this migration.
 // V40 adds no schema; the two built-in actions are inserted post-migration
 // (see runMigrations). A no-op statement keeps the version bookkeeping uniform.
+// V41: per-VM event log — what the hypervisor did or refused during
+// operations on a VM (warnings that were previously only in the server log).
+const migrationV41 = `
+CREATE TABLE IF NOT EXISTS vm_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vm_id INTEGER NOT NULL,
+    target_id INTEGER,
+    level TEXT NOT NULL DEFAULT 'info',
+    message TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_vm_events_vm ON vm_events(vm_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_vm_events_created ON vm_events(created_at);
+`
+
 const migrationV40 = `
 UPDATE actions SET updated_at = updated_at WHERE 0;
 `

@@ -443,6 +443,10 @@ func (s *DeployService) runDeploy(ctx context.Context, deploymentID, targetID in
 	if err := s.db.UpdateDeploymentStatus(deploymentID, "running", ""); err != nil {
 		slog.Error("deploy: failed to set running status", "deployment_id", deploymentID, "error", err)
 	}
+	// Provider warnings/info raised while deploying land in the deployment
+	// log (and still in the server log), so the UI shows what the
+	// hypervisor did or refused instead of a bare "completed"/"failed".
+	ctx = provider.WithEvents(ctx, deployLogSink{s: s, deploymentID: deploymentID})
 	s.addLog(deploymentID, "info", "Starting deployment of VM: "+spec.VMName)
 	s.sendProgress(deploymentID, "progress", provider.Progress{Percent: 0, State: "running", Message: "Connecting to target..."})
 	s.fireWebhook("deploy.started", deploymentID)
@@ -465,6 +469,16 @@ func (s *DeployService) runDeploy(ctx context.Context, deploymentID, targetID in
 
 	result, err := p.DeployVM(ctx, spec)
 	if err != nil {
+		// The VM exists but wasn't finished (disk resize, power-on, …):
+		// track it so it can be fixed or destroyed, and fail the deployment
+		// with the hypervisor's reason.
+		var partial *provider.PartialDeployError
+		if errors.As(err, &partial) && partial.VMID != "" {
+			slog.Error("deployment failed after the VM was created", "deployment_id", deploymentID, "vm_ref", partial.VMID, "error", err)
+			s.registerDeployedVM(deploymentID, targetID, spec, partial.VMID)
+			s.failDeploy(deploymentID, fmt.Sprintf("VM was created but %s. The VM is left in place — fix it from the VM page, or destroy and redeploy.", sanitizeHypervisorError(partial.Err)))
+			return
+		}
 		slog.Error("deployment failed: deploy VM", "deployment_id", deploymentID, "error", err)
 		s.failDeploy(deploymentID, fmt.Sprintf("Hypervisor rejected deployment: %s", sanitizeHypervisorError(err)))
 		return
@@ -916,4 +930,14 @@ func (s *DeployService) registerDeployedVM(deploymentID, targetID int64, spec *p
 	if err := s.db.UpsertManagedVM(vm); err != nil {
 		slog.Error("failed to register managed VM", "deployment_id", deploymentID, "error", err)
 	}
+}
+
+// deployLogSink routes provider events into the deployment log.
+type deployLogSink struct {
+	s            *DeployService
+	deploymentID int64
+}
+
+func (d deployLogSink) Event(level, message string) {
+	d.s.addLog(d.deploymentID, level, message)
 }

@@ -119,3 +119,24 @@ func TestAPIErrorCarriesProxmoxMessageAndRetryabilityIsByCause(t *testing.T) {
 		t.Errorf("non-JSON bodies keep the old wording and 5xx is retryable: %s", bare.Error())
 	}
 }
+
+func TestDeployVMReportsFailedResizeAsPartialDeployKeepingTheVM(t *testing.T) {
+	f := newFakePVE(t)
+	f.resizeFails = true
+	p := f.provider(t)
+
+	_, err := p.DeployVM(context.Background(), deploySpec())
+	var partial *provider.PartialDeployError
+	if !errors.As(err, &partial) {
+		t.Fatalf("a failed post-clone resize must be a PartialDeployError, got %v", err)
+	}
+	if partial.VMID != "101" || !strings.Contains(err.Error(), "resize disk") || !strings.Contains(err.Error(), "storage 'local-zfs' is full") {
+		t.Errorf("partial error should name the VM and carry Proxmox's reason: vmid=%q err=%v", partial.VMID, err)
+	}
+	if f.deleted {
+		t.Error("the clone must not be rolled back on a resize failure — it is kept for the operator")
+	}
+	if f.started {
+		t.Error("a VM whose resize failed must not be started as if nothing happened")
+	}
+}

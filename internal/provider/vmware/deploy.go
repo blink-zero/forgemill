@@ -868,7 +868,7 @@ func (p *Provider) esxiDeployFallback(
 	if err != nil {
 		// If format conversion is rejected, fall back to plain copy (thick).
 		// The ThinProvisioned flag in the VM descriptor will still be set correctly.
-		slog.Warn("VMDK copy with format spec failed, retrying without spec", "error", err, "disk_provisioning", spec.DiskProvisioning)
+		provider.Warnf(ctx, "VMDK copy with the requested format failed, retrying without a format (provisioning may not be honoured)", "error", err, "disk_provisioning", spec.DiskProvisioning)
 		copyTask, err = vdm.CopyVirtualDisk(ctx, srcDiskPath, dc, dstDiskPath, dc, nil, false)
 		if err != nil {
 			return nil, fmt.Errorf("start VMDK copy: %w", err)
@@ -895,10 +895,13 @@ func (p *Provider) esxiDeployFallback(
 		if requestedKB > templateOriginalDiskKB {
 			slog.Info("extending VMDK for ESXi fallback deploy", "dst", dstDiskPath, "size_gb", spec.DiskGB)
 			extendTask, extErr := vdm.ExtendVirtualDisk(ctx, dstDiskPath, dc, requestedKB, types.NewBool(false))
+			if extErr == nil {
+				_, extErr = extendTask.WaitForResult(ctx, nil)
+			}
 			if extErr != nil {
-				slog.Warn("failed to start VMDK extend", "error", extErr)
-			} else if _, extErr = extendTask.WaitForResult(ctx, nil); extErr != nil {
-				slog.Warn("VMDK extend failed", "error", extErr)
+				// The disk is copied but no VM exists yet; stop here rather
+				// than register a VM with the wrong disk size.
+				return nil, fmt.Errorf("extend copied VMDK to %d GB: %w", spec.DiskGB, extErr)
 			}
 		}
 	}
@@ -951,8 +954,9 @@ func (p *Provider) esxiDeployFallback(
 	// Add NIC preserving the template's adapter type.
 	nicSpec, err := buildNICFromTemplate(ctx, finder, spec, vmProps.Config.Hardware.Device)
 	if err != nil {
-		slog.Warn("skipping NIC in ESXi fallback deploy", "error", err)
-	} else if nicSpec != nil {
+		return nil, fmt.Errorf("network adapter for the new VM: %w", err)
+	}
+	if nicSpec != nil {
 		configSpec.DeviceChange = append(configSpec.DeviceChange, nicSpec)
 	}
 
@@ -980,12 +984,15 @@ func (p *Provider) esxiDeployFallback(
 		}
 	}
 
-	// Power on the new VM.
+	// Power on the new VM. The VM exists at this point, so a failure is a
+	// partial deploy: the service keeps the VM and fails the deployment.
 	if vmObj != nil {
-		if powerTask, err := vmObj.PowerOn(ctx); err != nil {
-			slog.Warn("failed to start power on", "vm", spec.VMName, "error", err)
-		} else if _, err := powerTask.WaitForResult(ctx, nil); err != nil {
-			slog.Warn("power on task failed", "vm", spec.VMName, "error", err)
+		powerTask, err := vmObj.PowerOn(ctx)
+		if err == nil {
+			_, err = powerTask.WaitForResult(ctx, nil)
+		}
+		if err != nil {
+			return nil, &provider.PartialDeployError{VMID: vmID, Err: fmt.Errorf("power on: %w", err)}
 		}
 	}
 

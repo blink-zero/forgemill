@@ -108,12 +108,12 @@ func (p *Provider) DeleteVM(ctx context.Context, vmID string) error {
 	task, err := vm.PowerOff(ctx)
 	if err != nil {
 		if !isInvalidPowerStateFault(err) {
-			slog.Warn("failed to power off VM before deletion", "vmID", vmID, "error", err)
+			provider.Warnf(ctx, "Power off before deletion failed, attempting destroy anyway", "vmID", vmID, "error", err)
 		}
 	} else {
 		if waitErr := task.Wait(ctx); waitErr != nil {
 			if !isInvalidPowerStateFault(waitErr) {
-				slog.Warn("power off task failed before deletion", "vmID", vmID, "error", waitErr)
+				provider.Warnf(ctx, "Power off task failed before deletion, attempting destroy anyway", "vmID", vmID, "error", waitErr)
 			}
 		}
 	}
