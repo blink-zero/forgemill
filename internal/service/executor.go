@@ -148,9 +148,11 @@ func (s *ExecutorService) Execute(ctx context.Context, vmID int64, req ExecuteRe
 	var actionName string
 	var actionID *int64
 	var paramEnvBlock string
+	var action *models.Action // the catalogue action being run, nil for ad-hoc scripts
 
 	if req.ActionID != nil {
-		action, err := s.db.GetAction(*req.ActionID)
+		var err error
+		action, err = s.db.GetAction(*req.ActionID)
 		if err != nil {
 			return nil, fmt.Errorf("action not found: %w", err)
 		}
@@ -177,10 +179,10 @@ func (s *ExecutorService) Execute(ctx context.Context, vmID int64, req ExecuteRe
 		actionName = "Ad-hoc script"
 	}
 
-	// Build storage-safe parameter values (redact passwords)
+	// Build storage-safe parameter values (redact passwords) from the action
+	// loaded above — no second lookup.
 	var storedParamValues map[string]string
 	if len(req.ParameterValues) > 0 && req.ActionID != nil {
-		action, _ := s.db.GetAction(*req.ActionID)
 		storedParamValues = make(map[string]string, len(req.ParameterValues))
 		passwordParams := map[string]bool{}
 		if action != nil {
