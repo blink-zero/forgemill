@@ -254,10 +254,10 @@ func (p *Provider) ResizeVM(ctx context.Context, vmID string, cpu int, memoryMB 
 
 	if string(vmProps.Runtime.PowerState) == "poweredOn" {
 		if cpu > 0 && (vmProps.Config == nil || vmProps.Config.CpuHotAddEnabled == nil || !*vmProps.Config.CpuHotAddEnabled) {
-			return fmt.Errorf("VM must be powered off to change CPU (hot-add not enabled)")
+			return fmt.Errorf("%w: CPU (hot-add not enabled)", provider.ErrRequiresPowerOff)
 		}
 		if memoryMB > 0 && (vmProps.Config == nil || vmProps.Config.MemoryHotAddEnabled == nil || !*vmProps.Config.MemoryHotAddEnabled) {
-			return fmt.Errorf("VM must be powered off to change memory (hot-add not enabled)")
+			return fmt.Errorf("%w: memory (hot-add not enabled)", provider.ErrRequiresPowerOff)
 		}
 	}
 
@@ -400,7 +400,16 @@ func (p *Provider) ListVMs(ctx context.Context) ([]provider.VMInfo, error) {
 	defer containerView.Destroy(ctx)
 
 	var vms []mo.VirtualMachine
-	if err := containerView.Retrieve(ctx, []string{"VirtualMachine"}, []string{"name", "config", "guest", "runtime"}, &vms); err != nil {
+	// Ask for exactly the properties read below. The previous "config"
+	// pulled every VM's full config tree (all devices, extraConfig, ...),
+	// which scales with inventory size rather than with the five fields
+	// this listing actually reports.
+	props := []string{
+		"name", "runtime.powerState", "guest.ipAddress",
+		"config.template", "config.guestId", "config.hardware.numCPU", "config.hardware.memoryMB",
+		"config.hardware.device", // for the disk total, same sum GetVMStatus makes
+	}
+	if err := containerView.Retrieve(ctx, []string{"VirtualMachine"}, props, &vms); err != nil {
 		return nil, fmt.Errorf("retrieve VMs: %w", err)
 	}
 
@@ -421,6 +430,7 @@ func (p *Provider) ListVMs(ctx context.Context) ([]provider.VMInfo, error) {
 			info.CPU = int(vm.Config.Hardware.NumCPU)
 			info.MemoryMB = int(vm.Config.Hardware.MemoryMB)
 			info.GuestID = vm.Config.GuestId
+			info.DiskGB = totalDiskGB(vm.Config.Hardware.Device)
 		}
 		result = append(result, info)
 	}

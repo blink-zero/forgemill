@@ -21,29 +21,15 @@ import { usePreference } from "@/context/PreferencesContext";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableSort } from "@/hooks/useTableSort";
 import { usePageSize } from "@/hooks/usePageSize";
+import { useVisiblePolling } from "@/hooks/useVisiblePolling";
 import { useNowTick } from "@/hooks/useNowTick";
 import { OSBadge } from "@/components/OSBadge";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/toast";
 import { TimeWithTooltip } from "@/components/ui/time-with-tooltip";
 import { vmLifecycleLabel, parseVMQuery, matchesUptimeQuery, matchesAgeQuery } from "@/lib/vmLifecycle";
+import { powerVariant, powerLabel, isPoweredOn, isPoweredOff } from "@/lib/status";
 
-const powerVariant = (state: string) => {
-  if (state === "poweredOn" || state === "running") return "success" as const;
-  if (state === "poweredOff" || state === "stopped") return "secondary" as const;
-  if (state === "suspended") return "warning" as const;
-  return "secondary" as const;
-};
-
-const powerLabel = (state: string) => {
-  if (state === "poweredOn" || state === "running") return "Running";
-  if (state === "poweredOff" || state === "stopped") return "Stopped";
-  if (state === "suspended") return "Suspended";
-  return state;
-};
-
-const isRunning = (state: string) => state === "poweredOn" || state === "running";
-const isStopped = (state: string) => state === "poweredOff" || state === "stopped";
 
 export default function VMs() {
   const navigate = useNavigate();
@@ -71,9 +57,8 @@ export default function VMs() {
       .then((res) => setVmList(res.data || []))
       .catch(() => setError("Failed to load virtual machines"))
       .finally(() => setLoading(false));
-    const timer = setInterval(reload, 30000);
-    return () => clearInterval(timer);
-  }, [reload]);
+  }, []);
+  useVisiblePolling(reload, 30000);
 
   const targets = useMemo(
     () => [...new Set(vmList.map((v) => v.target_name).filter(Boolean))].sort(),
@@ -464,11 +449,11 @@ export default function VMs() {
                       </td>
                       <td className="px-2 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-0.5">
-                          {isRunning(vm.power_state) ? (
+                          {isPoweredOn(vm.power_state) ? (
                             <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => doQuickPower(e, vm.id, "stop")} disabled={actingOn === vm.id} title="Stop">
                               <Square className="h-3.5 w-3.5" />
                             </Button>
-                          ) : isStopped(vm.power_state) ? (
+                          ) : isPoweredOff(vm.power_state) ? (
                             <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => doQuickPower(e, vm.id, "start")} disabled={actingOn === vm.id} title="Start">
                               <Play className="h-3.5 w-3.5" />
                             </Button>
@@ -508,11 +493,11 @@ export default function VMs() {
                         )}
                       </div>
                       <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        {isRunning(vm.power_state) ? (
+                        {isPoweredOn(vm.power_state) ? (
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => doQuickPower(e, vm.id, "stop")} disabled={actingOn === vm.id} title="Stop">
                             <Square className="h-3 w-3" />
                           </Button>
-                        ) : isStopped(vm.power_state) ? (
+                        ) : isPoweredOff(vm.power_state) ? (
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => doQuickPower(e, vm.id, "start")} disabled={actingOn === vm.id} title="Start">
                             <Play className="h-3 w-3" />
                           </Button>

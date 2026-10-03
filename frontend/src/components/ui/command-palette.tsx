@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { Monitor, FileBox, Server, Zap, Search, Loader2, X, Power, Play, Square } from "lucide-react";
+import { Monitor, FileBox, Server, Zap, Search, Loader2, X, Play, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { vms as vmApi, templates, targets, actions } from "@/api/client";
 import type { ManagedVM, Template, Target, Action } from "@/types";
+import { powerVariant, powerLabel, isPoweredOn } from "@/lib/status";
 
 const MAX_RESULTS_PER_CATEGORY = 5;
 
@@ -32,20 +33,6 @@ const categoryConfig: Record<ResultCategory, { label: string; icon: typeof Monit
   templates: { label: "Templates", icon: FileBox, route: "/templates" },
   targets: { label: "Targets", icon: Server, route: "/targets" },
   actions: { label: "Actions", icon: Zap, route: "/actions" },
-};
-
-const powerStateVariant = (state: string): "success" | "secondary" | "warning" => {
-  if (state === "poweredOn" || state === "running") return "success";
-  if (state === "poweredOff" || state === "stopped") return "secondary";
-  if (state === "suspended") return "warning";
-  return "secondary";
-};
-
-const powerStateLabel = (state: string): string => {
-  if (state === "poweredOn" || state === "running") return "Running";
-  if (state === "poweredOff" || state === "stopped") return "Stopped";
-  if (state === "suspended") return "Suspended";
-  return state;
 };
 
 export function CommandPalette() {
@@ -154,8 +141,8 @@ export function CommandPalette() {
         type: "vms",
         name: vm.vm_name,
         subtitle: vm.ip_address || vm.target_name,
-        badge: powerStateLabel(vm.power_state),
-        badgeVariant: powerStateVariant(vm.power_state),
+        badge: powerLabel(vm.power_state),
+        badgeVariant: powerVariant(vm.power_state),
         powerState: vm.power_state,
       });
     });
@@ -371,7 +358,7 @@ export function CommandPalette() {
                       const flatIdx = getFlatIndex(catIdx, itemIdx);
                       const isSelected = flatIdx === selectedIndex;
                       const isVm = item.type === "vms";
-                      const isPoweredOn = item.powerState === "poweredOn" || item.powerState === "running";
+                      const poweredOn = isPoweredOn(item.powerState ?? "");
 
                       return (
                         <div
@@ -395,7 +382,7 @@ export function CommandPalette() {
                           {/* Power buttons for VMs */}
                           {isVm && (
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              {isPoweredOn ? (
+                              {poweredOn ? (
                                 <button
                                   onClick={(e) => handlePower(e, item, "off")}
                                   disabled={poweringVm === item.id}

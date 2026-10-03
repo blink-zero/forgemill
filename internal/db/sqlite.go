@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,7 +13,8 @@ import (
 
 	"github.com/forgemill/forgemill/internal/db/migrations"
 	"github.com/forgemill/forgemill/internal/db/models"
-	_ "modernc.org/sqlite"
+	sqlite "modernc.org/sqlite" // driver registration + typed errors
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // escapeLike escapes SQL LIKE wildcard characters so user input is matched literally.
@@ -61,7 +63,7 @@ func (db *DB) UpdateUserRole(id int64, role string) error {
 	// MED-23: Validate role in service layer instead of relying on DB CHECK constraint
 	validRoles := map[string]bool{"admin": true, "user": true, "viewer": true}
 	if !validRoles[role] {
-		return fmt.Errorf("invalid role %q: must be admin, user, or viewer", role)
+		return fmt.Errorf("%w %q: must be admin, user, or viewer", ErrInvalidRole, role)
 	}
 	_, err := db.conn.Exec(`UPDATE users SET role = ? WHERE id = ?`, role, id)
 	return err
@@ -244,11 +246,11 @@ func (db *DB) UpdateTarget(t *models.Target) error {
 }
 
 type DeleteTargetPreviewResult struct {
-	Templates  int `json:"templates"`
-	VMs        int `json:"vms"`
+	Templates   int `json:"templates"`
+	VMs         int `json:"vms"`
 	Deployments int `json:"deployments"`
-	Builds     int `json:"builds"`
-	Executions int `json:"executions"`
+	Builds      int `json:"builds"`
+	Executions  int `json:"executions"`
 }
 
 func (db *DB) DeleteTargetPreview(id int64) (*DeleteTargetPreviewResult, error) {
@@ -511,18 +513,62 @@ func (db *DB) CreateDeployment(d *models.Deployment) error {
 	return nil
 }
 
+// rowScanner is satisfied by both *sql.Row and *sql.Rows, so a single scanner
+// per table serves the Get and List queries alike.
+type rowScanner interface{ Scan(dest ...any) error }
+
+// deploymentColumns / deploymentFrom are the SELECT list and FROM clause every
+// deployments query shares; scanDeploymentInto reads them in the same order.
+// Adding a column means editing the constant and the scanner — nothing else.
+const deploymentColumns = `d.id, d.template_id, d.target_id, d.vm_name, d.status, d.config_json, d.started_at, d.completed_at, COALESCE(d.error_message, ''), d.created_by, d.created_at,
+		        COALESCE(d.template_name, t.name, ''), COALESCE(tg.name, '')`
+
+const deploymentFrom = `FROM deployments d
+		 LEFT JOIN templates t ON d.template_id = t.id
+		 LEFT JOIN targets tg ON d.target_id = tg.id`
+
+// scanDeploymentInto fills d from a row selected with deploymentColumns. Any
+// extra destinations are scanned after the shared set, for queries that append
+// columns to deploymentColumns (see GetDeployment).
+func scanDeploymentInto(r rowScanner, d *models.Deployment, extra ...any) error {
+	dest := append([]any{&d.ID, &d.TemplateID, &d.TargetID, &d.VMName, &d.Status, &d.ConfigJSON, &d.StartedAt, &d.CompletedAt, &d.ErrorMessage, &d.CreatedBy, &d.CreatedAt, &d.TemplateName, &d.TargetName}, extra...)
+	return r.Scan(dest...)
+}
+
+func scanDeployment(r rowScanner) (models.Deployment, error) {
+	var d models.Deployment
+	err := scanDeploymentInto(r, &d)
+	return d, err
+}
+
+// managedVMColumns / managedVMFrom / scanManagedVM are the managed_vms
+// counterparts of the deployment helpers above.
+const managedVMColumns = `v.id, v.deployment_id, v.target_id, v.vm_name, v.vm_ref, v.power_state, v.ip_address, v.cpu, v.memory_mb, v.disk_gb, v.os_type, COALESCE(v.platform, 'linux'), v.last_synced_at, v.created_at, COALESCE(t.name, ''),
+		        COALESCE(d.template_name, tmpl.name, ''), v.state_changed_at, v.last_powered_on_at, v.last_powered_off_at, v.total_runtime_seconds`
+
+const managedVMFrom = `FROM managed_vms v
+		 LEFT JOIN targets t ON v.target_id = t.id
+		 LEFT JOIN deployments d ON v.deployment_id = d.id
+		 LEFT JOIN templates tmpl ON d.template_id = tmpl.id`
+
+func scanManagedVM(r rowScanner) (models.ManagedVM, error) {
+	var vm models.ManagedVM
+	err := r.Scan(&vm.ID, &vm.DeploymentID, &vm.TargetID, &vm.VMName, &vm.VMRef, &vm.PowerState, &vm.IPAddress, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSType, &vm.Platform, &vm.LastSyncedAt, &vm.CreatedAt, &vm.TargetName, &vm.TemplateName,
+		&vm.StateChangedAt, &vm.LastPoweredOnAt, &vm.LastPoweredOffAt, &vm.TotalRuntimeSeconds)
+	return vm, err
+}
+
 func (db *DB) GetDeployment(id int64) (*models.Deployment, error) {
 	d := &models.Deployment{}
-	err := db.conn.QueryRow(
-		`SELECT d.id, d.template_id, d.target_id, d.vm_name, d.status, d.config_json, d.started_at, d.completed_at, COALESCE(d.error_message, ''), d.created_by, d.created_at,
-		        COALESCE(d.template_name, t.name, ''), COALESCE(tg.name, ''), COALESCE(d.initial_username, ''), COALESCE(d.initial_password_enc, ''),
+	row := db.conn.QueryRow(
+		`SELECT `+deploymentColumns+`, COALESCE(d.initial_username, ''), COALESCE(d.initial_password_enc, ''),
 		        (SELECT mv.id FROM managed_vms mv WHERE mv.deployment_id = d.id LIMIT 1)
-		 FROM deployments d
-		 LEFT JOIN templates t ON d.template_id = t.id
-		 LEFT JOIN targets tg ON d.target_id = tg.id
+		 `+deploymentFrom+`
 		 WHERE d.id = ?`, id,
-	).Scan(&d.ID, &d.TemplateID, &d.TargetID, &d.VMName, &d.Status, &d.ConfigJSON, &d.StartedAt, &d.CompletedAt, &d.ErrorMessage, &d.CreatedBy, &d.CreatedAt, &d.TemplateName, &d.TargetName, &d.InitialUsername, &d.InitialPwdEnc, &d.VMID)
-	if err != nil {
+	)
+	// The detail view also carries the initial credentials and the managed VM
+	// that came out of the deployment; they are scanned after the shared set.
+	if err := scanDeploymentInto(row, d, &d.InitialUsername, &d.InitialPwdEnc, &d.VMID); err != nil {
 		return nil, err
 	}
 	return d, nil
@@ -629,11 +675,7 @@ func (db *DB) ListDeployments(f DeploymentFilter) (*PaginatedDeployments, error)
 
 	offset := (f.Page - 1) * f.PerPage
 	query := fmt.Sprintf(
-		`SELECT d.id, d.template_id, d.target_id, d.vm_name, d.status, d.config_json, d.started_at, d.completed_at, COALESCE(d.error_message, ''), d.created_by, d.created_at,
-		        COALESCE(d.template_name, t.name, ''), COALESCE(tg.name, '')
-		 FROM deployments d
-		 LEFT JOIN templates t ON d.template_id = t.id
-		 LEFT JOIN targets tg ON d.target_id = tg.id
+		`SELECT `+deploymentColumns+` `+deploymentFrom+`
 		 WHERE %s ORDER BY d.created_at DESC LIMIT ? OFFSET ?`, where)
 	args = append(args, f.PerPage, offset)
 
@@ -645,8 +687,8 @@ func (db *DB) ListDeployments(f DeploymentFilter) (*PaginatedDeployments, error)
 
 	deployments := []models.Deployment{}
 	for rows.Next() {
-		var d models.Deployment
-		if err := rows.Scan(&d.ID, &d.TemplateID, &d.TargetID, &d.VMName, &d.Status, &d.ConfigJSON, &d.StartedAt, &d.CompletedAt, &d.ErrorMessage, &d.CreatedBy, &d.CreatedAt, &d.TemplateName, &d.TargetName); err != nil {
+		d, err := scanDeployment(rows)
+		if err != nil {
 			return nil, err
 		}
 		deployments = append(deployments, d)
@@ -660,11 +702,7 @@ func (db *DB) ListDeployments(f DeploymentFilter) (*PaginatedDeployments, error)
 
 func (db *DB) GetRecentDeployments(limit int) ([]models.Deployment, error) {
 	rows, err := db.conn.Query(
-		`SELECT d.id, d.template_id, d.target_id, d.vm_name, d.status, d.config_json, d.started_at, d.completed_at, COALESCE(d.error_message, ''), d.created_by, d.created_at,
-		        COALESCE(d.template_name, t.name, ''), COALESCE(tg.name, '')
-		 FROM deployments d
-		 LEFT JOIN templates t ON d.template_id = t.id
-		 LEFT JOIN targets tg ON d.target_id = tg.id
+		`SELECT `+deploymentColumns+` `+deploymentFrom+`
 		 ORDER BY d.created_at DESC LIMIT ?`, limit,
 	)
 	if err != nil {
@@ -673,8 +711,8 @@ func (db *DB) GetRecentDeployments(limit int) ([]models.Deployment, error) {
 	defer rows.Close()
 	deployments := []models.Deployment{}
 	for rows.Next() {
-		var d models.Deployment
-		if err := rows.Scan(&d.ID, &d.TemplateID, &d.TargetID, &d.VMName, &d.Status, &d.ConfigJSON, &d.StartedAt, &d.CompletedAt, &d.ErrorMessage, &d.CreatedBy, &d.CreatedAt, &d.TemplateName, &d.TargetName); err != nil {
+		d, err := scanDeployment(rows)
+		if err != nil {
 			return nil, err
 		}
 		deployments = append(deployments, d)
@@ -1014,7 +1052,7 @@ func (db *DB) CreateManagedVM(vm *models.ManagedVM) error {
 	)
 	if err != nil {
 		if isUniqueConstraintError(err) {
-			return fmt.Errorf("VM with ref %q already registered on this target", vm.VMRef)
+			return fmt.Errorf("VM with ref %q already registered on this target: %w", vm.VMRef, ErrAlreadyRegistered)
 		}
 		return err
 	}
@@ -1061,31 +1099,19 @@ func (db *DB) UpsertManagedVM(vm *models.ManagedVM) error {
 }
 
 func (db *DB) GetManagedVM(id int64) (*models.ManagedVM, error) {
-	vm := &models.ManagedVM{}
-	err := db.conn.QueryRow(
-		`SELECT v.id, v.deployment_id, v.target_id, v.vm_name, v.vm_ref, v.power_state, v.ip_address, v.cpu, v.memory_mb, v.disk_gb, v.os_type, COALESCE(v.platform, 'linux'), v.last_synced_at, v.created_at, COALESCE(t.name, ''),
-		        COALESCE(d.template_name, tmpl.name, ''), v.state_changed_at, v.last_powered_on_at, v.last_powered_off_at, v.total_runtime_seconds
-		 FROM managed_vms v
-		 LEFT JOIN targets t ON v.target_id = t.id
-		 LEFT JOIN deployments d ON v.deployment_id = d.id
-		 LEFT JOIN templates tmpl ON d.template_id = tmpl.id
+	vm, err := scanManagedVM(db.conn.QueryRow(
+		`SELECT `+managedVMColumns+` `+managedVMFrom+`
 		 WHERE v.id = ?`, id,
-	).Scan(&vm.ID, &vm.DeploymentID, &vm.TargetID, &vm.VMName, &vm.VMRef, &vm.PowerState, &vm.IPAddress, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSType, &vm.Platform, &vm.LastSyncedAt, &vm.CreatedAt, &vm.TargetName, &vm.TemplateName,
-		&vm.StateChangedAt, &vm.LastPoweredOnAt, &vm.LastPoweredOffAt, &vm.TotalRuntimeSeconds)
+	))
 	if err != nil {
 		return nil, err
 	}
-	return vm, nil
+	return &vm, nil
 }
 
 func (db *DB) ListManagedVMs() ([]models.ManagedVM, error) {
 	rows, err := db.conn.Query(
-		`SELECT v.id, v.deployment_id, v.target_id, v.vm_name, v.vm_ref, v.power_state, v.ip_address, v.cpu, v.memory_mb, v.disk_gb, v.os_type, COALESCE(v.platform, 'linux'), v.last_synced_at, v.created_at, COALESCE(t.name, ''),
-		        COALESCE(d.template_name, tmpl.name, ''), v.state_changed_at, v.last_powered_on_at, v.last_powered_off_at, v.total_runtime_seconds
-		 FROM managed_vms v
-		 LEFT JOIN targets t ON v.target_id = t.id
-		 LEFT JOIN deployments d ON v.deployment_id = d.id
-		 LEFT JOIN templates tmpl ON d.template_id = tmpl.id
+		`SELECT ` + managedVMColumns + ` ` + managedVMFrom + `
 		 ORDER BY v.vm_name`,
 	)
 	if err != nil {
@@ -1094,9 +1120,8 @@ func (db *DB) ListManagedVMs() ([]models.ManagedVM, error) {
 	defer rows.Close()
 	vms := []models.ManagedVM{}
 	for rows.Next() {
-		var vm models.ManagedVM
-		if err := rows.Scan(&vm.ID, &vm.DeploymentID, &vm.TargetID, &vm.VMName, &vm.VMRef, &vm.PowerState, &vm.IPAddress, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSType, &vm.Platform, &vm.LastSyncedAt, &vm.CreatedAt, &vm.TargetName, &vm.TemplateName,
-			&vm.StateChangedAt, &vm.LastPoweredOnAt, &vm.LastPoweredOffAt, &vm.TotalRuntimeSeconds); err != nil {
+		vm, err := scanManagedVM(rows)
+		if err != nil {
 			return nil, err
 		}
 		vms = append(vms, vm)
@@ -1179,28 +1204,26 @@ func (db *DB) UpdateTargetSSHHostKeyFP(id int64, fingerprint string) error {
 	return err
 }
 
-func (db *DB) ListManagedVMsByTarget(targetID int64) ([]models.ManagedVM, error) {
-	rows, err := db.conn.Query(
-		`SELECT v.id, v.deployment_id, v.target_id, v.vm_name, v.vm_ref, v.power_state, v.ip_address, v.cpu, v.memory_mb, v.disk_gb, v.os_type, COALESCE(v.platform, 'linux'), v.last_synced_at, v.created_at, COALESCE(t.name, '')
-		 FROM managed_vms v LEFT JOIN targets t ON v.target_id = t.id WHERE v.target_id = ? ORDER BY v.vm_name`, targetID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	vms := []models.ManagedVM{}
-	for rows.Next() {
-		var vm models.ManagedVM
-		if err := rows.Scan(&vm.ID, &vm.DeploymentID, &vm.TargetID, &vm.VMName, &vm.VMRef, &vm.PowerState, &vm.IPAddress, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSType, &vm.Platform, &vm.LastSyncedAt, &vm.CreatedAt, &vm.TargetName); err != nil {
-			return nil, err
-		}
-		vms = append(vms, vm)
-	}
-	return vms, rows.Err()
-}
+// Sentinel errors callers map with errors.Is instead of matching text.
+var (
+	ErrInvalidRole       = errors.New("invalid role")
+	ErrAlreadyRegistered = errors.New("already registered")
+)
 
+// isUniqueConstraintError checks the SQLite extended result code rather
+// than the driver's message text, so a driver wording change can't turn a
+// 409 into a 500. SQLITE_CONSTRAINT_UNIQUE (2067) and
+// SQLITE_CONSTRAINT_PRIMARYKEY (1555) are both "this row already exists".
 func isUniqueConstraintError(err error) bool {
-	return strings.Contains(err.Error(), "UNIQUE constraint failed")
+	var se *sqlite.Error
+	if !errors.As(err, &se) {
+		return false
+	}
+	switch se.Code() {
+	case sqlite3.SQLITE_CONSTRAINT_UNIQUE, sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY:
+		return true
+	}
+	return false
 }
 
 // --- VM Snapshots ---
@@ -1417,11 +1440,7 @@ func (db *DB) UpdateBulkDeploymentStatus(id int64, status string) error {
 
 func (db *DB) ListDeploymentsByBulk(bulkID int64) ([]models.Deployment, error) {
 	rows, err := db.conn.Query(
-		`SELECT d.id, d.template_id, d.target_id, d.vm_name, d.status, d.config_json, d.started_at, d.completed_at, COALESCE(d.error_message, ''), d.created_by, d.created_at,
-		        COALESCE(d.template_name, t.name, ''), COALESCE(tg.name, '')
-		 FROM deployments d
-		 LEFT JOIN templates t ON d.template_id = t.id
-		 LEFT JOIN targets tg ON d.target_id = tg.id
+		`SELECT `+deploymentColumns+` `+deploymentFrom+`
 		 WHERE d.bulk_deployment_id = ? ORDER BY d.id`, bulkID,
 	)
 	if err != nil {
@@ -1430,8 +1449,8 @@ func (db *DB) ListDeploymentsByBulk(bulkID int64) ([]models.Deployment, error) {
 	defer rows.Close()
 	deployments := []models.Deployment{}
 	for rows.Next() {
-		var d models.Deployment
-		if err := rows.Scan(&d.ID, &d.TemplateID, &d.TargetID, &d.VMName, &d.Status, &d.ConfigJSON, &d.StartedAt, &d.CompletedAt, &d.ErrorMessage, &d.CreatedBy, &d.CreatedAt, &d.TemplateName, &d.TargetName); err != nil {
+		d, err := scanDeployment(rows)
+		if err != nil {
 			return nil, err
 		}
 		deployments = append(deployments, d)
@@ -1812,16 +1831,6 @@ func deriveBaseName(osDefID string) string {
 	return osDefID + "-template"
 }
 
-func (db *DB) getFamilyByBaseNameAndTarget(baseName string, targetID int64) (*models.TemplateFamily, error) {
-	f := &models.TemplateFamily{}
-	err := db.conn.QueryRow(
-		`SELECT id, base_name, target_id, os_definition_id, latest_version, created_at
-		 FROM template_families WHERE base_name = ? AND target_id = ?`,
-		baseName, targetID,
-	).Scan(&f.ID, &f.BaseName, &f.TargetID, &f.OSDefinitionID, &f.LatestVersion, &f.CreatedAt)
-	return f, err
-}
-
 // getFamilyByOSAndTarget looks up a family by OS definition + target combination.
 // This is the canonical lookup — family identity is (os_definition_id, target_id),
 // not (base_name, target_id).
@@ -2134,33 +2143,23 @@ type Stats struct {
 }
 
 func (db *DB) GetStats() (*Stats, error) {
+	// One statement with nine scalar subqueries instead of nine round-trips;
+	// each subquery is the exact COUNT the dashboard showed before.
 	s := &Stats{}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM targets`).Scan(&s.TotalTargets); err != nil {
-		return nil, fmt.Errorf("count targets: %w", err)
-	}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM templates`).Scan(&s.TotalTemplates); err != nil {
-		return nil, fmt.Errorf("count templates: %w", err)
-	}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM deployments`).Scan(&s.TotalDeployments); err != nil {
-		return nil, fmt.Errorf("count deployments: %w", err)
-	}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM deployments WHERE DATE(created_at) = DATE('now')`).Scan(&s.DeploymentsToday); err != nil {
-		return nil, fmt.Errorf("count deployments today: %w", err)
-	}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM deployments WHERE status = 'running'`).Scan(&s.RunningDeploys); err != nil {
-		return nil, fmt.Errorf("count running deploys: %w", err)
-	}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM managed_vms`).Scan(&s.TotalVMs); err != nil {
-		return nil, fmt.Errorf("count vms: %w", err)
-	}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM actions`).Scan(&s.TotalActions); err != nil {
-		return nil, fmt.Errorf("count actions: %w", err)
-	}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM templates WHERE managed_by_forgemill = TRUE AND lifecycle_status = 'active'`).Scan(&s.ManagedTemplates); err != nil {
-		return nil, fmt.Errorf("count managed templates: %w", err)
-	}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM template_schedules WHERE enabled = TRUE AND DATE(next_check_at) = DATE('now')`).Scan(&s.ScheduledBuildsToday); err != nil {
-		return nil, fmt.Errorf("count scheduled builds today: %w", err)
+	err := db.conn.QueryRow(`SELECT
+		(SELECT COUNT(*) FROM targets),
+		(SELECT COUNT(*) FROM templates),
+		(SELECT COUNT(*) FROM deployments),
+		(SELECT COUNT(*) FROM deployments WHERE DATE(created_at) = DATE('now')),
+		(SELECT COUNT(*) FROM deployments WHERE status = 'running'),
+		(SELECT COUNT(*) FROM managed_vms),
+		(SELECT COUNT(*) FROM actions),
+		(SELECT COUNT(*) FROM templates WHERE managed_by_forgemill = TRUE AND lifecycle_status = 'active'),
+		(SELECT COUNT(*) FROM template_schedules WHERE enabled = TRUE AND DATE(next_check_at) = DATE('now'))`,
+	).Scan(&s.TotalTargets, &s.TotalTemplates, &s.TotalDeployments, &s.DeploymentsToday, &s.RunningDeploys,
+		&s.TotalVMs, &s.TotalActions, &s.ManagedTemplates, &s.ScheduledBuildsToday)
+	if err != nil {
+		return nil, fmt.Errorf("dashboard stats: %w", err)
 	}
 	return s, nil
 }

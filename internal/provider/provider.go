@@ -19,6 +19,9 @@ var (
 	// ErrInvalidAdapterType: the requested NIC adapter model isn't one the
 	// provider will create.
 	ErrInvalidAdapterType = errors.New("invalid adapter type")
+	// ErrRequiresPowerOff: the change (CPU/memory resize without hot-add,
+	// etc.) can only be made while the VM is powered off.
+	ErrRequiresPowerOff = errors.New("VM must be powered off for this change")
 )
 
 // PV-X1: All Provider interface methods now accept context.Context for
@@ -267,6 +270,10 @@ func SortAddresses(addrs []string) []string {
 	return out
 }
 
+// VMInfo is one entry of a target-wide listing. It carries the same fields
+// GetVMStatus returns so a sync can be fed from a single listing instead
+// of one status call per VM; a provider that can't fill a field from its
+// listing leaves it zero and the caller falls back to GetVMStatus.
 type VMInfo struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
@@ -274,5 +281,6 @@ type VMInfo struct {
 	IPAddress  string `json:"ip_address"`
 	CPU        int    `json:"cpu"`
 	MemoryMB   int    `json:"memory_mb"`
+	DiskGB     int    `json:"disk_gb"`
 	GuestID    string `json:"guest_id"`
 }

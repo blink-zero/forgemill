@@ -37,9 +37,9 @@ func normalizeNICAdapterType(adapterType string) (string, error) {
 // nextFreeNetSlot returns the lowest netN index not present in the VM
 // config. Proxmox doesn't allocate slots itself — the caller names the
 // key — so picking the lowest free one mirrors what the Proxmox UI does.
-func nextFreeNetSlot(config map[string]interface{}) (int, error) {
+func nextFreeNetSlot(config qemuConfig) (int, error) {
 	for i := 0; i < maxNetSlots; i++ {
-		if _, taken := config[fmt.Sprintf("net%d", i)]; !taken {
+		if !config.Has(fmt.Sprintf("net%d", i)) {
 			return i, nil
 		}
 	}
@@ -95,14 +95,47 @@ func parseNetConfig(val string) netConfig {
 	return nc
 }
 
-// getVMConfig fetches /config as a flat map (netN, scsiN, hotplug, ...).
-func (p *Provider) getVMConfig(ctx context.Context, node, vmID string) (map[string]interface{}, error) {
+// qemuConfig is one VM's /config document: a flat map whose values Proxmox
+// returns as strings or numbers depending on key and version ("memory" may be
+// 2048 or "2048"; device slots like net0/scsi0 are always strings). All
+// coercion happens through the accessors below so callers never type-assert
+// JSON themselves.
+type qemuConfig map[string]interface{}
+
+// Str returns the value as a string, or "" when absent or not a string.
+func (c qemuConfig) Str(key string) string {
+	v, _ := c[key].(string)
+	return v
+}
+
+// Int returns the value as an int, accepting JSON numbers and numeric
+// strings; absent, non-numeric or other-typed values are 0.
+func (c qemuConfig) Int(key string) int {
+	switch val := c[key].(type) {
+	case float64:
+		return int(val)
+	case string:
+		n, _ := strconv.Atoi(val)
+		return n
+	}
+	return 0
+}
+
+// Has reports whether key is present at all (used for device slots, whose
+// value is irrelevant to "is this slot taken").
+func (c qemuConfig) Has(key string) bool {
+	_, ok := c[key]
+	return ok
+}
+
+// getVMConfig fetches /config as a qemuConfig (netN, scsiN, hotplug, ...).
+func (p *Provider) getVMConfig(ctx context.Context, node, vmID string) (qemuConfig, error) {
 	body, err := p.doGet(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/config", url.PathEscape(node), url.PathEscape(vmID)))
 	if err != nil {
 		return nil, fmt.Errorf("get VM config: %w", err)
 	}
 	var result struct {
-		Data map[string]interface{} `json:"data"`
+		Data qemuConfig `json:"data"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("parse VM config: %w", err)
@@ -188,10 +221,7 @@ func (p *Provider) AddNIC(ctx context.Context, vmID string, spec provider.NICSpe
 		return nil, fmt.Errorf("VLAN tag must be between 1 and 4094")
 	}
 
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node
-	}
+	node := p.nodeFor(ctx, vmID)
 
 	config, err := p.getVMConfig(ctx, node, vmID)
 	if err != nil {
@@ -232,7 +262,7 @@ func (p *Provider) AddNIC(ctx context.Context, vmID string, spec provider.NICSpe
 	// Re-read to pick up the MAC Proxmox generated. Best effort — the
 	// device is attached at this point regardless.
 	if after, err := p.getVMConfig(ctx, node, vmID); err == nil {
-		if raw, ok := after[key].(string); ok {
+		if raw := after.Str(key); raw != "" {
 			parsed := parseNetConfig(raw)
 			nic.MACAddress = parsed.MAC
 			if parsed.Bridge != "" {
@@ -316,10 +346,7 @@ func (p *Provider) isRunning(ctx context.Context, node, vmID string) bool {
 // (link not down), so a stopped VM's adapters read as "connects at
 // power-on" rather than "disconnected".
 func (p *Provider) ListNICs(ctx context.Context, vmID string) ([]provider.NIC, error) {
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node
-	}
+	node := p.nodeFor(ctx, vmID)
 	config, err := p.getVMConfig(ctx, node, vmID)
 	if err != nil {
 		return nil, err
@@ -330,11 +357,10 @@ func (p *Provider) ListNICs(ctx context.Context, vmID string) ([]provider.NIC, e
 	nics := []provider.NIC{}
 	for i := 0; i < maxNetSlots; i++ {
 		key := fmt.Sprintf("net%d", i)
-		raw, ok := config[key].(string)
-		if !ok {
+		if !config.Has(key) {
 			continue
 		}
-		nc := parseNetConfig(raw)
+		nc := parseNetConfig(config.Str(key))
 		nic := provider.NIC{
 			Key:            i,
 			Label:          key,

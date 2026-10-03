@@ -415,6 +415,10 @@ func (s *VMService) SyncAll(ctx context.Context, dryRun bool) (*SyncAllResult, e
 			for _, hvm := range hypervisorVMs {
 				hypervisorRefs[hvm.ID] = hvm
 			}
+		} else {
+			// The sync continues per VM via GetVMStatus, but orphan detection
+			// is skipped for this target — say so in the result, not just the log.
+			result.Errors = append(result.Errors, fmt.Sprintf("target %d: list VMs failed, orphan detection skipped: %v", targetID, listErr))
 		}
 
 		for _, vm := range targetVMs {
@@ -443,11 +447,29 @@ func (s *VMService) SyncAll(ctx context.Context, dryRun bool) (*SyncAllResult, e
 				}
 			}
 
-			status, err := p.GetVMStatus(ctx, vm.VMRef)
-			if err != nil {
-				slog.Warn("sync-all: failed to get status", "vm_id", vm.ID, "vm_ref", vm.VMRef, "error", err)
-				result.Errors = append(result.Errors, fmt.Sprintf("vm %d: %v", vm.ID, err))
-				continue
+			// The listing already carries everything the sync records
+			// (power, IP, CPU, memory, disk, guest id), so use it and skip the
+			// per-VM status call. The one case it can't cover is a running VM
+			// whose IP the listing didn't include (Proxmox needs the guest
+			// agent for that) — fall back to GetVMStatus there, as before.
+			var status *provider.VMStatus
+			if hvm, ok := hypervisorRefs[vm.VMRef]; listErr == nil && ok && (hvm.IPAddress != "" || hvm.PowerState != "poweredOn") {
+				status = &provider.VMStatus{
+					PowerState: hvm.PowerState,
+					IPAddress:  hvm.IPAddress,
+					CPU:        hvm.CPU,
+					MemoryMB:   hvm.MemoryMB,
+					DiskGB:     hvm.DiskGB,
+					GuestID:    hvm.GuestID,
+				}
+			} else {
+				st, err := p.GetVMStatus(ctx, vm.VMRef)
+				if err != nil {
+					slog.Warn("sync-all: failed to get status", "vm_id", vm.ID, "vm_ref", vm.VMRef, "error", err)
+					result.Errors = append(result.Errors, fmt.Sprintf("vm %d: %v", vm.ID, err))
+					continue
+				}
+				status = st
 			}
 
 			if _, err := s.updateVMPowerState(&vm, status.PowerState, status.IPAddress); err != nil {
@@ -612,7 +634,7 @@ func (s *VMService) Resize(ctx context.Context, id int64, cpu, memoryMB int) err
 	}
 
 	if vm.PowerState != "poweredOff" && vm.PowerState != "stopped" {
-		return fmt.Errorf("VM must be powered off to resize (current state: %s)", vm.PowerState)
+		return fmt.Errorf("%w: resize (current state: %s)", ErrRequiresPowerOff, vm.PowerState)
 	}
 
 	p, err := s.targets.GetProvider(vm.TargetID)
@@ -728,6 +750,9 @@ func (s *VMService) ResetHostKey(id int64) error {
 var (
 	ErrVMNotFound     = errors.New("VM not found")
 	ErrInvalidNICSpec = errors.New("invalid network adapter request")
+	// ErrRequiresPowerOff is the provider sentinel re-exported so handlers
+	// depend on the service package only.
+	ErrRequiresPowerOff = provider.ErrRequiresPowerOff
 )
 
 // AddNICRequest is the service-level input for AddNIC.

@@ -14,16 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import { getErrorMessage } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
-
-const statusVariant = (status: string) => {
-  switch (status) {
-    case "completed": return "success" as const;
-    case "running": return "default" as const;
-    case "failed": return "destructive" as const;
-    case "cancelled": return "warning" as const;
-    default: return "secondary" as const;
-  }
-};
+import { deploymentStatusVariant } from "@/lib/status";
 
 type Tab = "overview" | "timeline" | "receipt";
 
@@ -116,7 +107,7 @@ export default function DeployLive() {
         <h1 className="text-2xl font-bold">Deployment #{deployId}</h1>
         <div className="flex items-center gap-2">
           {connected && <span className="text-xs text-success">Live</span>}
-          <Badge variant={statusVariant(status)}>{status}</Badge>
+          <Badge variant={deploymentStatusVariant(status)}>{status}</Badge>
         </div>
       </div>
 

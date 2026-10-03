@@ -1,8 +1,8 @@
 import { useTimezone } from "@/hooks/useTimezone";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { templates as templateApi, factoryApi, templateHistory, targets as targetsApi } from "@/api/client";
-import type { Template, TemplateDetailInfo, Target, UpdateCheckResult, TemplateHistory as THistory, TemplateSchedule, TemplateFamily } from "@/types";
+import type { Template, TemplateDetailInfo, Target, UpdateCheckResult, TemplateHistory as THistory, TemplateSchedule } from "@/types";
 import { useToast } from "@/components/ui/toast";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -31,7 +31,6 @@ export default function Templates() {
   const [search, setSearch] = useState("");
   const [updateChecks, setUpdateChecks] = useState<Record<number, UpdateCheckResult>>({});
   const [checking, setChecking] = useState(false);
-  const [hasChecked, setHasChecked] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<{ name: string; status: "pending" | "checking" | "up-to-date" | "update-available" | "error" }[]>([]);
   const [historyOpen, setHistoryOpen] = useState<number | null>(null);
@@ -43,7 +42,6 @@ export default function Templates() {
   const [scheduleEnabled, setScheduleEnabled] = useState(true);
   const [rebuilding, setRebuilding] = useState<number | null>(null);
   const [targetsList, setTargetsList] = useState<Target[]>([]);
-  const [families, setFamilies] = useState<TemplateFamily[]>([]);
   const [rebuildModal, setRebuildModal] = useState<Template | null>(null);
   const [deleteModal, setDeleteModal] = useState<{
     template: Template;
@@ -70,12 +68,10 @@ export default function Templates() {
     Promise.all([
       templateApi.list(),
       targetsApi.list(),
-      factoryApi.listTemplateFamilies(),
       factoryApi.listSchedules(),
-    ]).then(([templatesRes, targetsRes, familiesRes, schedulesRes]) => {
+    ]).then(([templatesRes, targetsRes, schedulesRes]) => {
       setTemplates(templatesRes.data || []);
       setTargetsList(targetsRes.data || []);
-      setFamilies(familiesRes.data || []);
       setSchedules(schedulesRes.data || []);
     }).finally(() => setLoading(false));
   };
@@ -124,7 +120,6 @@ export default function Templates() {
     }
 
     setUpdateChecks((prev) => ({ ...prev, ...updates }));
-    setHasChecked(true);
     setChecking(false);
   };
 

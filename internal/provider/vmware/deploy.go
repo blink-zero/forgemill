@@ -9,6 +9,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/vmware/govmomi/fault"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/property"
@@ -19,19 +20,93 @@ import (
 	"github.com/forgemill/forgemill/internal/provider"
 )
 
+// deployPlacement is everything DeployVM resolves by name before it touches
+// the template: the inventory objects the new VM lands in.
+type deployPlacement struct {
+	finder       *find.Finder
+	dc           *object.Datacenter
+	tmpl         *object.VirtualMachine
+	folder       *object.Folder
+	pool         *object.ResourcePool
+	datastoreRef *types.ManagedObjectReference // nil = template's datastore
+	hostRef      *types.ManagedObjectReference // nil = let DRS/the pool pick
+}
+
+// DeployVM clones spec.TemplateName into a new, powered-on VM.
+//
+// The work is a straight pipeline — resolve placement → clone spec → device
+// edits → cloud-init → clone task → post-clone NIC fix-up — with one function
+// per step so each can be read and tested on its own. On standalone ESXi,
+// which has no CloneVM_Task, the clone step hands the already-resolved
+// placement and template properties to esxiDeployFallback.
 func (p *Provider) DeployVM(ctx context.Context, spec *provider.DeploySpec) (*provider.DeployResult, error) {
 	client, err := p.getClient(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	finder := find.NewFinder(client.Client, true)
+	pl, err := p.resolvePlacement(ctx, client.Client, spec)
+	if err != nil {
+		return nil, err
+	}
+
+	cloneSpec := p.buildCloneSpec(spec, pl)
+
+	vmProps, templateOriginalDiskKB, err := fetchTemplateProps(ctx, client.Client, pl.tmpl)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := applyNetwork(ctx, pl.finder, spec, &vmProps, &cloneSpec); err != nil {
+		return nil, err
+	}
+	applyDiskResize(spec, &vmProps, &cloneSpec)
+	applyDiskProvisioning(spec, &vmProps, pl.datastoreRef, &cloneSpec)
+	applyCloudInit(spec, &cloneSpec)
+
+	task, err := pl.tmpl.Clone(ctx, pl.folder, spec.VMName, cloneSpec)
+	if err != nil {
+		// Standalone ESXi does not support CloneVM_Task. Fall back to
+		// copying the template VMDK and registering a new VM.
+		if p.esxiMode && isNotSupportedError(err) {
+			slog.Info("CloneVM not supported on standalone ESXi, using file copy fallback", "vm", spec.VMName)
+			return p.esxiDeployFallback(ctx, spec, client.Client, pl.dc, pl.finder, pl.folder, pl.pool, &vmProps, templateOriginalDiskKB, vmProps.Config.Firmware)
+		}
+		return nil, fmt.Errorf("clone VM: %w", err)
+	}
+
+	// BUG-02: Extract the VM moref from the clone task result so that
+	// subsequent operations (power, snapshot, status sync, delete) can
+	// look up the VM. Without this, VMRef is empty for all VMware VMs.
+	vmID, vmRef, err := waitClone(ctx, task)
+	if err != nil {
+		if p.esxiMode && isNotSupportedError(err) {
+			slog.Info("CloneVM task failed on standalone ESXi, using file copy fallback", "vm", spec.VMName)
+			return p.esxiDeployFallback(ctx, spec, client.Client, pl.dc, pl.finder, pl.folder, pl.pool, &vmProps, templateOriginalDiskKB, vmProps.Config.Firmware)
+		}
+		return nil, fmt.Errorf("clone task failed: %w", err)
+	}
+
+	if vmRef != nil {
+		ensureClonedNICsConnected(ctx, client.Client, *vmRef)
+	}
+
+	return &provider.DeployResult{
+		TaskID: task.Reference().Value,
+		VMID:   vmID,
+	}, nil
+}
+
+// resolvePlacement looks up every named inventory object in spec, in the
+// order datacenter → template → folder → resource pool → datastore → host,
+// failing on the first one that doesn't resolve. Nothing is created here.
+func (p *Provider) resolvePlacement(ctx context.Context, c *vim25.Client, spec *provider.DeploySpec) (*deployPlacement, error) {
+	finder := find.NewFinder(c, true)
 
 	dcName := spec.Datacenter
 	if p.esxiMode && dcName == "" {
 		dcName = "ha-datacenter"
 	}
-
 	dc, err := finder.Datacenter(ctx, dcName)
 	if err != nil {
 		return nil, fmt.Errorf("find datacenter %q: %w", dcName, err)
@@ -62,32 +137,40 @@ func (p *Provider) DeployVM(ctx context.Context, spec *provider.DeploySpec) (*pr
 		return nil, fmt.Errorf("find resource pool: %w", err)
 	}
 
-	var datastoreRef *types.ManagedObjectReference
+	pl := &deployPlacement{finder: finder, dc: dc, tmpl: tmpl, folder: folder, pool: pool}
+
 	if spec.Datastore != "" {
 		ds, err := finder.Datastore(ctx, spec.Datastore)
 		if err != nil {
 			return nil, fmt.Errorf("find datastore %q: %w", spec.Datastore, err)
 		}
 		ref := ds.Reference()
-		datastoreRef = &ref
+		pl.datastoreRef = &ref
 	}
 
 	// Resolve optional host placement (vCenter only).
-	var hostRef *types.ManagedObjectReference
 	if spec.Host != "" && !p.esxiMode {
 		host, err := finder.HostSystem(ctx, spec.Host)
 		if err != nil {
 			return nil, fmt.Errorf("find host %q: %w", spec.Host, err)
 		}
 		ref := host.Reference()
-		hostRef = &ref
+		pl.hostRef = &ref
 	}
 
+	return pl, nil
+}
+
+// buildCloneSpec is the pure part of the clone request: where the VM goes,
+// the CPU/memory overrides, and guest customization when the spec asks for
+// a hostname, address, domain or DNS servers. Device and ExtraConfig edits
+// are layered on by the apply* functions.
+func (p *Provider) buildCloneSpec(spec *provider.DeploySpec, pl *deployPlacement) types.VirtualMachineCloneSpec {
 	cloneSpec := types.VirtualMachineCloneSpec{
 		Location: types.VirtualMachineRelocateSpec{
-			Pool:      poolRef(pool),
-			Datastore: datastoreRef,
-			Host:      hostRef,
+			Pool:      poolRef(pl.pool),
+			Datastore: pl.datastoreRef,
+			Host:      pl.hostRef,
 		},
 		PowerOn:  true,
 		Template: false,
@@ -110,15 +193,23 @@ func (p *Provider) DeployVM(ctx context.Context, spec *provider.DeploySpec) (*pr
 		cloneSpec.Customization = p.buildCustomization(spec)
 	}
 
-	// Retrieve template device info for NIC and disk changes
+	return cloneSpec
+}
+
+// templateProps is the property set DeployVM needs from the template:
+// devices for NIC/disk edits, and guest/firmware/sizing for the ESXi fallback.
+var templateProps = []string{"config.hardware.device", "config.guestId", "config.hardware.numCPU", "config.hardware.memoryMB", "config.firmware"}
+
+// fetchTemplateProps retrieves templateProps and records the template's
+// first disk size before any step mutates the device objects (the disk
+// resize edits them in place; the ESXi fallback needs the original).
+func fetchTemplateProps(ctx context.Context, c *vim25.Client, tmpl *object.VirtualMachine) (mo.VirtualMachine, int64, error) {
 	var vmProps mo.VirtualMachine
-	pc := property.DefaultCollector(client.Client)
-	if err := pc.RetrieveOne(ctx, tmpl.Reference(), []string{"config.hardware.device", "config.guestId", "config.hardware.numCPU", "config.hardware.memoryMB", "config.firmware"}, &vmProps); err != nil {
-		return nil, fmt.Errorf("get template devices: %w", err)
+	pc := property.DefaultCollector(c)
+	if err := pc.RetrieveOne(ctx, tmpl.Reference(), templateProps, &vmProps); err != nil {
+		return vmProps, 0, fmt.Errorf("get template devices: %w", err)
 	}
 
-	// Save the template's original disk size before any mutations (clone path
-	// modifies the device objects in vmProps for disk resize).
 	var templateOriginalDiskKB int64
 	if vmProps.Config != nil {
 		for _, dev := range vmProps.Config.Hardware.Device {
@@ -128,198 +219,214 @@ func (p *Provider) DeployVM(ctx context.Context, spec *provider.DeploySpec) (*pr
 			}
 		}
 	}
+	return vmProps, templateOriginalDiskKB, nil
+}
 
-	if spec.Network != "" {
-		net, err := finder.Network(ctx, spec.Network)
-		if err != nil {
-			return nil, fmt.Errorf("find network %q: %w", spec.Network, err)
-		}
-		backing, err := net.EthernetCardBackingInfo(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("get network backing for %q: %w", spec.Network, err)
-		}
-
-		// PV-V4: Preserve the original NIC type from the template
-		var nicDevice types.BaseVirtualDevice
-		if vmProps.Config != nil {
-			for _, dev := range vmProps.Config.Hardware.Device {
-				if card, ok := dev.(types.BaseVirtualEthernetCard); ok {
-					ethCard := card.GetVirtualEthernetCard()
-					ethCard.Backing = backing
-					// Ensure NIC is connected at power-on after network backing change
-					ethCard.Connectable = &types.VirtualDeviceConnectInfo{
-						StartConnected:    true,
-						AllowGuestControl: true,
-						Connected:         true,
-					}
-					nicDevice = dev
-					break
-				}
-			}
-		}
-		if nicDevice == nil {
-			return nil, fmt.Errorf("no network adapter found in template")
-		}
-		deviceChange := types.VirtualDeviceConfigSpec{
-			Operation: types.VirtualDeviceConfigSpecOperationEdit,
-			Device:    nicDevice,
-		}
-		if cloneSpec.Config == nil {
-			cloneSpec.Config = &types.VirtualMachineConfigSpec{}
-		}
-		cloneSpec.Config.DeviceChange = append(cloneSpec.Config.DeviceChange, &deviceChange)
+// ensureConfig makes cloneSpec.Config non-nil so device/ExtraConfig edits
+// can be appended regardless of whether CPU/memory overrides created it.
+func ensureConfig(cloneSpec *types.VirtualMachineCloneSpec) {
+	if cloneSpec.Config == nil {
+		cloneSpec.Config = &types.VirtualMachineConfigSpec{}
 	}
+}
 
-	// PV-V6: Apply DiskGB resize during clone if specified
-	if spec.DiskGB > 0 && vmProps.Config != nil {
-		for _, dev := range vmProps.Config.Hardware.Device {
-			disk, ok := dev.(*types.VirtualDisk)
-			if !ok {
-				continue
-			}
-			requestedKB := int64(spec.DiskGB) * 1024 * 1024
-			if requestedKB > disk.CapacityInKB {
-				disk.CapacityInKB = requestedKB
-				if cloneSpec.Config == nil {
-					cloneSpec.Config = &types.VirtualMachineConfigSpec{}
-				}
-				cloneSpec.Config.DeviceChange = append(cloneSpec.Config.DeviceChange,
-					&types.VirtualDeviceConfigSpec{
-						Operation: types.VirtualDeviceConfigSpecOperationEdit,
-						Device:    disk,
-					},
-				)
-			}
-			break
-		}
+// applyNetwork re-points the template's first NIC at spec.Network (keeping
+// the adapter model, PV-V4) and marks it connected at power-on. No-op when
+// spec.Network is empty.
+func applyNetwork(ctx context.Context, finder *find.Finder, spec *provider.DeploySpec, vmProps *mo.VirtualMachine, cloneSpec *types.VirtualMachineCloneSpec) error {
+	if spec.Network == "" {
+		return nil
 	}
-
-	// Apply disk provisioning override if specified.
-	if spec.DiskProvisioning != "" && vmProps.Config != nil {
-		for _, dev := range vmProps.Config.Hardware.Device {
-			disk, ok := dev.(*types.VirtualDisk)
-			if !ok {
-				continue
-			}
-			backing := &types.VirtualDiskFlatVer2BackingInfo{
-				DiskMode: string(types.VirtualDiskModePersistent),
-			}
-			switch spec.DiskProvisioning {
-			case "thin":
-				backing.ThinProvisioned = types.NewBool(true)
-				backing.EagerlyScrub = types.NewBool(false)
-			case "thick":
-				backing.ThinProvisioned = types.NewBool(false)
-				backing.EagerlyScrub = types.NewBool(false)
-			case "thick_eager_zero":
-				backing.ThinProvisioned = types.NewBool(false)
-				backing.EagerlyScrub = types.NewBool(true)
-			}
-			if datastoreRef != nil {
-				cloneSpec.Location.Disk = append(cloneSpec.Location.Disk,
-					types.VirtualMachineRelocateSpecDiskLocator{
-						DiskId:       disk.Key,
-						Datastore:    *datastoreRef,
-						DiskBackingInfo: backing,
-					},
-				)
-			}
-			break
-		}
-	}
-
-	// Inject cloud-init credentials and network config via guestinfo properties.
-	// VMware datasource requires metadata to activate; userdata alone is ignored.
-	// Network config is embedded in metadata under the "network" key, which is
-	// how cloud-init's built-in VMware datasource (21.3+) reads network config.
-	if spec.PasswordHash != "" || spec.UserDataOverride != "" {
-		var userdata string
-		if spec.UserDataOverride != "" {
-			userdata = spec.UserDataOverride
-		} else {
-			userdata = buildCloudInitUserdata(spec.PasswordHash, spec.PlainPassword, spec.SSHPublicKey)
-		}
-		userdataB64 := base64.StdEncoding.EncodeToString([]byte(userdata))
-		metadataJSON := buildCloudInitMetadata(spec)
-		metadataB64 := base64.StdEncoding.EncodeToString(metadataJSON)
-		if cloneSpec.Config == nil {
-			cloneSpec.Config = &types.VirtualMachineConfigSpec{}
-		}
-		cloneSpec.Config.ExtraConfig = append(cloneSpec.Config.ExtraConfig,
-			&types.OptionValue{Key: "guestinfo.metadata", Value: metadataB64},
-			&types.OptionValue{Key: "guestinfo.metadata.encoding", Value: "base64"},
-			&types.OptionValue{Key: "guestinfo.userdata", Value: userdataB64},
-			&types.OptionValue{Key: "guestinfo.userdata.encoding", Value: "base64"},
-		)
-	}
-
-	task, err := tmpl.Clone(ctx, folder, spec.VMName, cloneSpec)
+	net, err := finder.Network(ctx, spec.Network)
 	if err != nil {
-		// Standalone ESXi does not support CloneVM_Task. Fall back to
-		// copying the template VMDK and registering a new VM.
-		if p.esxiMode && isNotSupportedError(err) {
-			slog.Info("CloneVM not supported on standalone ESXi, using file copy fallback", "vm", spec.VMName)
-			return p.esxiDeployFallback(ctx, spec, client.Client, dc, finder, folder, pool, &vmProps, templateOriginalDiskKB, vmProps.Config.Firmware)
-		}
-		return nil, fmt.Errorf("clone VM: %w", err)
+		return fmt.Errorf("find network %q: %w", spec.Network, err)
+	}
+	backing, err := net.EthernetCardBackingInfo(ctx)
+	if err != nil {
+		return fmt.Errorf("get network backing for %q: %w", spec.Network, err)
 	}
 
-	// BUG-02: Extract the VM moref from the clone task result so that
-	// subsequent operations (power, snapshot, status sync, delete) can
-	// look up the VM. Without this, VMRef is empty for all VMware VMs.
+	// PV-V4: Preserve the original NIC type from the template
+	var nicDevice types.BaseVirtualDevice
+	if vmProps.Config != nil {
+		for _, dev := range vmProps.Config.Hardware.Device {
+			if card, ok := dev.(types.BaseVirtualEthernetCard); ok {
+				ethCard := card.GetVirtualEthernetCard()
+				ethCard.Backing = backing
+				// Ensure NIC is connected at power-on after network backing change
+				ethCard.Connectable = &types.VirtualDeviceConnectInfo{
+					StartConnected:    true,
+					AllowGuestControl: true,
+					Connected:         true,
+				}
+				nicDevice = dev
+				break
+			}
+		}
+	}
+	if nicDevice == nil {
+		return fmt.Errorf("no network adapter found in template")
+	}
+	ensureConfig(cloneSpec)
+	cloneSpec.Config.DeviceChange = append(cloneSpec.Config.DeviceChange, &types.VirtualDeviceConfigSpec{
+		Operation: types.VirtualDeviceConfigSpecOperationEdit,
+		Device:    nicDevice,
+	})
+	return nil
+}
+
+// applyDiskResize grows the template's first disk to spec.DiskGB during the
+// clone (PV-V6). Disks are never shrunk; a smaller or zero request is ignored.
+func applyDiskResize(spec *provider.DeploySpec, vmProps *mo.VirtualMachine, cloneSpec *types.VirtualMachineCloneSpec) {
+	if spec.DiskGB <= 0 || vmProps.Config == nil {
+		return
+	}
+	for _, dev := range vmProps.Config.Hardware.Device {
+		disk, ok := dev.(*types.VirtualDisk)
+		if !ok {
+			continue
+		}
+		requestedKB := int64(spec.DiskGB) * 1024 * 1024
+		if requestedKB > disk.CapacityInKB {
+			disk.CapacityInKB = requestedKB
+			ensureConfig(cloneSpec)
+			cloneSpec.Config.DeviceChange = append(cloneSpec.Config.DeviceChange,
+				&types.VirtualDeviceConfigSpec{
+					Operation: types.VirtualDeviceConfigSpecOperationEdit,
+					Device:    disk,
+				},
+			)
+		}
+		break
+	}
+}
+
+// applyDiskProvisioning asks the relocate step to lay the first disk down as
+// thin / thick / thick-eager-zero on the chosen datastore. It needs an
+// explicit datastore: without one the clone inherits the template's layout.
+func applyDiskProvisioning(spec *provider.DeploySpec, vmProps *mo.VirtualMachine, datastoreRef *types.ManagedObjectReference, cloneSpec *types.VirtualMachineCloneSpec) {
+	if spec.DiskProvisioning == "" || vmProps.Config == nil {
+		return
+	}
+	for _, dev := range vmProps.Config.Hardware.Device {
+		disk, ok := dev.(*types.VirtualDisk)
+		if !ok {
+			continue
+		}
+		backing := &types.VirtualDiskFlatVer2BackingInfo{
+			DiskMode: string(types.VirtualDiskModePersistent),
+		}
+		switch spec.DiskProvisioning {
+		case "thin":
+			backing.ThinProvisioned = types.NewBool(true)
+			backing.EagerlyScrub = types.NewBool(false)
+		case "thick":
+			backing.ThinProvisioned = types.NewBool(false)
+			backing.EagerlyScrub = types.NewBool(false)
+		case "thick_eager_zero":
+			backing.ThinProvisioned = types.NewBool(false)
+			backing.EagerlyScrub = types.NewBool(true)
+		}
+		if datastoreRef != nil {
+			cloneSpec.Location.Disk = append(cloneSpec.Location.Disk,
+				types.VirtualMachineRelocateSpecDiskLocator{
+					DiskId:          disk.Key,
+					Datastore:       *datastoreRef,
+					DiskBackingInfo: backing,
+				},
+			)
+		}
+		break
+	}
+}
+
+// cloudInitExtraConfig returns the guestinfo.* properties that carry
+// cloud-init credentials and network config to the guest, or nil when the
+// spec has neither a password hash nor a userdata override. Both deploy
+// paths (clone and ESXi file-copy) inject exactly this set.
+//
+// The VMware datasource requires metadata to activate; userdata alone is
+// ignored. Network config is embedded in metadata under the "network" key,
+// which is how cloud-init's built-in VMware datasource (21.3+) reads it.
+func cloudInitExtraConfig(spec *provider.DeploySpec) []types.BaseOptionValue {
+	if spec.PasswordHash == "" && spec.UserDataOverride == "" {
+		return nil
+	}
+	var userdata string
+	if spec.UserDataOverride != "" {
+		userdata = spec.UserDataOverride
+	} else {
+		userdata = buildCloudInitUserdata(spec.PasswordHash, spec.PlainPassword, spec.SSHPublicKey)
+	}
+	userdataB64 := base64.StdEncoding.EncodeToString([]byte(userdata))
+	metadataJSON := buildCloudInitMetadata(spec)
+	metadataB64 := base64.StdEncoding.EncodeToString(metadataJSON)
+	return []types.BaseOptionValue{
+		&types.OptionValue{Key: "guestinfo.metadata", Value: metadataB64},
+		&types.OptionValue{Key: "guestinfo.metadata.encoding", Value: "base64"},
+		&types.OptionValue{Key: "guestinfo.userdata", Value: userdataB64},
+		&types.OptionValue{Key: "guestinfo.userdata.encoding", Value: "base64"},
+	}
+}
+
+// applyCloudInit appends cloudInitExtraConfig to the clone spec.
+func applyCloudInit(spec *provider.DeploySpec, cloneSpec *types.VirtualMachineCloneSpec) {
+	opts := cloudInitExtraConfig(spec)
+	if len(opts) == 0 {
+		return
+	}
+	ensureConfig(cloneSpec)
+	cloneSpec.Config.ExtraConfig = append(cloneSpec.Config.ExtraConfig, opts...)
+}
+
+// waitClone waits for the clone task and returns the new VM's moref (empty
+// when the task result carries none). The error is returned unwrapped so the
+// caller can still recognise a NotSupported fault.
+func waitClone(ctx context.Context, task *object.Task) (string, *types.ManagedObjectReference, error) {
 	info, err := task.WaitForResult(ctx, nil)
 	if err != nil {
-		if p.esxiMode && isNotSupportedError(err) {
-			slog.Info("CloneVM task failed on standalone ESXi, using file copy fallback", "vm", spec.VMName)
-			return p.esxiDeployFallback(ctx, spec, client.Client, dc, finder, folder, pool, &vmProps, templateOriginalDiskKB, vmProps.Config.Firmware)
-		}
-		return nil, fmt.Errorf("clone task failed: %w", err)
+		return "", nil, err
 	}
-	vmID := ""
-	var vmRef *types.ManagedObjectReference
 	if info.Result != nil {
 		if ref, ok := info.Result.(types.ManagedObjectReference); ok {
-			vmID = ref.Value
-			vmRef = &ref
+			return ref.Value, &ref, nil
 		}
 	}
+	return "", nil, nil
+}
 
-	// Post-clone: ensure all NICs are connected. vCenter's guest customization
-	// can reset NIC connection state, leaving interfaces disconnected.
-	if vmRef != nil {
-		clonedVM := object.NewVirtualMachine(client.Client, *vmRef)
-		var clonedProps mo.VirtualMachine
-		if err := pc.RetrieveOne(ctx, clonedVM.Reference(), []string{"config.hardware.device"}, &clonedProps); err == nil && clonedProps.Config != nil {
-			var nicChanges []types.BaseVirtualDeviceConfigSpec
-			for _, dev := range clonedProps.Config.Hardware.Device {
-				if card, ok := dev.(types.BaseVirtualEthernetCard); ok {
-					ethCard := card.GetVirtualEthernetCard()
-					ethCard.Connectable = &types.VirtualDeviceConnectInfo{
-						StartConnected:    true,
-						AllowGuestControl: true,
-						Connected:         true,
-					}
-					nicChanges = append(nicChanges, &types.VirtualDeviceConfigSpec{
-						Operation: types.VirtualDeviceConfigSpecOperationEdit,
-						Device:    dev,
-					})
-				}
+// ensureClonedNICsConnected re-asserts connected + start-connected on every
+// NIC of the new VM. vCenter's guest customization can reset NIC connection
+// state, leaving interfaces disconnected. Best effort: failures are ignored
+// because the VM already exists and is powered on at this point.
+func ensureClonedNICsConnected(ctx context.Context, c *vim25.Client, vmRef types.ManagedObjectReference) {
+	clonedVM := object.NewVirtualMachine(c, vmRef)
+	var clonedProps mo.VirtualMachine
+	if err := property.DefaultCollector(c).RetrieveOne(ctx, clonedVM.Reference(), []string{"config.hardware.device"}, &clonedProps); err != nil || clonedProps.Config == nil {
+		return
+	}
+	var nicChanges []types.BaseVirtualDeviceConfigSpec
+	for _, dev := range clonedProps.Config.Hardware.Device {
+		if card, ok := dev.(types.BaseVirtualEthernetCard); ok {
+			ethCard := card.GetVirtualEthernetCard()
+			ethCard.Connectable = &types.VirtualDeviceConnectInfo{
+				StartConnected:    true,
+				AllowGuestControl: true,
+				Connected:         true,
 			}
-			if len(nicChanges) > 0 {
-				reconfigTask, err := clonedVM.Reconfigure(ctx, types.VirtualMachineConfigSpec{
-					DeviceChange: nicChanges,
-				})
-				if err == nil {
-					_ = reconfigTask.Wait(ctx)
-				}
-			}
+			nicChanges = append(nicChanges, &types.VirtualDeviceConfigSpec{
+				Operation: types.VirtualDeviceConfigSpecOperationEdit,
+				Device:    dev,
+			})
 		}
 	}
-
-	return &provider.DeployResult{
-		TaskID: task.Reference().Value,
-		VMID:   vmID,
-	}, nil
+	if len(nicChanges) == 0 {
+		return
+	}
+	reconfigTask, err := clonedVM.Reconfigure(ctx, types.VirtualMachineConfigSpec{DeviceChange: nicChanges})
+	if err == nil {
+		_ = reconfigTask.Wait(ctx)
+	}
 }
 
 // buildCloudInitUserdata generates a cloud-config YAML for credential injection.
@@ -849,26 +956,9 @@ func (p *Provider) esxiDeployFallback(
 		configSpec.DeviceChange = append(configSpec.DeviceChange, nicSpec)
 	}
 
-	// Inject cloud-init credentials and network config via guestinfo.
-	// VMware datasource requires metadata to activate; userdata alone is ignored.
-	// Network config is embedded in metadata under the "network" key.
-	if spec.PasswordHash != "" || spec.UserDataOverride != "" {
-		var userdata string
-		if spec.UserDataOverride != "" {
-			userdata = spec.UserDataOverride
-		} else {
-			userdata = buildCloudInitUserdata(spec.PasswordHash, spec.PlainPassword, spec.SSHPublicKey)
-		}
-		userdataB64 := base64.StdEncoding.EncodeToString([]byte(userdata))
-		metadataJSON := buildCloudInitMetadata(spec)
-		metadataB64 := base64.StdEncoding.EncodeToString(metadataJSON)
-		configSpec.ExtraConfig = append(configSpec.ExtraConfig,
-			&types.OptionValue{Key: "guestinfo.metadata", Value: metadataB64},
-			&types.OptionValue{Key: "guestinfo.metadata.encoding", Value: "base64"},
-			&types.OptionValue{Key: "guestinfo.userdata", Value: userdataB64},
-			&types.OptionValue{Key: "guestinfo.userdata.encoding", Value: "base64"},
-		)
-	}
+	// Inject cloud-init credentials and network config via guestinfo — the
+	// same properties the clone path sets (see cloudInitExtraConfig).
+	configSpec.ExtraConfig = append(configSpec.ExtraConfig, cloudInitExtraConfig(spec)...)
 
 	// Create the VM.
 	slog.Info("registering new VM via ESXi fallback", "vm", spec.VMName)
@@ -1015,9 +1105,18 @@ func buildNICFromTemplate(ctx context.Context, finder *find.Finder, spec *provid
 	}, nil
 }
 
-// isNotSupportedError checks whether an error indicates that the requested
-// operation is not supported (common on standalone ESXi without vCenter).
+// isNotSupportedError reports whether err is vSphere telling us the
+// operation isn't available on this endpoint (standalone ESXi has no
+// CloneVM_Task). The typed check covers the SOAP faults vSphere actually
+// raises; the text check is kept as a fallback for errors that reach us
+// already flattened to a string, so the ESXi fallback never regresses.
 func isNotSupportedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if fault.Is(err, &types.NotSupported{}) || fault.Is(err, &types.NotImplemented{}) || fault.Is(err, &types.RestrictedVersion{}) {
+		return true
+	}
 	return strings.Contains(strings.ToLower(err.Error()), "not supported")
 }
 

@@ -1,0 +1,80 @@
+name: UI regression
+
+# Pixel-diffs every primary route between the PR's base and head, both built
+# from source and run against the same seeded database. See frontend/e2e/README.md.
+on:
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - "frontend/**"
+      - "internal/**"
+      - "cmd/**"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/ui-regression.yml"
+
+jobs:
+  screenshots:
+    name: Screenshot diff (base vs head)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: head
+
+      # The base branch's current head, not pull_request.base.sha: GitHub does
+      # not refresh that sha when the base branch moves, so a PR opened before
+      # an unrelated merge would keep being compared with a stale dev.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          path: base
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: head/go.mod
+          cache-dependency-path: |
+            head/go.sum
+            base/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            head/frontend/package-lock.json
+            base/frontend/package-lock.json
+
+      - name: Build base
+        run: |
+          cd base && go build -o "$PWD/forgemill" ./cmd/forgemill
+          cd frontend && npm ci && npm run build
+
+      - name: Build head
+        run: |
+          cd head && go build -o "$PWD/forgemill" ./cmd/forgemill
+          cd frontend && npm ci && npm run build
+
+      - name: Install Chromium
+        working-directory: head/frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Seed, tour both builds, diff
+        working-directory: head
+        run: |
+          frontend/e2e/run.sh compare \
+            "$GITHUB_WORKSPACE/base/forgemill" "$GITHUB_WORKSPACE/base/frontend/dist" \
+            "$GITHUB_WORKSPACE/head/forgemill" "$GITHUB_WORKSPACE/head/frontend/dist" \
+            "$RUNNER_TEMP/e2e"
+
+      - name: Upload screenshots and diffs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshots
+          path: |
+            ${{ runner.temp }}/e2e/shots-base
+            ${{ runner.temp }}/e2e/shots-head
+            ${{ runner.temp }}/e2e/*.log
+          retention-days: 14

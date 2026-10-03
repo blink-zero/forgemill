@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Edit2, Package, Terminal, Shield, Activity, Puzzle, Search, X, Code2, ChevronDown, ChevronUp, Info, Copy, Check, Loader2, ArrowUp, ArrowDown, Settings2, History, RotateCcw, Download, Upload } from "lucide-react";
+import { Plus, Trash2, Edit2, Package, Terminal, Shield, Activity, Puzzle, Search, X, Code2, ChevronDown, ChevronUp, Copy, Check, Loader2, ArrowUp, ArrowDown, Settings2, History, RotateCcw, Download, Upload } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Pagination } from "@/components/ui/pagination";
 import { useAuth } from "@/hooks/useAuth";
@@ -109,8 +109,8 @@ export default function ActionsPage() {
     try {
       const res = await actionsApi.list();
       setActionList(res.data || []);
-    } catch {
-      // ignore
+    } catch (e: unknown) {
+      toast(getErrorMessage(e, "Failed to load actions"), "error");
     } finally {
       setLoading(false);
     }

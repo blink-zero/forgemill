@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -142,6 +143,9 @@ func (e *Engine) CancelBuild() {
 	}
 }
 
+// ErrBuildInProgress: the engine runs one Packer build at a time.
+var ErrBuildInProgress = errors.New("another build is already in progress")
+
 // RunBuild executes a Packer build in a background goroutine.
 // V3-M10: Added validateCerts parameter to propagate TLS validation to Packer templates.
 func (e *Engine) RunBuild(buildID int64, targetType string, targetHostname string, targetPort int, targetUsername string, targetPassword string, validateCerts bool, osDef *OSDefinition, cfg BuildConfig) error {
@@ -149,7 +153,7 @@ func (e *Engine) RunBuild(buildID int64, targetType string, targetHostname strin
 	if e.running {
 		currentID := e.currentBuildID
 		e.mu.Unlock()
-		return fmt.Errorf("another build is already in progress (build #%d) — wait for it to finish or cancel it first", currentID)
+		return fmt.Errorf("%w (build #%d) — wait for it to finish or cancel it first", ErrBuildInProgress, currentID)
 	}
 	e.running = true
 	e.currentBuildID = buildID
@@ -277,16 +281,16 @@ func (e *Engine) executeBuild(ctx context.Context, buildID int64, targetType str
 		TargetPassword:     targetPassword,
 		InsecureConnection: !validateCerts, // V3-M10: Propagate TLS validation setting
 		SSHPassword:        sshPassword,
-		Datacenter:     cfg.Datacenter,
-		Cluster:        cfg.Cluster,
-		Host:           cfg.Host,
-		Datastore:      cfg.Datastore,
-		Folder:         cfg.Folder,
-		Network:        cfg.Network,
-		Node:           cfg.Node,
-		StoragePool:    cfg.StoragePool,
-		Bridge:         cfg.Bridge,
-		ISOStorage:     cfg.ISOStorage,
+		Datacenter:         cfg.Datacenter,
+		Cluster:            cfg.Cluster,
+		Host:               cfg.Host,
+		Datastore:          cfg.Datastore,
+		Folder:             cfg.Folder,
+		Network:            cfg.Network,
+		Node:               cfg.Node,
+		StoragePool:        cfg.StoragePool,
+		Bridge:             cfg.Bridge,
+		ISOStorage:         cfg.ISOStorage,
 	}
 
 	// Apply platform-specific field defaults (storage mapping, interface name, etc.)
@@ -530,9 +534,6 @@ func (e *Engine) handleCancel(buildID int64, log *strings.Builder) {
 	})
 }
 
-func (e *Engine) runCommand(ctx context.Context, dir string, sendLog func(string), name string, args ...string) error {
-	return e.runCommandEnv(ctx, dir, nil, sendLog, name, args...)
-}
 
 func (e *Engine) runCommandEnv(ctx context.Context, dir string, env []string, sendLog func(string), name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)

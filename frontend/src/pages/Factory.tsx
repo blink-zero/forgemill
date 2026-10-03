@@ -1,21 +1,17 @@
 import { useTimezone } from "@/hooks/useTimezone";
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { factoryApi, templates as templateApi, targets as targetsApi } from "@/api/client";
-import type { OSDefinition, TemplateBuild, PrereqStatus, Template, Target, UpdateAvailable } from "@/types";
+import { factoryApi } from "@/api/client";
+import type { OSDefinition, TemplateBuild, PrereqStatus } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   AlertTriangle,
-  CheckCircle,
   Cpu,
   HardDrive,
-  Info,
-  RefreshCw,
   Cog,
   Search,
-  ShieldCheck,
   Square,
   Trash2,
   XCircle,
@@ -24,34 +20,19 @@ import {
 import { Select } from "@/components/ui/select";
 import { Pagination } from "@/components/ui/pagination";
 import { Input } from "@/components/ui/input";
-import ProviderIcon from "@/components/ProviderIcon";
 import { useToast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
 import { usePageSize } from "@/hooks/usePageSize";
-
-const statusColors: Record<string, string> = {
-  pending: "bg-warning/10 text-warning",
-  downloading: "bg-info/10 text-info",
-  building: "bg-info/10 text-info",
-  converting: "bg-info/10 text-info",
-  completed: "bg-success/10 text-success",
-  failed: "bg-destructive/10 text-destructive",
-  cancelled: "bg-gray-500/10 text-gray-500",
-};
+import { buildStatusClasses } from "@/lib/status";
 
 export default function Factory() {
-  const { formatDate, formatDateTime } = useTimezone();
+  const { formatDateTime } = useTimezone();
   const { toast } = useToast();
   const navigate = useNavigate();
   const [definitions, setDefinitions] = useState<OSDefinition[]>([]);
   const [builds, setBuilds] = useState<TemplateBuild[]>([]);
   const [prereqs, setPrereqs] = useState<PrereqStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [managedTemplates, setManagedTemplates] = useState<Template[]>([]);
-  const [updates, setUpdates] = useState<UpdateAvailable[]>([]);
-  const [targetsList, setTargetsList] = useState<Target[]>([]);
-  const [checkingUpdates, setCheckingUpdates] = useState(false);
-  const [hasCheckedUpdates, setHasCheckedUpdates] = useState(false);
   const [buildSearch, setBuildSearch] = useState("");
   const [buildStatusFilter, setBuildStatusFilter] = useState("");
   const [buildTargetFilter, setBuildTargetFilter] = useState("");
@@ -68,18 +49,14 @@ export default function Factory() {
 
   const loadData = async () => {
     try {
-      const [defsRes, buildsRes, prereqRes, templatesRes, targetsRes] = await Promise.all([
+      const [defsRes, buildsRes, prereqRes] = await Promise.all([
         factoryApi.listOSDefinitions(),
         factoryApi.listBuilds(),
         factoryApi.prerequisites(),
-        templateApi.list(),
-        targetsApi.list(),
       ]);
       setDefinitions(defsRes.data);
       setBuilds(buildsRes.data);
-      setTargetsList(targetsRes.data || []);
       setPrereqs(prereqRes.data);
-      setManagedTemplates((templatesRes.data || []).filter((t: Template) => t.managed_by_forgemill && t.lifecycle_status === "active"));
     } catch {
       toast("Failed to load factory data", "error");
     } finally {
@@ -87,18 +64,6 @@ export default function Factory() {
     }
   };
 
-  const checkForUpdates = async () => {
-    setCheckingUpdates(true);
-    try {
-      const res = await factoryApi.checkAllUpdates();
-      setUpdates(res.data || []);
-      setHasCheckedUpdates(true);
-    } catch {
-      toast("Failed to check for updates", "error");
-    } finally {
-      setCheckingUpdates(false);
-    }
-  };
 
   const deleteBuild = async (id: number) => {
     try {
@@ -169,53 +134,6 @@ export default function Factory() {
                 >
                   developer.hashicorp.com/packer/install
                 </a>
-              </p>
-            </div>
-          </div>
-        </Card>
-      )}
-
-      {/* Update check results */}
-      {updates.length > 0 ? (
-        <div>
-          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-warning" />
-            Updates Available
-          </h2>
-          <div className="space-y-2">
-            {updates.map((u) => (
-              <Card key={u.template_id} className="p-4 border-warning/30">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium">{u.template_name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {u.os_definition_id} &middot; v{u.current_version} &middot; ISO checksum changed
-                    </p>
-                    <div className="mt-1 text-xs font-mono text-muted-foreground space-y-0.5">
-                      <p>Current: <span className="text-destructive">{u.current_checksum?.slice(0, 16)}...</span></p>
-                      <p>Latest:&nbsp; <span className="text-success">{u.latest_checksum?.slice(0, 16)}...</span></p>
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={() => factoryApi.rebuildTemplate(u.template_id).then((res) => navigate(`/factory/build/${res.data.id}`))}
-                  >
-                    <RefreshCw className="h-4 w-4 mr-1" />
-                    Rebuild
-                  </Button>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      ) : hasCheckedUpdates && updates.length === 0 && (
-        <Card className="p-4 border-success/30 bg-success/5">
-          <div className="flex items-center gap-3">
-            <CheckCircle className="h-5 w-5 text-success shrink-0" />
-            <div>
-              <p className="font-medium text-sm">All templates are up to date</p>
-              <p className="text-xs text-muted-foreground">
-                ISO checksums match the upstream release mirrors. Click "Check for Updates" to re-verify.
               </p>
             </div>
           </div>
@@ -354,7 +272,7 @@ export default function Factory() {
                         </span>
                         <Badge
                           variant="secondary"
-                          className={statusColors[build.status] || ""}
+                          className={buildStatusClasses[build.status] || ""}
                         >
                           {build.status}
                         </Badge>

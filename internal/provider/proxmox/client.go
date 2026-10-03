@@ -19,6 +19,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/forgemill/forgemill/internal/clock"
 	"github.com/forgemill/forgemill/internal/provider"
 )
 
@@ -93,6 +94,12 @@ type Provider struct {
 	// SSH TOFU support (optional)
 	targetID   int64
 	hkStore    TargetHostKeyStore
+
+	// nodeCache maps vmid -> node for the lifetime of one Connect/Disconnect
+	// cycle, so a sync over N VMs costs one /cluster/resources listing
+	// instead of one per operation (see nodeFor).
+	nodeMu    sync.Mutex
+	nodeCache map[string]string
 }
 
 // normalizeUsername appends @pam if no realm is specified (Proxmox requires user@realm format)
@@ -158,6 +165,10 @@ func (p *Provider) GetNodeName() string {
 }
 
 func (p *Provider) Connect(ctx context.Context) error {
+	p.nodeMu.Lock()
+	p.nodeCache = map[string]string{}
+	p.nodeMu.Unlock()
+
 	// API token auth does not require ticket
 	if p.useAPIToken {
 		return p.resolveNode(ctx)
@@ -255,6 +266,9 @@ func (p *Provider) Disconnect() error {
 	p.ticket = ""
 	p.csrfToken = ""
 	p.mu.Unlock()
+	p.nodeMu.Lock()
+	p.nodeCache = nil
+	p.nodeMu.Unlock()
 	if p.httpClient != nil {
 		p.httpClient.CloseIdleConnections()
 	}
@@ -322,80 +336,47 @@ func (p *Provider) ListTemplates(ctx context.Context) ([]provider.Template, erro
 
 func (p *Provider) GetTemplate(ctx context.Context, id string) (*provider.Template, error) {
 	// PV-P15: Determine which node the VM is on
-	node, err := p.resolveVMNode(ctx, id)
+	node := p.nodeFor(ctx, id)
+
+	cfg, err := p.getVMConfig(ctx, node, id)
 	if err != nil {
-		node = p.node // fallback
+		return nil, err
 	}
-
-	body, err := p.doGet(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/config", url.PathEscape(node), url.PathEscape(id)))
-	if err != nil {
-		return nil, fmt.Errorf("get VM config: %w", err)
-	}
-
-	var result struct {
-		Data struct {
-			Name    string `json:"name"`
-			Cores   int    `json:"cores"`
-			Sockets int    `json:"sockets"`
-			Memory  int    `json:"memory"`
-			OSType  string `json:"ostype"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("decode VM config: %w", err)
-	}
-
-	cpus := result.Data.Cores
-	if result.Data.Sockets > 0 {
-		cpus *= result.Data.Sockets
-	}
-
-	// PV-P13: Detect OS type from ostype field
-	osType := "linux"
-	if strings.HasPrefix(result.Data.OSType, "win") || strings.HasPrefix(result.Data.OSType, "w") {
-		osType = "windows"
+	name := cfg.Str("name")
+	ostype := cfg.Str("ostype")
+	cpus := cfg.Int("cores")
+	if sockets := cfg.Int("sockets"); sockets > 0 {
+		cpus *= sockets
 	}
 
 	return &provider.Template{
 		ID:       id,
-		Name:     result.Data.Name,
+		Name:     name,
 		Moref:    id,
 		CPU:      cpus,
-		MemoryMB: result.Data.Memory,
-		OSType:   osType,
-		GuestID:  result.Data.OSType,
+		MemoryMB: cfg.Int("memory"),
+		OSType:   osTypeFromOSType(ostype),
+		GuestID:  ostype,
 	}, nil
 }
 
 func (p *Provider) GetTemplateDetail(ctx context.Context, id string) (*provider.TemplateDetail, error) {
-	node, err := p.resolveVMNode(ctx, id)
+	node := p.nodeFor(ctx, id)
+
+	data, err := p.getVMConfig(ctx, node, id)
 	if err != nil {
-		node = p.node
+		return nil, err
 	}
-
-	body, err := p.doGet(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/config", url.PathEscape(node), url.PathEscape(id)))
-	if err != nil {
-		return nil, fmt.Errorf("get VM config: %w", err)
-	}
-
-	var result struct {
-		Data map[string]interface{} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("decode VM config: %w", err)
-	}
-
-	data := result.Data
 
 	// Basic template fields
-	name, _ := data["name"].(string)
-	cores := intFromJSON(data["cores"])
-	sockets := intFromJSON(data["sockets"])
+	name := data.Str("name")
+	cores := data.Int("cores")
+	sockets := data.Int("sockets")
 	if sockets > 0 {
 		cores *= sockets
 	}
-	memory := intFromJSON(data["memory"])
-	ostype, _ := data["ostype"].(string)
+	memory := data.Int("memory")
+	ostype := data.Str("ostype")
 
 	osType := "linux"
 	if strings.HasPrefix(ostype, "win") || strings.HasPrefix(ostype, "w") {
@@ -417,12 +398,12 @@ func (p *Provider) GetTemplateDetail(ctx context.Context, id string) (*provider.
 	}
 
 	// CPU type (e.g. "host", "kvm64", "x86-64-v2-AES")
-	if cpuType, ok := data["cpu"].(string); ok && cpuType != "" {
+	if cpuType := data.Str("cpu"); cpuType != "" {
 		detail.CPUType = cpuType
 	}
 
 	// SCSI controller type
-	if scsihw, ok := data["scsihw"].(string); ok && scsihw != "" {
+	if scsihw := data.Str("scsihw"); scsihw != "" {
 		detail.SCSIType = scsihw
 	}
 
@@ -430,7 +411,7 @@ func (p *Provider) GetTemplateDetail(ctx context.Context, id string) (*provider.
 	for i := 0; i < 4; i++ {
 		for _, bus := range []string{"ide", "scsi", "sata"} {
 			key := fmt.Sprintf("%s%d", bus, i)
-			if val, ok := data[key].(string); ok && strings.Contains(val, "cloudinit") {
+			if val := data.Str(key); strings.Contains(val, "cloudinit") {
 				detail.CloudInit = true
 				break
 			}
@@ -442,7 +423,7 @@ func (p *Provider) GetTemplateDetail(ctx context.Context, id string) (*provider.
 
 	// Datastore + disk size + format: parse from scsi0/virtio0/ide0/sata0 disk fields
 	for _, diskKey := range []string{"scsi0", "virtio0", "ide0", "sata0"} {
-		if val, ok := data[diskKey].(string); ok && val != "" && !strings.Contains(val, "cloudinit") {
+		if val := data.Str(diskKey); val != "" && !strings.Contains(val, "cloudinit") {
 			parts := strings.SplitN(val, ":", 2)
 			if len(parts) == 2 {
 				detail.Datastore = parts[0]
@@ -480,7 +461,7 @@ func (p *Provider) GetTemplateDetail(ctx context.Context, id string) (*provider.
 	networks := []string{}
 	for i := 0; i < 8; i++ {
 		key := fmt.Sprintf("net%d", i)
-		if val, ok := data[key].(string); ok && val != "" {
+		if val := data.Str(key); val != "" {
 			for _, part := range strings.Split(val, ",") {
 				part = strings.TrimSpace(part)
 				if strings.HasPrefix(part, "bridge=") {
@@ -492,26 +473,24 @@ func (p *Provider) GetTemplateDetail(ctx context.Context, id string) (*provider.
 	detail.Networks = networks
 
 	// Firmware
-	if bios, ok := data["bios"].(string); ok && bios != "" {
+	if bios := data.Str("bios"); bios != "" {
 		detail.Firmware = bios
 	} else {
 		detail.Firmware = "seabios"
 	}
 
 	// Annotation from description
-	if desc, ok := data["description"].(string); ok {
-		detail.Annotation = desc
-	}
+	detail.Annotation = data.Str("description")
 
 	// Hardware version: QEMU + machine type
-	if machine, ok := data["machine"].(string); ok && machine != "" {
+	if machine := data.Str("machine"); machine != "" {
 		detail.HardwareVer = "QEMU " + machine
 	} else {
 		detail.HardwareVer = "QEMU"
 	}
 
 	// Tools status from agent field
-	agentVal := intFromJSON(data["agent"])
+	agentVal := data.Int("agent")
 	if agentVal == 1 {
 		detail.ToolsStatus = "installed"
 	} else {
@@ -519,18 +498,6 @@ func (p *Provider) GetTemplateDetail(ctx context.Context, id string) (*provider.
 	}
 
 	return detail, nil
-}
-
-// intFromJSON extracts an int from a JSON value that may be float64 or string.
-func intFromJSON(v interface{}) int {
-	switch val := v.(type) {
-	case float64:
-		return int(val)
-	case string:
-		n, _ := strconv.Atoi(val)
-		return n
-	}
-	return 0
 }
 
 // buildNet0Config builds the Proxmox net0 device config string for a
@@ -693,7 +660,9 @@ applyConfig:
 		for attempt := 0; attempt < 5; attempt++ {
 			if attempt > 0 {
 				slog.Info("retrying VM config", "vmid", newID, "attempt", attempt+1)
-				time.Sleep(3 * time.Second)
+				if configErr = clock.Sleep(ctx, 3*time.Second); configErr != nil {
+					break // cancelled: the next doPut would fail with the same ctx error
+				}
 			}
 			configErr = p.doPut(ctx, configPath, configData)
 			if configErr == nil {
@@ -784,10 +753,7 @@ func (p *Provider) GetDeployProgress(ctx context.Context, taskID string) (*provi
 }
 
 func (p *Provider) PowerOn(ctx context.Context, vmID string) error {
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node
-	}
+	node := p.nodeFor(ctx, vmID)
 
 	// Check if VM is suspended (paused) — Proxmox returns "VM already running" for /status/start
 	status, err := p.GetVMStatus(ctx, vmID)
@@ -816,10 +782,7 @@ func (p *Provider) PowerOn(ctx context.Context, vmID string) error {
 
 // PV-P7: Graceful ACPI shutdown first, then hard stop fallback.
 func (p *Provider) PowerOff(ctx context.Context, vmID string) error {
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node
-	}
+	node := p.nodeFor(ctx, vmID)
 	// Try graceful ACPI shutdown first
 	data := url.Values{"timeout": {"90"}}
 	body, err := p.doPost(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/status/shutdown", url.PathEscape(node), url.PathEscape(vmID)), data)
@@ -838,10 +801,7 @@ func (p *Provider) PowerOff(ctx context.Context, vmID string) error {
 }
 
 func (p *Provider) Restart(ctx context.Context, vmID string) error {
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node
-	}
+	node := p.nodeFor(ctx, vmID)
 	// Try graceful ACPI reboot first (requires guest agent / ACPI support)
 	body, err := p.doPost(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/status/reboot", url.PathEscape(node), url.PathEscape(vmID)), nil)
 	if err == nil {
@@ -878,10 +838,7 @@ func (p *Provider) Restart(ctx context.Context, vmID string) error {
 }
 
 func (p *Provider) DeleteVM(ctx context.Context, vmID string) error {
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node
-	}
+	node := p.nodeFor(ctx, vmID)
 	// PV-P7: Graceful shutdown before deletion
 	_ = p.PowerOff(ctx, vmID)
 	// Poll until stopped or timeout
@@ -893,7 +850,9 @@ func (p *Provider) DeleteVM(ctx context.Context, vmID string) error {
 		if status.PowerState == "stopped" {
 			break
 		}
-		time.Sleep(1 * time.Second)
+		if clock.Sleep(ctx, time.Second) != nil {
+			break // cancelled: the delete request below reports the ctx error
+		}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, p.baseURL+fmt.Sprintf("/nodes/%s/qemu/%s", url.PathEscape(node), url.PathEscape(vmID)), nil)
@@ -958,7 +917,9 @@ func (p *Provider) awaitTask(ctx context.Context, upid string, timeoutSec int) e
 			}
 			return fmt.Errorf("task failed: %s", result.Data.ExitStatus)
 		}
-		time.Sleep(1 * time.Second)
+		if err := clock.Sleep(ctx, time.Second); err != nil {
+			return err
+		}
 	}
 	return fmt.Errorf("task %s did not complete within %ds", upid, timeoutSec)
 }
@@ -966,10 +927,7 @@ func (p *Provider) awaitTask(ctx context.Context, upid string, timeoutSec int) e
 // PV-X2: Normalize power state to canonical values.
 // PV-P10: Attempt guest agent IP retrieval.
 func (p *Provider) GetVMStatus(ctx context.Context, vmID string) (*provider.VMStatus, error) {
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node
-	}
+	node := p.nodeFor(ctx, vmID)
 
 	body, err := p.doGet(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/status/current", url.PathEscape(node), url.PathEscape(vmID)))
 	if err != nil {
@@ -1140,10 +1098,7 @@ func (p *Provider) GetResources(ctx context.Context) (*provider.Resources, error
 }
 
 func (p *Provider) Suspend(ctx context.Context, vmID string) error {
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node
-	}
+	node := p.nodeFor(ctx, vmID)
 	body, err := p.doPost(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/status/suspend", url.PathEscape(node), url.PathEscape(vmID)), nil)
 	if err != nil {
 		return err
@@ -1156,10 +1111,7 @@ func (p *Provider) Suspend(ctx context.Context, vmID string) error {
 
 // PV-P8: Snapshot operations await task completion via UPID.
 func (p *Provider) ListSnapshots(ctx context.Context, vmID string) ([]provider.Snapshot, error) {
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node
-	}
+	node := p.nodeFor(ctx, vmID)
 
 	body, err := p.doGet(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/snapshot", url.PathEscape(node), url.PathEscape(vmID)))
 	if err != nil {
@@ -1194,10 +1146,7 @@ func (p *Provider) ListSnapshots(ctx context.Context, vmID string) ([]provider.S
 
 // PV-P8: CreateSnapshot awaits task completion.
 func (p *Provider) CreateSnapshot(ctx context.Context, vmID string, name string, description string, memory bool) error {
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node
-	}
+	node := p.nodeFor(ctx, vmID)
 
 	data := url.Values{
 		"snapname":    {name},
@@ -1218,10 +1167,7 @@ func (p *Provider) CreateSnapshot(ctx context.Context, vmID string, name string,
 
 // PV-P8: RevertSnapshot awaits task completion.
 func (p *Provider) RevertSnapshot(ctx context.Context, vmID string, snapshotRef string) error {
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node
-	}
+	node := p.nodeFor(ctx, vmID)
 
 	body, err := p.doPost(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/snapshot/%s/rollback", url.PathEscape(node), url.PathEscape(vmID), url.PathEscape(snapshotRef)), nil)
 	if err != nil {
@@ -1235,10 +1181,7 @@ func (p *Provider) RevertSnapshot(ctx context.Context, vmID string, snapshotRef 
 
 // PV-P8: DeleteSnapshot awaits task completion.
 func (p *Provider) DeleteSnapshot(ctx context.Context, vmID string, snapshotRef string) error {
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node
-	}
+	node := p.nodeFor(ctx, vmID)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, p.baseURL+fmt.Sprintf("/nodes/%s/qemu/%s/snapshot/%s", url.PathEscape(node), url.PathEscape(vmID), url.PathEscape(snapshotRef)), nil)
 	if err != nil {
@@ -1264,10 +1207,7 @@ func (p *Provider) DeleteSnapshot(ctx context.Context, vmID string, snapshotRef 
 }
 
 func (p *Provider) ResizeVM(ctx context.Context, vmID string, cpu int, memoryMB int) error {
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node
-	}
+	node := p.nodeFor(ctx, vmID)
 
 	data := url.Values{}
 	if cpu > 0 {
@@ -1281,20 +1221,11 @@ func (p *Provider) ResizeVM(ctx context.Context, vmID string, cpu int, memoryMB 
 
 // PV-P9: Discover actual disk interface name instead of assuming scsi{n}.
 func (p *Provider) ListDisks(ctx context.Context, vmID string) ([]provider.Disk, error) {
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node
-	}
+	node := p.nodeFor(ctx, vmID)
 
-	body, err := p.doGet(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/config", url.PathEscape(node), url.PathEscape(vmID)))
+	config, err := p.getVMConfig(ctx, node, vmID)
 	if err != nil {
-		return nil, fmt.Errorf("get VM config: %w", err)
-	}
-	var result struct {
-		Data map[string]interface{} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
+		return nil, err
 	}
 
 	prefixes := []string{"scsi", "virtio", "ide", "sata"}
@@ -1303,13 +1234,12 @@ func (p *Provider) ListDisks(ctx context.Context, vmID string) ([]provider.Disk,
 	for _, prefix := range prefixes {
 		for i := 0; i < 30; i++ {
 			key := fmt.Sprintf("%s%d", prefix, i)
-			val, ok := result.Data[key]
-			if !ok {
+			if !config.Has(key) {
 				continue
 			}
 			// Parse size from "local:vm-100-disk-0,size=32G" style values
 			sizeGB := 0
-			if s, ok := val.(string); ok {
+			if s := config.Str(key); s != "" {
 				for _, part := range strings.Split(s, ",") {
 					if strings.HasPrefix(part, "size=") {
 						sizeStr := strings.TrimPrefix(part, "size=")
@@ -1332,10 +1262,7 @@ func (p *Provider) ListDisks(ctx context.Context, vmID string) ([]provider.Disk,
 }
 
 func (p *Provider) ExpandDisk(ctx context.Context, vmID string, diskKey int, newSizeGB int) error {
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node
-	}
+	node := p.nodeFor(ctx, vmID)
 
 	disk, err := p.findDiskByIndex(ctx, node, vmID, diskKey)
 	if err != nil {
@@ -1351,10 +1278,7 @@ func (p *Provider) ExpandDisk(ctx context.Context, vmID string, diskKey int, new
 
 func (p *Provider) GetConsoleURL(ctx context.Context, vmID string) (string, error) {
 	// F-97: Resolve VM's actual node instead of using p.node directly
-	node, err := p.resolveVMNode(ctx, vmID)
-	if err != nil {
-		node = p.node // fallback
-	}
+	node := p.nodeFor(ctx, vmID)
 	return fmt.Sprintf("https://%s:%d/?console=kvm&novnc=1&vmid=%s&node=%s", p.hostname, p.port, url.QueryEscape(vmID), url.QueryEscape(node)), nil
 }
 
@@ -1372,6 +1296,7 @@ func (p *Provider) ListVMs(ctx context.Context) ([]provider.VMInfo, error) {
 			Template int    `json:"template"`
 			CPUs     int    `json:"maxcpu"`
 			MaxMem   int64  `json:"maxmem"`
+			MaxDisk  int64  `json:"maxdisk"`
 			Status   string `json:"status"`
 			Node     string `json:"node"`
 		} `json:"data"`
@@ -1381,7 +1306,14 @@ func (p *Provider) ListVMs(ctx context.Context) ([]provider.VMInfo, error) {
 	}
 
 	vms := []provider.VMInfo{}
+	p.nodeMu.Lock()
+	if p.nodeCache == nil {
+		p.nodeCache = map[string]string{}
+	}
 	for _, vm := range result.Data {
+		// The listing already tells us every VM's node — remember it so the
+		// per-VM calls that follow a sync don't each re-fetch the cluster.
+		p.nodeCache[strconv.Itoa(vm.VMID)] = vm.Node
 		if vm.Template == 1 {
 			continue
 		}
@@ -1391,8 +1323,14 @@ func (p *Provider) ListVMs(ctx context.Context) ([]provider.VMInfo, error) {
 			PowerState: provider.NormalizePowerState(vm.Status),
 			CPU:        vm.CPUs,
 			MemoryMB:   int(vm.MaxMem / 1024 / 1024),
+			DiskGB:     int(vm.MaxDisk / 1024 / 1024 / 1024),
+			// GetVMStatus reports "linux" for every Proxmox guest (the API
+			// exposes no guest id); mirror that so a sync fed from the
+			// listing writes the same OS type it always has.
+			GuestID: "linux",
 		})
 	}
+	p.nodeMu.Unlock()
 	return vms, nil
 }
 
@@ -1544,7 +1482,30 @@ func (p *Provider) doRequestWithBody(ctx context.Context, method, path string, b
 
 // --- Helper functions ---
 
+// nodeFor returns the node hosting vmID, consulting /cluster/resources at
+// most once per unknown VM per connection. When the lookup fails it falls
+// back to the connected node exactly as every caller did before, but says
+// so — on a multi-node cluster that fallback sends the request to the
+// wrong node and the real cause used to be discarded.
+func (p *Provider) nodeFor(ctx context.Context, vmID string) string {
+	p.nodeMu.Lock()
+	if n, ok := p.nodeCache[vmID]; ok {
+		p.nodeMu.Unlock()
+		return n
+	}
+	p.nodeMu.Unlock()
+
+	node, err := p.resolveVMNode(ctx, vmID)
+	if err != nil {
+		slog.Warn("proxmox: could not resolve VM node, using connected node", "vmid", vmID, "node", p.node, "error", err)
+		return p.node
+	}
+	return node
+}
+
 // PV-P15: Resolve which node a VM is running on via /cluster/resources.
+// Every VM in the listing is cached, so a sync over the whole target pays
+// for the listing once.
 func (p *Provider) resolveVMNode(ctx context.Context, vmID string) (string, error) {
 	body, err := p.doGet(ctx, "/cluster/resources?type=vm")
 	if err != nil {
@@ -1565,29 +1526,38 @@ func (p *Provider) resolveVMNode(ctx context.Context, vmID string) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("invalid vmid: %w", err)
 	}
+	found := ""
+	p.nodeMu.Lock()
+	if p.nodeCache == nil {
+		p.nodeCache = map[string]string{}
+	}
 	for _, vm := range result.Data {
+		p.nodeCache[strconv.Itoa(vm.VMID)] = vm.Node
 		if vm.VMID == vmIDInt {
-			return vm.Node, nil
+			found = vm.Node
 		}
 	}
-	return "", fmt.Errorf("VM %s not found in cluster", vmID)
+	p.nodeMu.Unlock()
+	if found == "" {
+		return "", fmt.Errorf("VM %s not found in cluster", vmID)
+	}
+	return found, nil
 }
 
 // PV-P13: Detect OS type from Proxmox VM config.
 func (p *Provider) detectOSType(ctx context.Context, node, vmID string) string {
-	body, err := p.doGet(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/config", url.PathEscape(node), url.PathEscape(vmID)))
+	cfg, err := p.getVMConfig(ctx, node, vmID)
 	if err != nil {
 		return "linux"
 	}
-	var result struct {
-		Data struct {
-			OSType string `json:"ostype"`
-		} `json:"data"`
-	}
-	if json.Unmarshal(body, &result) != nil {
-		return "linux"
-	}
-	if strings.HasPrefix(result.Data.OSType, "win") || strings.HasPrefix(result.Data.OSType, "w") {
+	return osTypeFromOSType(cfg.Str("ostype"))
+}
+
+// osTypeFromOSType maps a Proxmox ostype value (l26, win11, w2k22, ...) to
+// Forgemill's coarse "linux" / "windows". Shared by every reader so the
+// rule can't drift between them.
+func osTypeFromOSType(ostype string) string {
+	if strings.HasPrefix(ostype, "win") || strings.HasPrefix(ostype, "w") {
 		return "windows"
 	}
 	return "linux"
@@ -1712,18 +1682,8 @@ func (p *Provider) uploadSnippet(ctx context.Context, node, storage, filename, c
 
 // PV-P9: Find the actual disk interface name by index.
 func (p *Provider) findDiskByIndex(ctx context.Context, node, vmID string, diskKey int) (string, error) {
-	body, err := p.doGet(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/config", url.PathEscape(node), url.PathEscape(vmID)))
+	config, err := p.getVMConfig(ctx, node, vmID)
 	if err != nil {
-		return "", err
-	}
-	var config map[string]interface{}
-	var result struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", err
-	}
-	if err := json.Unmarshal(result.Data, &config); err != nil {
 		return "", err
 	}
 
@@ -1733,7 +1693,7 @@ func (p *Provider) findDiskByIndex(ctx context.Context, node, vmID string, diskK
 	for _, prefix := range prefixes {
 		for i := 0; i < 30; i++ {
 			key := fmt.Sprintf("%s%d", prefix, i)
-			if _, ok := config[key]; ok {
+			if config.Has(key) {
 				if idx == diskKey {
 					return key, nil
 				}
