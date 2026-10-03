@@ -25,6 +25,10 @@ var (
 	// ErrDatastoreNotFound: the datastore/storage named in a DiskSpec does not
 	// exist on the target (or isn't visible to the VM's host/node).
 	ErrDatastoreNotFound = errors.New("datastore not found")
+	// ErrDatastoreNotAccessible: the datastore exists but the host the VM runs
+	// on cannot reach it (a local datastore of another host, an unmounted
+	// NFS export), so a disk cannot be created there for this VM.
+	ErrDatastoreNotAccessible = errors.New("datastore not accessible from the VM's host")
 )
 
 // PV-X1: All Provider interface methods now accept context.Context for

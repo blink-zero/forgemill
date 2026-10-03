@@ -465,6 +465,7 @@ func addDiskErrorResponse(err error) (status int, msg string, logIt bool) {
 		return http.StatusNotFound, "VM not found", false
 	case errors.Is(err, provider.ErrNotSupported),
 		errors.Is(err, provider.ErrDatastoreNotFound),
+		errors.Is(err, provider.ErrDatastoreNotAccessible),
 		errors.Is(err, service.ErrInvalidDiskSpec):
 		return http.StatusBadRequest, err.Error(), false
 	default:

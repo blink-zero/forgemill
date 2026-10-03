@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vmware/govmomi/find"
+	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/simulator"
 
 	"github.com/forgemill/forgemill/internal/provider"
@@ -88,5 +90,55 @@ func TestAddDiskThickOnExplicitDatastoreAndUnknownDatastoreError(t *testing.T) {
 	}
 	if _, err := p.AddDisk(ctx, vmRef, provider.DiskSpec{SizeGB: 4, Provisioning: "sparse"}); err == nil {
 		t.Error("unknown provisioning must be rejected")
+	}
+}
+
+func TestAddDiskRejectsDatastoreTheVMsHostCannotSee(t *testing.T) {
+	ctx := context.Background()
+	// Two hosts; a local datastore is created on the host the VM does NOT
+	// run on, so it exists in the datacenter but is unreachable for the VM.
+	model := simulator.VPX()
+	model.Host = 2
+	p := newSimProvider(t, model, false)
+	m, _ := vmProps(t, ctx, p, "DC0", "DC0_H0_VM0", []string{"config.hardware", "runtime.host"})
+	vmRef := m.Reference().Value
+
+	c, _ := p.getClient(ctx)
+	finder := find.NewFinder(c.Client, true)
+	dc, _ := finder.Datacenter(ctx, "DC0")
+	finder.SetDatacenter(dc)
+	hosts, err := finder.HostSystemList(ctx, "*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var other *object.HostSystem
+	for _, h := range hosts {
+		if m.Runtime.Host == nil || h.Reference() != *m.Runtime.Host {
+			other = h
+			break
+		}
+	}
+	if other == nil {
+		t.Fatal("simulator has no second host")
+	}
+	dsSys, err := other.ConfigManager().DatastoreSystem(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign := "OtherHostLocal"
+	if _, err := dsSys.CreateLocalDatastore(ctx, foreign, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = p.AddDisk(ctx, vmRef, provider.DiskSpec{SizeGB: 2, Datastore: foreign})
+	if !errors.Is(err, provider.ErrDatastoreNotAccessible) {
+		t.Fatalf("want ErrDatastoreNotAccessible for %s, got %v", foreign, err)
+	}
+	if !strings.Contains(err.Error(), "accessible:") || !strings.Contains(err.Error(), "LocalDS_0") {
+		t.Errorf("error should list the datastores the host can see: %v", err)
+	}
+	// Sanity: the default placement still works on the same VM.
+	if _, err := p.AddDisk(ctx, vmRef, provider.DiskSpec{SizeGB: 2}); err != nil {
+		t.Errorf("default placement must still work: %v", err)
 	}
 }
