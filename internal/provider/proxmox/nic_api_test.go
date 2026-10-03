@@ -59,6 +59,9 @@ func newFakePVE(t *testing.T) *fakePVE {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": v})
 	}
+	mux.HandleFunc("/api2/json/storage", func(w http.ResponseWriter, r *http.Request) {
+		write(w, []map[string]interface{}{{"storage": "local-zfs", "type": "zfspool"}, {"storage": "local", "type": "dir"}})
+	})
 	mux.HandleFunc("/api2/json/nodes", func(w http.ResponseWriter, r *http.Request) {
 		write(w, []map[string]string{{"node": "pve", "status": "online"}})
 	})
@@ -91,9 +94,18 @@ func newFakePVE(t *testing.T) *fakePVE {
 			}
 			f.puts = append(f.puts, r.PostForm)
 			for k, vals := range r.PostForm {
-				// Proxmox assigns a MAC on write: "virtio,bridge=x" -> "virtio=MAC,bridge=x"
-				model, rest, _ := strings.Cut(vals[0], ",")
-				f.config[k] = model + "=BC:24:11:AA:BB:" + strconv.Itoa(len(f.puts)+10) + "," + rest
+				switch {
+				case strings.HasPrefix(k, "net"):
+					// Proxmox assigns a MAC on write: "virtio,bridge=x" -> "virtio=MAC,bridge=x"
+					model, rest, _ := strings.Cut(vals[0], ",")
+					f.config[k] = model + "=BC:24:11:AA:BB:" + strconv.Itoa(len(f.puts)+10) + "," + rest
+				case strings.HasPrefix(k, "scsi") && !strings.Contains(vals[0], "vm-"):
+					// "<storage>:<size>" allocates a volume: "local-zfs:10" -> "local-zfs:vm-100-disk-1,size=10G"
+					storage, size, _ := strings.Cut(vals[0], ":")
+					f.config[k] = storage + ":vm-100-disk-" + strings.TrimPrefix(k, "scsi") + ",size=" + size + "G"
+				default:
+					f.config[k] = vals[0]
+				}
 			}
 			write(w, nil)
 		default:

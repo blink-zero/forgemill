@@ -23,6 +23,11 @@ type ProviderMetadata struct {
 	// validates a requested adapter against this before opening a
 	// hypervisor session, and the UI renders its adapter dropdown from it.
 	NICAdapterTypes []string `json:"nic_adapter_types,omitempty"`
+	// DiskProvisioningTypes lists the provisioning modes AddDisk accepts
+	// ("thin", "thick"), first entry is the default. Empty when the provider
+	// cannot choose per disk (Proxmox: the storage decides), in which case a
+	// request that asks for one is rejected rather than silently ignored.
+	DiskProvisioningTypes []string `json:"disk_provisioning_types,omitempty"`
 }
 
 // ProviderDefaults contains default values for target creation forms.
@@ -44,6 +49,8 @@ type ProviderFeatures struct {
 	// Network Adapter" control, and the service refuses the call before
 	// opening a hypervisor session, on this same flag.
 	NICAttach bool `json:"nic_attach"`
+	// DiskAttach: the provider implements AddDisk. Same contract as NICAttach.
+	DiskAttach bool `json:"disk_attach"`
 }
 
 // DeployField defines a field shown in the deploy form for this provider.

@@ -782,7 +782,67 @@ var (
 	// ErrInvalidDiskSize marks an expand request the caller got wrong: unknown
 	// disk key, or a size that is not larger than that disk's current size.
 	ErrInvalidDiskSize = errors.New("invalid disk size")
+	// ErrInvalidDiskSpec marks an AddDisk request the caller got wrong.
+	ErrInvalidDiskSpec = errors.New("invalid disk request")
 )
+
+// AddDiskRequest is the service-level input for AddDisk.
+type AddDiskRequest struct {
+	SizeGB       int
+	Datastore    string // "" = same as the VM's first disk
+	Provisioning string // "" = provider default; only for providers that publish DiskProvisioningTypes
+}
+
+// AddDisk attaches an additional virtual disk to a managed VM and re-syncs
+// the VM record. Like AddNIC it never power-cycles the VM; on Proxmox a VM
+// whose hotplug setting excludes "disk" gets the change as pending.
+func (s *VMService) AddDisk(ctx context.Context, id int64, req AddDiskRequest) (*provider.Disk, error) {
+	if req.SizeGB < 1 || req.SizeGB > 65536 {
+		return nil, fmt.Errorf("%w: size_gb must be between 1 and 65536", ErrInvalidDiskSpec)
+	}
+	req.Datastore = strings.TrimSpace(req.Datastore)
+	req.Provisioning = strings.ToLower(strings.TrimSpace(req.Provisioning))
+
+	vm, err := s.db.GetManagedVM(id)
+	if err != nil {
+		return nil, fmt.Errorf("%w: id %d", ErrVMNotFound, id)
+	}
+	target, err := s.targets.Get(vm.TargetID)
+	if err != nil {
+		return nil, fmt.Errorf("get target: %w", err)
+	}
+	meta := provider.GetMetadata(target.Type)
+	if meta != nil && !meta.Features.DiskAttach {
+		return nil, fmt.Errorf("%w: adding a disk is not available for %s targets", provider.ErrNotSupported, meta.Name)
+	}
+	if req.Provisioning != "" && meta != nil {
+		if len(meta.DiskProvisioningTypes) == 0 {
+			return nil, fmt.Errorf("%w: provisioning cannot be chosen per disk on %s targets — the storage decides", ErrInvalidDiskSpec, meta.Name)
+		}
+		if !slices.Contains(meta.DiskProvisioningTypes, req.Provisioning) {
+			return nil, fmt.Errorf("%w: provisioning %q (use %s)", ErrInvalidDiskSpec, req.Provisioning, strings.Join(meta.DiskProvisioningTypes, ", "))
+		}
+	}
+
+	p, err := s.targets.GetProvider(vm.TargetID)
+	if err != nil {
+		return nil, fmt.Errorf("get provider: %w", err)
+	}
+	defer p.Disconnect()
+	if err := p.Connect(ctx); err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+
+	disk, err := p.AddDisk(ctx, vm.VMRef, provider.DiskSpec{SizeGB: req.SizeGB, Datastore: req.Datastore, Provisioning: req.Provisioning})
+	if err != nil {
+		return nil, err
+	}
+	// The disk is attached; a sync failure is logged, not reported as a failure.
+	if _, err := s.SyncState(ctx, id); err != nil {
+		slog.Warn("VM sync after disk attach failed", "vm_id", id, "error", err)
+	}
+	return disk, nil
+}
 
 // AddNICRequest is the service-level input for AddNIC.
 type AddNICRequest struct {
