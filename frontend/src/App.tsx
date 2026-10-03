@@ -17,7 +17,7 @@ const Targets = lazy(() => import("@/pages/Targets"));
 const HistoryPage = lazy(() => import("@/pages/History"));
 const SettingsPage = lazy(() => import("@/pages/Settings"));
 const VMs = lazy(() => import("@/pages/VMs"));
-const VMDetail = lazy(() => import("@/pages/VMDetail"));
+const VMDetail = lazy(() => import("@/pages/vm/VMDetail"));
 const ActionsPage = lazy(() => import("@/pages/Actions"));
 const Factory = lazy(() => import("@/pages/Factory"));
 const FactoryBuild = lazy(() => import("@/pages/FactoryBuild"));
