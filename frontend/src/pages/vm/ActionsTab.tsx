@@ -65,6 +65,17 @@ export function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState:
     }
   }, [outputLines]);
 
+  // Close the execution socket when the tab unmounts (navigating away mid-run
+  // used to leave it open until the server dropped it, with the handlers
+  // still calling setState on a gone component). closeModal does the same on
+  // an explicit close; this covers every other way of leaving.
+  useEffect(() => {
+    return () => {
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
+  }, []);
+
   const connectWS = (executionId: number) => {
     const token = localStorage.getItem("forgemill_token") || "";
     if (!token) return;
