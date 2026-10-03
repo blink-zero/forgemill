@@ -35,6 +35,8 @@ frontend/.vite/
 
 # Generated / build artefacts
 frontend/tsconfig.tsbuildinfo
+frontend/e2e/.run/
+frontend/e2e/shots*/
 
 # Screenshots (retake against a clean demo instance before publishing)
 docs/screenshots/
