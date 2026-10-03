@@ -130,6 +130,8 @@ async function run(theme) {
   // Deep link: the tab comes from ?tab=, so API Keys must be active on a fresh load.
   await sleep(4000);
   await go("/settings?tab=apikeys", "text=API Key Authentication"); await shot("13b-settings-deeplink-apikeys");
+  await sleep(4000);
+  await go("/settings?tab=diagnostics", "text=Recent server errors"); await shot("13c-settings-diagnostics", true);
   const more = page.locator("button[aria-label*='ctions'], button:has(svg.lucide-ellipsis), button:has(svg.lucide-more-horizontal)").first();
   if (await more.count()) { await more.click(); await sleep(500); const del = page.getByRole("menuitem", { name: /Delete user/ }); if (await del.count()) { await del.click(); await sleep(900); await shot("14-confirm-typed"); await page.keyboard.press("Escape"); } }
 

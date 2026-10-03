@@ -22,6 +22,38 @@ type VMService struct {
 	// syncDebounce coalesces rapid mutations into a single background SyncAll
 	syncTimer *time.Timer
 	syncMu    sync.Mutex
+	// lastSync keeps the outcome of the most recent SyncAll pass per target
+	// (in memory — operational state for the diagnostics view).
+	lastSync   map[int64]TargetSyncInfo
+	lastSyncMu sync.Mutex
+}
+
+// TargetSyncInfo is the outcome of the latest SyncAll pass for one target.
+type TargetSyncInfo struct {
+	At       time.Time `json:"at"`
+	Synced   int       `json:"synced"`
+	Orphaned int       `json:"orphaned"`
+	Errors   []string  `json:"errors,omitempty"`
+}
+
+// LastSyncByTarget returns a copy of the latest per-target sync outcomes.
+func (s *VMService) LastSyncByTarget() map[int64]TargetSyncInfo {
+	s.lastSyncMu.Lock()
+	defer s.lastSyncMu.Unlock()
+	out := make(map[int64]TargetSyncInfo, len(s.lastSync))
+	for k, v := range s.lastSync {
+		out[k] = v
+	}
+	return out
+}
+
+func (s *VMService) recordTargetSync(targetID int64, info TargetSyncInfo) {
+	s.lastSyncMu.Lock()
+	defer s.lastSyncMu.Unlock()
+	if s.lastSync == nil {
+		s.lastSync = map[int64]TargetSyncInfo{}
+	}
+	s.lastSync[targetID] = info
 }
 
 func NewVMService(db *db.DB, targets *TargetService, enc Encryptor) *VMService {
@@ -428,10 +460,22 @@ func (s *VMService) SyncAll(ctx context.Context, dryRun bool) (*SyncAllResult, e
 	}
 
 	for targetID, targetVMs := range byTarget {
+		// Per-target outcome for the diagnostics view: everything this pass
+		// adds to result between here and the end of the target's loop.
+		startSynced, startOrphaned, startErrs := result.Synced, result.Orphaned, len(result.Errors)
+		recordSync := func() {
+			if dryRun {
+				return
+			}
+			s.recordTargetSync(targetID, TargetSyncInfo{At: time.Now().UTC(), Synced: result.Synced - startSynced, Orphaned: result.Orphaned - startOrphaned,
+				Errors: append([]string(nil), result.Errors[startErrs:]...)})
+		}
+
 		p, err := s.targets.GetProvider(targetID)
 		if err != nil {
 			slog.Error("sync-all: failed to get provider", "target_id", targetID, "error", err)
 			result.Errors = append(result.Errors, fmt.Sprintf("target %d: %v", targetID, err))
+			recordSync()
 			continue
 		}
 
@@ -439,6 +483,7 @@ func (s *VMService) SyncAll(ctx context.Context, dryRun bool) (*SyncAllResult, e
 			p.Disconnect()
 			slog.Error("sync-all: failed to connect", "target_id", targetID, "error", err)
 			result.Errors = append(result.Errors, fmt.Sprintf("target %d connect: %v", targetID, err))
+			recordSync()
 			continue
 		}
 
@@ -524,6 +569,7 @@ func (s *VMService) SyncAll(ctx context.Context, dryRun bool) (*SyncAllResult, e
 		}
 
 		p.Disconnect()
+		recordSync()
 	}
 
 	return result, nil

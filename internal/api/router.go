@@ -129,6 +129,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 	actionH := handlers.NewActionHandler(cfg.DB, cfg.AuditService)
 	execH := handlers.NewExecutionHandler(cfg.ExecutorService, cfg.AuditService)
 	notifH := handlers.NewNotificationHandler(cfg.DB)
+	diagH := handlers.NewDiagnosticsHandler(cfg.DB, cfg.VMService)
 
 	r.Route("/api", func(r chi.Router) {
 		// Fix 8: Apply global rate limit to all API routes
@@ -332,6 +333,9 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 
 				// Audit log
 				r.Get("/audit-logs", auditH.List)
+
+				// Operational snapshot (see Settings → Diagnostics)
+				r.Get("/diagnostics", diagH.Get)
 
 				// Auth Sources
 				r.Get("/auth-sources", authSourceH.List)
