@@ -63,6 +63,7 @@ var migrations = []struct {
 	{37, migrationV37},
 	{38, migrationV38},
 	{39, migrationV39},
+	{40, migrationV40},
 }
 
 const migrationV1 = `
@@ -750,6 +751,25 @@ func runMigrations(db *sql.DB, dbPath string) error {
 			}
 		}
 
+		// V40 post-migration: guest-side follow-through for Add Disk / Add Network Adapter
+		if m.version == 40 {
+			for _, a := range v40BuiltinActions {
+				var params, tags interface{}
+				if a.parameters != "" {
+					params = a.parameters
+				}
+				if a.tags != "" {
+					tags = a.tags
+				}
+				if _, err := db.Exec(
+					`INSERT INTO actions (name, description, category, script, script_type, platform, builtin, parameters, tags, created_at, updated_at) VALUES (?, ?, ?, ?, 'bash', 'linux', 1, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+					a.name, a.description, a.category, a.script, params, tags,
+				); err != nil {
+					slog.Warn("failed to insert V40 builtin action", "name", a.name, "error", err)
+				}
+			}
+		}
+
 		// V22 post-migration: insert "Collect VM Info" built-in action
 		if m.version == 22 {
 			if _, err := db.Exec(
@@ -1386,6 +1406,12 @@ INSERT INTO schema_version (version) VALUES (38);
 // guess, since compounding an already-approximate "since creation" uptime
 // into a second derived number felt like overstating a number we can't
 // actually vouch for; it starts accumulating cleanly from this migration.
+// V40 adds no schema; the two built-in actions are inserted post-migration
+// (see runMigrations). A no-op statement keeps the version bookkeeping uniform.
+const migrationV40 = `
+UPDATE actions SET updated_at = updated_at WHERE 0;
+`
+
 const migrationV39 = `
 ALTER TABLE managed_vms ADD COLUMN state_changed_at DATETIME;
 ALTER TABLE managed_vms ADD COLUMN last_powered_on_at DATETIME;
