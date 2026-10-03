@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/forgemill/forgemill/internal/clock"
 	"github.com/forgemill/forgemill/internal/db"
 	"github.com/forgemill/forgemill/internal/db/models"
 	"github.com/forgemill/forgemill/internal/provider"
@@ -471,7 +472,9 @@ func (s *DeployService) runDeploy(ctx context.Context, deploymentID, targetID in
 			s.failDeploy(deploymentID, fmt.Sprintf("Hypervisor task failed: %s", progress.Message))
 			return
 		}
-		time.Sleep(3 * time.Second)
+		// Cancellation is picked up by the select at the top of the loop;
+		// cutting the pause short just gets there without the 3 s wait.
+		_ = clock.Sleep(ctx, 3*time.Second)
 	}
 }
 

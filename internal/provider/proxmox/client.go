@@ -19,6 +19,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/forgemill/forgemill/internal/clock"
 	"github.com/forgemill/forgemill/internal/provider"
 )
 
@@ -673,7 +674,9 @@ applyConfig:
 		for attempt := 0; attempt < 5; attempt++ {
 			if attempt > 0 {
 				slog.Info("retrying VM config", "vmid", newID, "attempt", attempt+1)
-				time.Sleep(3 * time.Second)
+				if configErr = clock.Sleep(ctx, 3*time.Second); configErr != nil {
+					break // cancelled: the next doPut would fail with the same ctx error
+				}
 			}
 			configErr = p.doPut(ctx, configPath, configData)
 			if configErr == nil {
@@ -861,7 +864,9 @@ func (p *Provider) DeleteVM(ctx context.Context, vmID string) error {
 		if status.PowerState == "stopped" {
 			break
 		}
-		time.Sleep(1 * time.Second)
+		if clock.Sleep(ctx, time.Second) != nil {
+			break // cancelled: the delete request below reports the ctx error
+		}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, p.baseURL+fmt.Sprintf("/nodes/%s/qemu/%s", url.PathEscape(node), url.PathEscape(vmID)), nil)
@@ -926,7 +931,9 @@ func (p *Provider) awaitTask(ctx context.Context, upid string, timeoutSec int) e
 			}
 			return fmt.Errorf("task failed: %s", result.Data.ExitStatus)
 		}
-		time.Sleep(1 * time.Second)
+		if err := clock.Sleep(ctx, time.Second); err != nil {
+			return err
+		}
 	}
 	return fmt.Errorf("task %s did not complete within %ds", upid, timeoutSec)
 }
