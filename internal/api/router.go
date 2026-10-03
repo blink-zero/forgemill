@@ -56,9 +56,13 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 	// Fix 10: Security headers on all responses
 	r.Use(middleware.SecurityHeaders)
 	r.Use(chimw.RequestID)
-	// V3-H1: Only trust X-Forwarded-For/X-Real-IP when behind a configured trusted proxy
+	// V3-H1: Only trust X-Forwarded-For/X-Real-IP when the request actually
+	// came from one of the configured proxies. chi's RealIP applied the
+	// headers for every peer once the setting was on (deprecated for that
+	// reason), which let any client choose the address the audit log and
+	// rate limiter saw.
 	if cfg.TrustedProxies != "" {
-		r.Use(chimw.RealIP)
+		r.Use(middleware.TrustedProxyRealIP(middleware.ParseTrustedProxies(cfg.TrustedProxies)))
 	}
 	r.Use(middleware.Logging)
 	r.Use(chimw.Recoverer)
