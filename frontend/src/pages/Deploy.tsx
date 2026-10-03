@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InfoTip } from "@/components/ui/tooltip";
-import { ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Rocket, Settings2, Box, Loader2, Hammer, RotateCcw, Search, AlertTriangle, AlertCircle } from "lucide-react";
+import { ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Rocket, Settings2, Box, Loader2, Hammer, RotateCcw, Search, AlertTriangle, AlertCircle, Plus, X } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { getErrorMessage } from "@/lib/utils";
@@ -120,6 +120,18 @@ export default function Deploy() {
   };
 
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
+  // Extra disks / NICs attached right after the clone (same provider ops as
+  // the VM page's Add Disk / Add Network Adapter), gated on the provider.
+  type ExtraDiskRow = { size_gb: number; datastore: string; provisioning: string };
+  type ExtraNicRow = { network: string; adapter_type: string; vlan_tag: string };
+  const [extraDisks, setExtraDisks] = useState<ExtraDiskRow[]>([]);
+  const [extraNics, setExtraNics] = useState<ExtraNicRow[]>([]);
+  const showExtraDisks = Boolean(providerMeta?.features?.disk_attach);
+  const showExtraNics = Boolean(providerMeta?.features?.nic_attach);
+  const diskProvisioningTypes = providerMeta?.disk_provisioning_types ?? [];
+  const nicAdapterTypes = providerMeta?.nic_adapter_types ?? [];
+  const updateDisk = (i: number, patch: Partial<ExtraDiskRow>) => setExtraDisks((rows) => rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const updateNic = (i: number, patch: Partial<ExtraNicRow>) => setExtraNics((rows) => rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const [preflightLoading, setPreflightLoading] = useState(false);
 
   const buildDeployBody = () => ({
@@ -144,6 +156,16 @@ export default function Deploy() {
     hostname: config.hostname || config.vm_name,
     domain_name: config.domain_name,
     ssh_public_key: config.ssh_public_key,
+    extra_disks: extraDisks.length > 0 ? extraDisks.map((d) => ({
+      size_gb: d.size_gb,
+      ...(d.datastore ? { datastore: d.datastore } : {}),
+      ...(d.provisioning ? { provisioning: d.provisioning } : {}),
+    })) : undefined,
+    extra_nics: extraNics.length > 0 ? extraNics.map((n) => ({
+      network: n.network,
+      ...(n.adapter_type ? { adapter_type: n.adapter_type } : {}),
+      ...(n.vlan_tag ? { vlan_tag: Number(n.vlan_tag) } : {}),
+    })) : undefined,
   });
 
   // Check whether this deploy would be accepted as soon as the user reaches
@@ -404,6 +426,85 @@ export default function Deploy() {
                 </>
               )}
 
+              {(showExtraDisks || showExtraNics) && (
+                <div className="sm:col-span-2 border-t pt-4 mt-2 space-y-3">
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="text-sm font-medium">Additional Hardware (optional)</h3>
+                    <InfoTip text="Extra disks and network adapters are attached right after the clone, with the same operations as Add Disk / Add Network Adapter on the VM page. They arrive in the guest unformatted / unconfigured — the built-in actions “Format and Mount New Disk” and “Configure New Network Interface” finish the job. If one can't be attached the deployment is marked failed and the VM is kept so you can fix it from the VM page." />
+                  </div>
+                  {showExtraDisks && (
+                    <div className="space-y-2">
+                      {extraDisks.map((d, i) => (
+                        <div key={i} className="flex flex-wrap items-end gap-2 rounded-md border p-2 bg-muted/30">
+                          <div className="w-28">
+                            <Label className="text-xs">Size (GB)</Label>
+                            <Input type="number" min={1} max={65536} value={d.size_gb || ""} onChange={(e) => updateDisk(i, { size_gb: Number(e.target.value) })} />
+                          </div>
+                          <div className="flex-1 min-w-[10rem]">
+                            <Label className="text-xs">Datastore</Label>
+                            <Select value={d.datastore} onChange={(e) => updateDisk(i, { datastore: e.target.value })}>
+                              <option value="">Same as the VM's first disk</option>
+                              {(resources?.datastores || []).map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
+                            </Select>
+                          </div>
+                          {diskProvisioningTypes.length > 0 && (
+                            <div className="w-32">
+                              <Label className="text-xs">Provisioning</Label>
+                              <Select value={d.provisioning} onChange={(e) => updateDisk(i, { provisioning: e.target.value })}>
+                                <option value="">Default ({diskProvisioningTypes[0]})</option>
+                                {diskProvisioningTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                              </Select>
+                            </div>
+                          )}
+                          <Button type="button" size="icon" variant="ghost" className="h-9 w-9" onClick={() => setExtraDisks((rows) => rows.filter((_, j) => j !== i))} aria-label={`Remove extra disk ${i + 1}`}>
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button type="button" size="sm" variant="outline" className="gap-1.5" disabled={extraDisks.length >= 8} onClick={() => setExtraDisks((rows) => [...rows, { size_gb: 20, datastore: "", provisioning: "" }])}>
+                        <Plus className="h-3.5 w-3.5" /> Add extra disk
+                      </Button>
+                    </div>
+                  )}
+                  {showExtraNics && (
+                    <div className="space-y-2">
+                      {extraNics.map((n, i) => (
+                        <div key={i} className="flex flex-wrap items-end gap-2 rounded-md border p-2 bg-muted/30">
+                          <div className="flex-1 min-w-[10rem]">
+                            <Label className="text-xs">Network</Label>
+                            <Select value={n.network} onChange={(e) => updateNic(i, { network: e.target.value })}>
+                              <option value="">Select network…</option>
+                              {(resources?.networks || []).map((item) => <option key={item.id} value={item.path || item.name}>{item.name}</option>)}
+                            </Select>
+                          </div>
+                          {nicAdapterTypes.length > 0 && (
+                            <div className="w-36">
+                              <Label className="text-xs">Adapter</Label>
+                              <Select value={n.adapter_type} onChange={(e) => updateNic(i, { adapter_type: e.target.value })}>
+                                <option value="">Default ({nicAdapterTypes[0]})</option>
+                                {nicAdapterTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                              </Select>
+                            </div>
+                          )}
+                          {showVlanTag && (
+                            <div className="w-28">
+                              <Label className="text-xs">VLAN Tag</Label>
+                              <Input type="number" min={1} max={4094} value={n.vlan_tag} onChange={(e) => updateNic(i, { vlan_tag: e.target.value })} placeholder="Untagged" />
+                            </div>
+                          )}
+                          <Button type="button" size="icon" variant="ghost" className="h-9 w-9" onClick={() => setExtraNics((rows) => rows.filter((_, j) => j !== i))} aria-label={`Remove extra network adapter ${i + 1}`}>
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button type="button" size="sm" variant="outline" className="gap-1.5" disabled={extraNics.length >= 8} onClick={() => setExtraNics((rows) => [...rows, { network: "", adapter_type: "", vlan_tag: "" }])}>
+                        <Plus className="h-3.5 w-3.5" /> Add extra network adapter
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="sm:col-span-2 border-t pt-4 mt-2">
                 <h3 className="text-sm font-medium mb-3">Network Configuration (optional)</h3>
               </div>
@@ -504,6 +605,8 @@ export default function Deploy() {
                 return <div key={field.key}><span className="text-muted-foreground">{field.label}:</span> <span className="font-medium">{displayVal}</span></div>;
               })}
               {config.ip_address && <div><span className="text-muted-foreground">IP:</span> <span className="font-medium">{config.ip_address}</span></div>}
+              {extraDisks.length > 0 && <div className="sm:col-span-2"><span className="text-muted-foreground">Extra disks:</span> <span className="font-medium">{extraDisks.map((d) => `${d.size_gb} GB${d.datastore ? ` on ${d.datastore}` : ""}${d.provisioning ? ` (${d.provisioning})` : ""}`).join(", ")}</span></div>}
+              {extraNics.length > 0 && <div className="sm:col-span-2"><span className="text-muted-foreground">Extra adapters:</span> <span className="font-medium">{extraNics.map((n) => `${(resources?.networks || []).find((i) => (i.path || i.name) === n.network)?.name || n.network}${n.adapter_type ? ` (${n.adapter_type})` : ""}${n.vlan_tag ? ` VLAN ${n.vlan_tag}` : ""}`).join(", ")}</span></div>}
               {config.ssh_public_key && <div className="sm:col-span-2"><span className="text-muted-foreground">SSH Key:</span> <span className="font-medium font-mono text-xs">{config.ssh_public_key.substring(0, 40)}...</span></div>}
             </div>
             <p className="text-xs text-muted-foreground">A temporary password will be generated and shown after deployment starts.</p>
