@@ -2143,33 +2143,23 @@ type Stats struct {
 }
 
 func (db *DB) GetStats() (*Stats, error) {
+	// One statement with nine scalar subqueries instead of nine round-trips;
+	// each subquery is the exact COUNT the dashboard showed before.
 	s := &Stats{}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM targets`).Scan(&s.TotalTargets); err != nil {
-		return nil, fmt.Errorf("count targets: %w", err)
-	}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM templates`).Scan(&s.TotalTemplates); err != nil {
-		return nil, fmt.Errorf("count templates: %w", err)
-	}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM deployments`).Scan(&s.TotalDeployments); err != nil {
-		return nil, fmt.Errorf("count deployments: %w", err)
-	}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM deployments WHERE DATE(created_at) = DATE('now')`).Scan(&s.DeploymentsToday); err != nil {
-		return nil, fmt.Errorf("count deployments today: %w", err)
-	}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM deployments WHERE status = 'running'`).Scan(&s.RunningDeploys); err != nil {
-		return nil, fmt.Errorf("count running deploys: %w", err)
-	}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM managed_vms`).Scan(&s.TotalVMs); err != nil {
-		return nil, fmt.Errorf("count vms: %w", err)
-	}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM actions`).Scan(&s.TotalActions); err != nil {
-		return nil, fmt.Errorf("count actions: %w", err)
-	}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM templates WHERE managed_by_forgemill = TRUE AND lifecycle_status = 'active'`).Scan(&s.ManagedTemplates); err != nil {
-		return nil, fmt.Errorf("count managed templates: %w", err)
-	}
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM template_schedules WHERE enabled = TRUE AND DATE(next_check_at) = DATE('now')`).Scan(&s.ScheduledBuildsToday); err != nil {
-		return nil, fmt.Errorf("count scheduled builds today: %w", err)
+	err := db.conn.QueryRow(`SELECT
+		(SELECT COUNT(*) FROM targets),
+		(SELECT COUNT(*) FROM templates),
+		(SELECT COUNT(*) FROM deployments),
+		(SELECT COUNT(*) FROM deployments WHERE DATE(created_at) = DATE('now')),
+		(SELECT COUNT(*) FROM deployments WHERE status = 'running'),
+		(SELECT COUNT(*) FROM managed_vms),
+		(SELECT COUNT(*) FROM actions),
+		(SELECT COUNT(*) FROM templates WHERE managed_by_forgemill = TRUE AND lifecycle_status = 'active'),
+		(SELECT COUNT(*) FROM template_schedules WHERE enabled = TRUE AND DATE(next_check_at) = DATE('now'))`,
+	).Scan(&s.TotalTargets, &s.TotalTemplates, &s.TotalDeployments, &s.DeploymentsToday, &s.RunningDeploys,
+		&s.TotalVMs, &s.TotalActions, &s.ManagedTemplates, &s.ScheduledBuildsToday)
+	if err != nil {
+		return nil, fmt.Errorf("dashboard stats: %w", err)
 	}
 	return s, nil
 }
