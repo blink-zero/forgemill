@@ -282,6 +282,37 @@ func (s *VMService) recordVMEvent(vm *models.ManagedVM, level, message string) {
 	vmEventSink{db: s.db, vmID: vm.ID, targetID: vm.TargetID}.Event(level, message)
 }
 
+// VMEventRetention is how long per-VM events are kept.
+const VMEventRetention = 30 * 24 * time.Hour
+
+// StartEventRetention prunes vm_events older than VMEventRetention once at
+// startup and then daily, until ctx is cancelled.
+func (s *VMService) StartEventRetention(ctx context.Context) {
+	if s == nil || s.db == nil {
+		return
+	}
+	go func() {
+		prune := func() {
+			if n, err := s.db.PruneVMEvents(VMEventRetention); err != nil {
+				slog.Warn("vm events retention: prune failed", "error", err)
+			} else if n > 0 {
+				slog.Info("vm events retention: pruned", "deleted", n)
+			}
+		}
+		prune()
+		tick := time.NewTicker(24 * time.Hour)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				prune()
+			}
+		}
+	}()
+}
+
 // ListVMEvents returns the VM's recent events, newest first.
 func (s *VMService) ListVMEvents(id int64, limit int) ([]models.VMEvent, error) {
 	if _, err := s.db.GetManagedVM(id); err != nil {
