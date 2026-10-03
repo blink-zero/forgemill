@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/vmware/govmomi/fault"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/property"
@@ -122,6 +123,13 @@ func (p *Provider) AddDisk(ctx context.Context, vmID string, spec provider.DiskS
 		}
 		dsRef = ds.Reference()
 		fileName = "[" + ds.Name() + "]"
+		// A datastore the VM's host can't see would only fail inside the
+		// reconfigure task ("Unable to access file [ds]") and surface as a
+		// generic failure. Check the host's datastore list first and say
+		// exactly which datastores would work.
+		if err := p.checkDatastoreAccessible(ctx, client.Client, vm, dsRef, ds.Name()); err != nil {
+			return nil, err
+		}
 	} else {
 		dsRef, err = defaultDatastoreFor(ctx, client.Client, vm, before)
 		if err != nil {
@@ -145,6 +153,9 @@ func (p *Provider) AddDisk(ctx context.Context, vmID string, spec provider.DiskS
 	}
 
 	if err := vm.AddDevice(ctx, disk); err != nil {
+		if fault.Is(err, &types.CannotAccessFile{}) || fault.Is(err, &types.InvalidDatastore{}) || fault.Is(err, &types.FileNotFound{}) {
+			return nil, fmt.Errorf("%w: %q (%v)", provider.ErrDatastoreNotAccessible, spec.Datastore, err)
+		}
 		return nil, fmt.Errorf("add disk: %w", err)
 	}
 
@@ -182,4 +193,30 @@ func defaultDatastoreFor(ctx context.Context, c *vim25.Client, vm *object.Virtua
 		return types.ManagedObjectReference{}, fmt.Errorf("VM has no datastore; specify one")
 	}
 	return props.Datastore[0], nil
+}
+
+// checkDatastoreAccessible verifies the datastore is mounted on the host
+// the VM currently runs on. On failure the error lists the datastores that
+// host can see, so the caller can pick one that works.
+func (p *Provider) checkDatastoreAccessible(ctx context.Context, c *vim25.Client, vm *object.VirtualMachine, dsRef types.ManagedObjectReference, dsName string) error {
+	var vmp mo.VirtualMachine
+	pc := property.DefaultCollector(c)
+	if err := pc.RetrieveOne(ctx, vm.Reference(), []string{"runtime.host"}, &vmp); err != nil || vmp.Runtime.Host == nil {
+		return nil // no host (template, or not placed yet): let vSphere decide
+	}
+	var host mo.HostSystem
+	if err := pc.RetrieveOne(ctx, *vmp.Runtime.Host, []string{"name", "datastore"}, &host); err != nil {
+		return nil
+	}
+	var names []string
+	for _, ref := range host.Datastore {
+		if ref == dsRef {
+			return nil
+		}
+		var ds mo.Datastore
+		if pc.RetrieveOne(ctx, ref, []string{"name"}, &ds) == nil {
+			names = append(names, ds.Name)
+		}
+	}
+	return fmt.Errorf("%w: %q is not mounted on host %s (accessible: %s)", provider.ErrDatastoreNotAccessible, dsName, host.Name, strings.Join(names, ", "))
 }

@@ -20,6 +20,7 @@ func TestAddDiskErrorResponseMapsSentinels(t *testing.T) {
 		{"vm not found", fmt.Errorf("%w: id 7", service.ErrVMNotFound), http.StatusNotFound, false},
 		{"unsupported", fmt.Errorf("%w: adding a disk is not available", provider.ErrNotSupported), http.StatusBadRequest, false},
 		{"datastore", fmt.Errorf("%w: %q", provider.ErrDatastoreNotFound, "nope"), http.StatusBadRequest, false},
+		{"inaccessible", fmt.Errorf("%w: %q is not mounted on host esx1", provider.ErrDatastoreNotAccessible, "2TB_G7_02"), http.StatusBadRequest, false},
 		{"bad spec", fmt.Errorf("%w: size_gb must be between 1 and 65536", service.ErrInvalidDiskSpec), http.StatusBadRequest, false},
 		{"anything else", errors.New("vSphere exploded"), http.StatusInternalServerError, true},
 	}
