@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -38,7 +39,12 @@ func (h *DeployHandler) Deploy(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := h.svc.Start(&req, user.ID)
 	if err != nil {
-		writeErrorLog(w, "failed to start deployment", http.StatusInternalServerError, err)
+		msg, status := startDeployErrorResponse(err)
+		if status == http.StatusInternalServerError {
+			writeErrorLog(w, msg, status, err)
+		} else {
+			writeError(w, msg, status)
+		}
 		return
 	}
 
@@ -198,4 +204,14 @@ func (h *DeployHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	h.audit.Log(user.Username, &user.ID, "deployment.cancel", "deployment", strconv.FormatInt(id, 10), service.IPFromRequest(r), map[string]interface{}{"deployment_id": id})
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+}
+
+// startDeployErrorResponse maps a DeployService.Start error to the client
+// response: a request the caller got wrong is a 400 carrying the validation
+// message; anything else stays a generic 500 (details go to the log).
+func startDeployErrorResponse(err error) (string, int) {
+	if errors.Is(err, service.ErrInvalidDeployRequest) {
+		return err.Error(), http.StatusBadRequest
+	}
+	return "failed to start deployment", http.StatusInternalServerError
 }
