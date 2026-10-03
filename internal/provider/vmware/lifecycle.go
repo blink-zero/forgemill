@@ -296,15 +296,7 @@ func (p *Provider) ListDisks(ctx context.Context, vmID string) ([]provider.Disk,
 		if !ok {
 			continue
 		}
-		label := ""
-		if disk.DeviceInfo != nil {
-			label = disk.DeviceInfo.GetDescription().Label
-		}
-		disks = append(disks, provider.Disk{
-			Key:    int(disk.Key),
-			Label:  label,
-			SizeGB: int(disk.CapacityInKB / 1024 / 1024),
-		})
+		disks = append(disks, diskFromDevice(disk))
 	}
 	return disks, nil
 }

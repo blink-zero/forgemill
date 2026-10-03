@@ -33,6 +33,7 @@ import type {
   NotificationListResponse,
   VMNIC,
   ProviderMetadata,
+  VMDisk,
 } from "@/types";
 
 const api = axios.create({
@@ -186,8 +187,12 @@ export const vms = {
     api.delete(`/vms/${id}/snapshots/${snapId}`),
   resize: (id: number, data: { cpu: number; memory_mb: number }) =>
     api.put(`/vms/${id}/resize`, data),
-  listDisks: (id: number) =>
-    api.get<{ key: number; label: string; size_gb: number }[]>(`/vms/${id}/disks`),
+  // Live from the hypervisor. Providers advertise AddDisk via
+  // features.disk_attach; datastore defaults to the VM's first disk's;
+  // provisioning only where disk_provisioning_types is published.
+  listDisks: (id: number) => api.get<VMDisk[]>(`/vms/${id}/disks`),
+  addDisk: (id: number, data: { size_gb: number; datastore?: string; provisioning?: string }) =>
+    api.post<{ status: string; disk: VMDisk }>(`/vms/${id}/disks`, data),
   expandDisk: (id: number, key: number, data: { new_size_gb: number }) =>
     api.put(`/vms/${id}/disks/${key}/expand`, data),
   // Providers advertise support via features.nic_attach; adapter_type

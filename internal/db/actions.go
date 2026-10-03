@@ -274,6 +274,13 @@ func (db *DB) DeleteAction(id int64) error {
 	if _, err := tx.Exec(`UPDATE action_executions SET action_id = NULL WHERE action_id = ?`, id); err != nil {
 		return fmt.Errorf("unlink action executions: %w", err)
 	}
+	// deployment_actions references actions without ON DELETE, so a custom
+	// action that any deployment ran could never be deleted (FK failure →
+	// 500). Executions keep their own action_name snapshot; the deployment
+	// link rows carry nothing but the FK, so they are removed with the action.
+	if _, err := tx.Exec(`DELETE FROM deployment_actions WHERE action_id = ?`, id); err != nil {
+		return fmt.Errorf("unlink deployment actions: %w", err)
+	}
 	result, err := tx.Exec(`DELETE FROM actions WHERE id = ? AND builtin = 0`, id)
 	if err != nil {
 		return fmt.Errorf("delete action: %w", err)

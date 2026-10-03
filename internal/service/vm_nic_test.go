@@ -32,6 +32,10 @@ type fakeNICProvider struct {
 	nics        []provider.NIC
 	listNICsErr error
 	vms         []provider.VMInfo // ListVMs result; nil => errTestList (listing unavailable)
+	disks       []provider.Disk   // ListDisks result; nil => errTestList
+	expandCalls [][2]int          // (diskKey, newSizeGB) passed to ExpandDisk
+	addDiskSpec []provider.DiskSpec
+	addDiskErr  error
 }
 
 var fakeNIC *fakeNICProvider
@@ -86,9 +90,22 @@ func (f *fakeNICProvider) RevertSnapshot(context.Context, string, string) error 
 func (f *fakeNICProvider) DeleteSnapshot(context.Context, string, string) error { return errTestList }
 func (f *fakeNICProvider) ResizeVM(context.Context, string, int, int) error     { return errTestList }
 func (f *fakeNICProvider) ListDisks(context.Context, string) ([]provider.Disk, error) {
-	return nil, errTestList
+	if f.disks == nil {
+		return nil, errTestList
+	}
+	return f.disks, nil
 }
-func (f *fakeNICProvider) ExpandDisk(context.Context, string, int, int) error { return errTestList }
+func (f *fakeNICProvider) AddDisk(_ context.Context, _ string, spec provider.DiskSpec) (*provider.Disk, error) {
+	f.addDiskSpec = append(f.addDiskSpec, spec)
+	if f.addDiskErr != nil {
+		return nil, f.addDiskErr
+	}
+	return &provider.Disk{Key: 2001, Label: "Hard disk 2", SizeGB: spec.SizeGB, Datastore: spec.Datastore, Provisioning: spec.Provisioning}, nil
+}
+func (f *fakeNICProvider) ExpandDisk(_ context.Context, _ string, key, size int) error {
+	f.expandCalls = append(f.expandCalls, [2]int{key, size})
+	return nil
+}
 func (f *fakeNICProvider) AddNIC(_ context.Context, _ string, spec provider.NICSpec) (*provider.NIC, error) {
 	f.addNICCalls = append(f.addNICCalls, spec)
 	if f.addNICErr != nil {

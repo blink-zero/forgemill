@@ -285,6 +285,10 @@ func (h *VMHandler) ExpandDisk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svc.ExpandDisk(r.Context(), id, int(diskKey), req.NewSizeGB); err != nil {
+		if errors.Is(err, service.ErrInvalidDiskSize) {
+			writeError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		writeErrorLog(w, "failed to expand disk", http.StatusInternalServerError, err)
 		return
 	}
@@ -445,6 +449,65 @@ func (h *VMHandler) AddNIC(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"status": "attached", "nic": nic})
+}
+
+type addDiskRequest struct {
+	SizeGB       int    `json:"size_gb"`
+	Datastore    string `json:"datastore,omitempty"`
+	Provisioning string `json:"provisioning,omitempty"`
+}
+
+// addDiskErrorResponse maps an AddDisk error to the client response, the
+// same way addNICErrorResponse does for adapters.
+func addDiskErrorResponse(err error) (status int, msg string, logIt bool) {
+	switch {
+	case errors.Is(err, service.ErrVMNotFound):
+		return http.StatusNotFound, "VM not found", false
+	case errors.Is(err, provider.ErrNotSupported),
+		errors.Is(err, provider.ErrDatastoreNotFound),
+		errors.Is(err, provider.ErrDatastoreNotAccessible),
+		errors.Is(err, service.ErrInvalidDiskSpec):
+		return http.StatusBadRequest, err.Error(), false
+	default:
+		return http.StatusInternalServerError, "failed to add disk", true
+	}
+}
+
+func (h *VMHandler) AddDisk(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	var req addDiskRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.SizeGB <= 0 {
+		writeError(w, "size_gb is required", http.StatusBadRequest)
+		return
+	}
+	disk, err := h.svc.AddDisk(r.Context(), id, service.AddDiskRequest{SizeGB: req.SizeGB, Datastore: req.Datastore, Provisioning: req.Provisioning})
+	if err != nil {
+		status, msg, logIt := addDiskErrorResponse(err)
+		if logIt {
+			writeErrorLog(w, msg, status, err)
+		} else {
+			writeError(w, msg, status)
+		}
+		return
+	}
+	if actor := middleware.UserFromContext(r.Context()); actor != nil {
+		h.audit.Log(actor.Username, &actor.ID, "vm.disk.add", "vm", fmt.Sprintf("%d", id), service.IPFromRequest(r), map[string]interface{}{
+			"size_gb":      req.SizeGB,
+			"datastore":    disk.Datastore,
+			"provisioning": disk.Provisioning,
+			"disk_key":     disk.Key,
+			"pending":      disk.Pending,
+		})
+	}
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"status": "attached", "disk": disk})
 }
 
 func (h *VMHandler) ListNICs(w http.ResponseWriter, r *http.Request) {
