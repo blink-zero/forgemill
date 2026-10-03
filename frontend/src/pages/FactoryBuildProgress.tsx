@@ -10,16 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Square, Loader2, ShieldCheck } from "lucide-react";
 import { useToast } from "@/components/ui/toast";
 import { getErrorMessage } from "@/lib/utils";
-
-const statusColors: Record<string, string> = {
-  pending: "bg-warning/10 text-warning",
-  downloading: "bg-info/10 text-info",
-  building: "bg-info/10 text-info",
-  converting: "bg-info/10 text-info",
-  completed: "bg-success/10 text-success",
-  failed: "bg-destructive/10 text-destructive",
-  cancelled: "bg-gray-500/10 text-gray-500",
-};
+import { buildStatusClasses } from "@/lib/status";
 
 const phaseLabels: Record<string, string> = {
   "Preparing build environment": "Setup",
@@ -241,7 +232,7 @@ export default function FactoryBuildProgress() {
               <h1 className="text-2xl font-bold">{build.template_name}</h1>
               <Badge
                 variant="secondary"
-                className={statusColors[build.status] || ""}
+                className={buildStatusClasses[build.status] || ""}
               >
                 {build.status}
               </Badge>
