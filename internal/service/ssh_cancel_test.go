@@ -7,8 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -158,13 +161,59 @@ func TestSSHExecuteCancelKillsRemoteJobAndReturnsPromptly(t *testing.T) {
 		t.Fatalf("expected the job plus one kill command, got %d: %q", len(cmds), cmds)
 	}
 	kill := cmds[1]
-	if !strings.Contains(kill, `pgrep -n -f "^forgemill-exec-7$"`) || !strings.Contains(kill, "kill -TERM -- -") || !strings.Contains(kill, "kill -KILL -- -") {
+	if !strings.Contains(kill, `pgrep -n -f "^forgemill-exec-7$"`) || !strings.Contains(kill, `pkill -TERM -g "$pgid"`) || !strings.Contains(kill, `pkill -KILL -g "$pgid"`) {
 		t.Errorf("kill command must target the job's process group by anchored marker: %q", kill)
+	}
+	if !strings.HasPrefix(kill, "sudo sh -c '") {
+		t.Errorf("kill must run as root on the guest: %q", kill)
 	}
 }
 
 func TestRemoteShellWithoutExecutionIDIsPlainBash(t *testing.T) {
 	if remoteShell(0) != "bash" {
 		t.Errorf("legacy callers must keep plain bash, got %q", remoteShell(0))
+	}
+}
+
+// The kill script must take down the whole job — the marker bash *and* its
+// children — under /bin/sh, which is dash on Debian/Ubuntu guests. This runs
+// it for real against a local process group shaped like the remote job.
+func TestKillJobScriptTerminatesMarkerBashAndItsChildren(t *testing.T) {
+	for _, bin := range []string{"sh", "bash", "pgrep", "pkill", "ps"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skipf("%s not available", bin)
+		}
+	}
+	marker := fmt.Sprintf("forgemill-exec-test-%d", os.Getpid())
+	job := exec.Command("bash", "-c", "bash -c 'exec -a "+marker+" bash' <<'EOF'\nset -euo pipefail\nsleep 300\nEOF")
+	job.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // own session/group, like sshd+sudo give it
+	if err := job.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(-job.Process.Pid, syscall.SIGKILL) })
+
+	// Wait for the marker bash and its sleep child to exist.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if out, _ := exec.Command("pgrep", "-f", "^"+marker+"$").Output(); len(out) > 0 {
+			if out, _ := exec.Command("pgrep", "-g", fmt.Sprint(job.Process.Pid), "-x", "sleep").Output(); len(out) > 0 {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("job did not start")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if out, err := exec.Command("sh", "-c", killJobScript(marker)).CombinedOutput(); err != nil {
+		t.Fatalf("kill script failed under sh: %v: %s", err, out)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if out, _ := exec.Command("pgrep", "-f", "^"+marker+"$").Output(); len(out) > 0 {
+		t.Errorf("marker bash survived: pids %s", out)
+	}
+	if out, _ := exec.Command("pgrep", "-g", fmt.Sprint(job.Process.Pid), "-x", "sleep").Output(); len(out) > 0 {
+		t.Errorf("child sleep survived the process-group kill: pids %s", out)
 	}
 }
