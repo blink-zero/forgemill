@@ -265,7 +265,7 @@ func (s *ExecutorService) runExecution(ctx context.Context, cancel context.Cance
 		}
 	}
 
-	exitCode, err := sshExecute(ctx, host, 22, username, password, script, paramEnvBlock, outputFn, &dbHostKeyStore{s.db}, vmID)
+	exitCode, err := sshExecute(ctx, host, 22, username, password, script, paramEnvBlock, outputFn, &dbHostKeyStore{s.db}, vmID, execID)
 
 	// Clear password from stack (best effort — Go GC may have already copied)
 	password = ""
