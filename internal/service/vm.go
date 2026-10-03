@@ -443,11 +443,29 @@ func (s *VMService) SyncAll(ctx context.Context, dryRun bool) (*SyncAllResult, e
 				}
 			}
 
-			status, err := p.GetVMStatus(ctx, vm.VMRef)
-			if err != nil {
-				slog.Warn("sync-all: failed to get status", "vm_id", vm.ID, "vm_ref", vm.VMRef, "error", err)
-				result.Errors = append(result.Errors, fmt.Sprintf("vm %d: %v", vm.ID, err))
-				continue
+			// The listing already carries everything the sync records
+			// (power, IP, CPU, memory, disk, guest id), so use it and skip the
+			// per-VM status call. The one case it can't cover is a running VM
+			// whose IP the listing didn't include (Proxmox needs the guest
+			// agent for that) — fall back to GetVMStatus there, as before.
+			var status *provider.VMStatus
+			if hvm, ok := hypervisorRefs[vm.VMRef]; listErr == nil && ok && (hvm.IPAddress != "" || hvm.PowerState != "poweredOn") {
+				status = &provider.VMStatus{
+					PowerState: hvm.PowerState,
+					IPAddress:  hvm.IPAddress,
+					CPU:        hvm.CPU,
+					MemoryMB:   hvm.MemoryMB,
+					DiskGB:     hvm.DiskGB,
+					GuestID:    hvm.GuestID,
+				}
+			} else {
+				st, err := p.GetVMStatus(ctx, vm.VMRef)
+				if err != nil {
+					slog.Warn("sync-all: failed to get status", "vm_id", vm.ID, "vm_ref", vm.VMRef, "error", err)
+					result.Errors = append(result.Errors, fmt.Sprintf("vm %d: %v", vm.ID, err))
+					continue
+				}
+				status = st
 			}
 
 			if _, err := s.updateVMPowerState(&vm, status.PowerState, status.IPAddress); err != nil {

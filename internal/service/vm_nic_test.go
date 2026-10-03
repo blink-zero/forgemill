@@ -26,6 +26,7 @@ type fakeNICProvider struct {
 	statusCalls int
 	nics        []provider.NIC
 	listNICsErr error
+	vms         []provider.VMInfo // ListVMs result; nil => errTestList (listing unavailable)
 }
 
 var fakeNIC *fakeNICProvider
@@ -100,7 +101,10 @@ func (f *fakeNICProvider) GetConsoleURL(context.Context, string) (string, error)
 	return "", errTestList
 }
 func (f *fakeNICProvider) ListVMs(context.Context) ([]provider.VMInfo, error) {
-	return nil, errTestList
+	if f.vms == nil {
+		return nil, errTestList
+	}
+	return f.vms, nil
 }
 func (f *fakeNICProvider) GetResources(context.Context) (*provider.Resources, error) {
 	return nil, errTestList
@@ -337,5 +341,52 @@ func TestResizeSurfacesRequiresPowerOffSentinel(t *testing.T) {
 	err := svc.Resize(context.Background(), vmID, 4, 0)
 	if !errors.Is(err, ErrRequiresPowerOff) {
 		t.Fatalf("expected ErrRequiresPowerOff, got %v", err)
+	}
+}
+
+func TestSyncAllUsesListingAndSkipsPerVMStatusCalls(t *testing.T) {
+	svc, database, vmID := newNICTestService(t, "esxi")
+	fakeNIC.vms = []provider.VMInfo{{ID: "vm-100", Name: "web-01", PowerState: "poweredOn", IPAddress: "10.0.0.9", CPU: 4, MemoryMB: 8192, DiskGB: 80, GuestID: "ubuntu64Guest"}}
+
+	res, err := svc.SyncAll(context.Background(), false)
+	if err != nil {
+		t.Fatalf("SyncAll: %v", err)
+	}
+	if res.Synced != 1 || res.Orphaned != 0 || len(res.Errors) != 0 {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+	if fakeNIC.statusCalls != 0 {
+		t.Errorf("listing covered everything; GetVMStatus should not be called, was called %d times", fakeNIC.statusCalls)
+	}
+	vm, _ := database.GetManagedVM(vmID)
+	if vm.PowerState != "poweredOn" || vm.IPAddress != "10.0.0.9" || vm.CPU != 4 || vm.MemoryMB != 8192 || vm.DiskGB != 80 || vm.OSType != "ubuntu64Guest" {
+		t.Errorf("sync from listing did not record the same fields a status call would: %+v", vm)
+	}
+}
+
+func TestSyncAllFallsBackToStatusWhenListingLacksIPForRunningVM(t *testing.T) {
+	svc, database, vmID := newNICTestService(t, "esxi")
+	// Proxmox-style listing: running VM, no IP without the guest agent.
+	fakeNIC.vms = []provider.VMInfo{{ID: "vm-100", Name: "web-01", PowerState: "poweredOn", CPU: 2, MemoryMB: 2048}}
+
+	if _, err := svc.SyncAll(context.Background(), false); err != nil {
+		t.Fatalf("SyncAll: %v", err)
+	}
+	if fakeNIC.statusCalls != 1 {
+		t.Errorf("expected exactly one GetVMStatus fallback for the running VM without an IP, got %d", fakeNIC.statusCalls)
+	}
+	vm, _ := database.GetManagedVM(vmID)
+	if vm.IPAddress != "10.0.0.5" { // from the fake's GetVMStatus
+		t.Errorf("fallback status should have supplied the IP, got %q", vm.IPAddress)
+	}
+}
+
+func TestSyncAllStillUsesStatusWhenListingUnavailable(t *testing.T) {
+	svc, _, _ := newNICTestService(t, "esxi") // fakeNIC.vms nil => ListVMs errors
+	if _, err := svc.SyncAll(context.Background(), false); err != nil {
+		t.Fatalf("SyncAll: %v", err)
+	}
+	if fakeNIC.statusCalls != 1 {
+		t.Errorf("with no listing every VM needs a status call; got %d", fakeNIC.statusCalls)
 	}
 }

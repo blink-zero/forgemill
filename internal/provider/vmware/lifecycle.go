@@ -400,7 +400,16 @@ func (p *Provider) ListVMs(ctx context.Context) ([]provider.VMInfo, error) {
 	defer containerView.Destroy(ctx)
 
 	var vms []mo.VirtualMachine
-	if err := containerView.Retrieve(ctx, []string{"VirtualMachine"}, []string{"name", "config", "guest", "runtime"}, &vms); err != nil {
+	// Ask for exactly the properties read below. The previous "config"
+	// pulled every VM's full config tree (all devices, extraConfig, ...),
+	// which scales with inventory size rather than with the five fields
+	// this listing actually reports.
+	props := []string{
+		"name", "runtime.powerState", "guest.ipAddress",
+		"config.template", "config.guestId", "config.hardware.numCPU", "config.hardware.memoryMB",
+		"config.hardware.device", // for the disk total, same sum GetVMStatus makes
+	}
+	if err := containerView.Retrieve(ctx, []string{"VirtualMachine"}, props, &vms); err != nil {
 		return nil, fmt.Errorf("retrieve VMs: %w", err)
 	}
 
@@ -421,6 +430,7 @@ func (p *Provider) ListVMs(ctx context.Context) ([]provider.VMInfo, error) {
 			info.CPU = int(vm.Config.Hardware.NumCPU)
 			info.MemoryMB = int(vm.Config.Hardware.MemoryMB)
 			info.GuestID = vm.Config.GuestId
+			info.DiskGB = totalDiskGB(vm.Config.Hardware.Device)
 		}
 		result = append(result, info)
 	}

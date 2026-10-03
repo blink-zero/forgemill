@@ -27,6 +27,7 @@ type fakePVE struct {
 	agent    []map[string]interface{} // guest agent interfaces; nil = empty result
 	agentErr bool                     // simulate "No QEMU guest agent configured"
 	stopped  bool                     // status/current reports "stopped" instead of "running"
+	hits     map[string]int           // request count per path (method-agnostic)
 	server   *httptest.Server
 }
 
@@ -37,7 +38,16 @@ func newFakePVE(t *testing.T) *fakePVE {
 		pending: map[string]string{},
 		bridges: []string{"vmbr0", "vmbr1"},
 	}
+	f.hits = map[string]int{}
 	mux := http.NewServeMux()
+	counted := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			f.mu.Lock()
+			f.hits[r.URL.Path]++
+			f.mu.Unlock()
+			h.ServeHTTP(w, r)
+		})
+	}
 	write := func(w http.ResponseWriter, v interface{}) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": v})
@@ -46,7 +56,10 @@ func newFakePVE(t *testing.T) *fakePVE {
 		write(w, []map[string]string{{"node": "pve", "status": "online"}})
 	})
 	mux.HandleFunc("/api2/json/cluster/resources", func(w http.ResponseWriter, r *http.Request) {
-		write(w, []map[string]interface{}{{"vmid": 100, "node": "pve"}})
+		write(w, []map[string]interface{}{
+			{"vmid": 100, "node": "pve", "name": "web-01", "status": "running", "maxcpu": 2, "maxmem": 4294967296, "maxdisk": 42949672960, "template": 0},
+			{"vmid": 9000, "node": "pve", "name": "tmpl", "status": "stopped", "template": 1},
+		})
 	})
 	mux.HandleFunc("/api2/json/nodes/pve/network", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -112,7 +125,7 @@ func newFakePVE(t *testing.T) *fakePVE {
 		}
 		write(w, map[string]interface{}{"status": st, "vmid": 100})
 	})
-	f.server = httptest.NewTLSServer(mux)
+	f.server = httptest.NewTLSServer(counted(mux))
 	t.Cleanup(f.server.Close)
 	return f
 }
@@ -298,5 +311,83 @@ func TestAddNICOnStoppedVMReportsStartConnectedOnly(t *testing.T) {
 	}
 	if nic.Connected || !nic.StartConnected {
 		t.Errorf("got connected=%v start=%v, want false/true on a stopped VM", nic.Connected, nic.StartConnected)
+	}
+}
+
+func (f *fakePVE) hit(path string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.hits["/api2/json"+path]
+}
+
+func TestNodeResolutionIsCachedPerConnection(t *testing.T) {
+	f := newFakePVE(t)
+	p := f.provider(t) // Connect: /nodes only
+	ctx := context.Background()
+	for i := 0; i < 3; i++ {
+		if _, err := p.GetVMStatus(ctx, "100"); err != nil {
+			t.Fatalf("GetVMStatus #%d: %v", i, err)
+		}
+	}
+	if _, err := p.ListNICs(ctx, "100"); err != nil {
+		t.Fatalf("ListNICs: %v", err)
+	}
+	if got := f.hit("/cluster/resources"); got != 1 {
+		t.Errorf("cluster listing fetched %d times across 4 operations, want 1 (cached per connection)", got)
+	}
+	// A new connection starts cold.
+	if err := p.Disconnect(); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.GetVMStatus(ctx, "100"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.hit("/cluster/resources"); got != 2 {
+		t.Errorf("after reconnect the listing should be fetched again (got %d total)", got)
+	}
+}
+
+func TestListVMsPrimesNodeCacheAndCarriesSyncFields(t *testing.T) {
+	f := newFakePVE(t)
+	p := f.provider(t)
+	ctx := context.Background()
+	vms, err := p.ListVMs(ctx)
+	if err != nil {
+		t.Fatalf("ListVMs: %v", err)
+	}
+	if len(vms) != 1 {
+		t.Fatalf("templates must be excluded; got %d entries", len(vms))
+	}
+	vm := vms[0]
+	if vm.ID != "100" || vm.PowerState != "poweredOn" || vm.CPU != 2 || vm.MemoryMB != 4096 || vm.DiskGB != 40 || vm.GuestID != "linux" {
+		t.Errorf("listing fields: %+v", vm)
+	}
+	// The listing told us where every VM lives: no second cluster fetch.
+	if _, err := p.GetVMStatus(ctx, "100"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.hit("/cluster/resources"); got != 1 {
+		t.Errorf("expected the ListVMs call to be the only cluster fetch, got %d", got)
+	}
+}
+
+func TestConfigReadersShareOneFetchPerOperation(t *testing.T) {
+	f := newFakePVE(t)
+	p := f.provider(t)
+	ctx := context.Background()
+	if _, err := p.ListDisks(ctx, "100"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.GetTemplate(ctx, "100"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.GetTemplateDetail(ctx, "100"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.hit("/nodes/pve/qemu/100/config"); got != 3 {
+		t.Errorf("three config readers should fetch the config exactly three times, got %d", got)
 	}
 }
