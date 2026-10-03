@@ -19,6 +19,10 @@ var (
 	// ErrInvalidAdapterType: the requested NIC adapter model isn't one the
 	// provider will create.
 	ErrInvalidAdapterType = errors.New("invalid adapter type")
+	// ErrVLANUnsupportedOnNetwork: a VLAN tag was requested on a Proxmox bridge
+	// that is not VLAN aware — Proxmox would accept the config and then fail
+	// to hot-plug (and later to boot) the NIC.
+	ErrVLANUnsupportedOnNetwork = errors.New("network is not VLAN aware")
 	// ErrRequiresPowerOff: the change (CPU/memory resize without hot-add,
 	// etc.) can only be made while the VM is powered off.
 	ErrRequiresPowerOff = errors.New("VM must be powered off for this change")
@@ -332,4 +336,14 @@ type TargetHostKeyStore interface {
 // constructing the provider; without it the provider accepts any host key.
 type HostKeyTrusting interface {
 	SetTOFU(targetID int64, store TargetHostKeyStore)
+}
+
+// ExtrasValidator is implemented by providers that can check an extra NIC /
+// disk request against the target without creating anything — the deploy
+// preflight uses it so a bad network, a VLAN tag on a non-VLAN-aware bridge
+// or an unknown datastore is a blocker before the clone, not a failed
+// deployment after it. datacenter is the deploy's datacenter (vSphere).
+type ExtrasValidator interface {
+	ValidateNICSpec(ctx context.Context, datacenter string, spec NICSpec) error
+	ValidateDiskSpec(ctx context.Context, datacenter string, spec DiskSpec) error
 }
