@@ -1,4 +1,5 @@
 import { useEffect, useState, Fragment } from "react";
+import { useSearchParams } from "react-router-dom";
 import { users as usersApi, settings as settingsApi, webhooks as webhooksApi, apiKeys as apiKeysApi, auditLogs as auditLogsApi, factoryApi } from "@/api/client";
 import type { PaginatedAuditLogs } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -30,12 +31,16 @@ const WEBHOOK_EVENTS = [
   "execution.completed",
 ] as const;
 
+type SettingsTab = "users" | "webhooks" | "apikeys" | "preferences" | "auditlog" | "about";
+const SETTINGS_TABS: readonly SettingsTab[] = ["users", "webhooks", "apikeys", "preferences", "auditlog", "about"];
+const ADMIN_ONLY_TABS: ReadonlySet<string> = new Set(["webhooks", "auditlog"]);
+const isSettingsTab = (v: string | null): v is SettingsTab => v !== null && (SETTINGS_TABS as readonly string[]).includes(v);
+
 export default function SettingsPage() {
   const { toast } = useToast();
   const { confirm: showConfirm } = useConfirm();
   const { user: currentUser } = useAuth();
   const { timezone, setTimezone, formatDateTime } = useTimezone();
-  const [tab, setTab] = useState<"users" | "webhooks" | "apikeys" | "preferences" | "auditlog" | "about">("users");
   const [appVersion, setAppVersion] = useState({ version: "loading...", commit: "", date: "" });
   const [packerStatus, setPackerStatus] = useState<PrereqStatus | null>(null);
   const [usersList, setUsersList] = useState<User[]>([]);
@@ -50,6 +55,14 @@ export default function SettingsPage() {
   const [userSearch, setUserSearch] = useState("");
   const [userStatusFilter, setUserStatusFilter] = useState<"all" | "active" | "disabled">("all");
   const isAdmin = currentUser?.role === "admin";
+
+  // The active tab lives in the URL (?tab=webhooks) so a refresh or a deep
+  // link lands on the right tab. No param means Users, as before; an unknown
+  // or admin-only tab the current user can't see falls back to Users too.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const tab: SettingsTab = isSettingsTab(requestedTab) && (isAdmin || !ADMIN_ONLY_TABS.has(requestedTab)) ? requestedTab : "users";
+  const setTab = (next: SettingsTab) => setSearchParams(next === "users" ? {} : { tab: next });
 
   // Webhooks state
   const [webhooksList, setWebhooksList] = useState<Webhook[]>([]);
@@ -376,7 +389,7 @@ export default function SettingsPage() {
     }
   };
 
-  const tabItems: { key: typeof tab; label: string; adminOnly?: boolean }[] = [
+  const tabItems: { key: SettingsTab; label: string; adminOnly?: boolean }[] = [
     { key: "users", label: "Users" },
     { key: "webhooks", label: "Webhooks", adminOnly: true },
     { key: "apikeys", label: "API Keys" },
