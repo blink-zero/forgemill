@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { factoryApi, targets as targetsApi } from "@/api/client";
 import type { OSDefinition, Target, Resources } from "@/types";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import { getErrorMessage } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +15,7 @@ import { Select } from "@/components/ui/select";
 type WizardStep = "os" | "target" | "configure" | "review";
 
 export default function FactoryBuild() {
+  const { toast } = useToast();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const preselectedOS = searchParams.get("os") || "";
@@ -67,8 +70,8 @@ export default function FactoryBuild() {
           setDiskGB(def.min_disk_gb);
         }
       }
-    } catch {
-      // handle error silently
+    } catch (e: unknown) {
+      toast(getErrorMessage(e, "Failed to load OS definitions"), "error");
     }
   };
 

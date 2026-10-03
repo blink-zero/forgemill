@@ -221,8 +221,8 @@ export function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState:
     if (!activeExecution) return;
     try {
       await execApi.cancel(activeExecution.id);
-    } catch {
-      // silent
+    } catch (e: unknown) {
+      toast(getErrorMessage(e, "Failed to cancel execution"), "error");
     }
   };
 

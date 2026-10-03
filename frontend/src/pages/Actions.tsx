@@ -109,8 +109,8 @@ export default function ActionsPage() {
     try {
       const res = await actionsApi.list();
       setActionList(res.data || []);
-    } catch {
-      // ignore
+    } catch (e: unknown) {
+      toast(getErrorMessage(e, "Failed to load actions"), "error");
     } finally {
       setLoading(false);
     }
