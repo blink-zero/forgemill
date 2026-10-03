@@ -21,6 +21,7 @@ import { usePreference } from "@/context/PreferencesContext";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableSort } from "@/hooks/useTableSort";
 import { usePageSize } from "@/hooks/usePageSize";
+import { useVisiblePolling } from "@/hooks/useVisiblePolling";
 import { useNowTick } from "@/hooks/useNowTick";
 import { OSBadge } from "@/components/OSBadge";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
@@ -56,9 +57,8 @@ export default function VMs() {
       .then((res) => setVmList(res.data || []))
       .catch(() => setError("Failed to load virtual machines"))
       .finally(() => setLoading(false));
-    const timer = setInterval(reload, 30000);
-    return () => clearInterval(timer);
-  }, [reload]);
+  }, []);
+  useVisiblePolling(reload, 30000);
 
   const targets = useMemo(
     () => [...new Set(vmList.map((v) => v.target_name).filter(Boolean))].sort(),

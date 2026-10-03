@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { useVisiblePolling } from "@/hooks/useVisiblePolling";
 import { useNavigate } from "react-router-dom";
 import { Bell, Check, CheckCheck, X, CircleAlert, CircleCheck, Info as InfoIcon, AlertTriangle } from "lucide-react";
 import { notifications as notifApi } from "@/api/client";
@@ -62,16 +63,18 @@ export function NotificationBell() {
 
   useEffect(() => {
     loadCountOnly();
-    const t = setInterval(() => {
-      // If the panel is open, refresh the full list so new items show up
-      if (open) {
-        loadFull();
-      } else {
-        loadCountOnly();
-      }
-    }, POLL_INTERVAL_MS);
-    return () => clearInterval(t);
-  }, [open, loadCountOnly, loadFull]);
+  }, [open, loadCountOnly]);
+
+  // If the panel is open, refresh the full list so new items show up;
+  // otherwise just the badge count.
+  const poll = useCallback(() => {
+    if (open) {
+      loadFull();
+    } else {
+      loadCountOnly();
+    }
+  }, [open, loadFull, loadCountOnly]);
+  useVisiblePolling(poll, POLL_INTERVAL_MS);
 
   useEffect(() => {
     if (open) loadFull();
