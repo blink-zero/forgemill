@@ -19,6 +19,9 @@ var (
 	// ErrInvalidAdapterType: the requested NIC adapter model isn't one the
 	// provider will create.
 	ErrInvalidAdapterType = errors.New("invalid adapter type")
+	// ErrRequiresPowerOff: the change (CPU/memory resize without hot-add,
+	// etc.) can only be made while the VM is powered off.
+	ErrRequiresPowerOff = errors.New("VM must be powered off for this change")
 )
 
 // PV-X1: All Provider interface methods now accept context.Context for

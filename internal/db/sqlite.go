@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,7 +13,8 @@ import (
 
 	"github.com/forgemill/forgemill/internal/db/migrations"
 	"github.com/forgemill/forgemill/internal/db/models"
-	_ "modernc.org/sqlite"
+	sqlite "modernc.org/sqlite" // driver registration + typed errors
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // escapeLike escapes SQL LIKE wildcard characters so user input is matched literally.
@@ -61,7 +63,7 @@ func (db *DB) UpdateUserRole(id int64, role string) error {
 	// MED-23: Validate role in service layer instead of relying on DB CHECK constraint
 	validRoles := map[string]bool{"admin": true, "user": true, "viewer": true}
 	if !validRoles[role] {
-		return fmt.Errorf("invalid role %q: must be admin, user, or viewer", role)
+		return fmt.Errorf("%w %q: must be admin, user, or viewer", ErrInvalidRole, role)
 	}
 	_, err := db.conn.Exec(`UPDATE users SET role = ? WHERE id = ?`, role, id)
 	return err
@@ -244,11 +246,11 @@ func (db *DB) UpdateTarget(t *models.Target) error {
 }
 
 type DeleteTargetPreviewResult struct {
-	Templates  int `json:"templates"`
-	VMs        int `json:"vms"`
+	Templates   int `json:"templates"`
+	VMs         int `json:"vms"`
 	Deployments int `json:"deployments"`
-	Builds     int `json:"builds"`
-	Executions int `json:"executions"`
+	Builds      int `json:"builds"`
+	Executions  int `json:"executions"`
 }
 
 func (db *DB) DeleteTargetPreview(id int64) (*DeleteTargetPreviewResult, error) {
@@ -1014,7 +1016,7 @@ func (db *DB) CreateManagedVM(vm *models.ManagedVM) error {
 	)
 	if err != nil {
 		if isUniqueConstraintError(err) {
-			return fmt.Errorf("VM with ref %q already registered on this target", vm.VMRef)
+			return fmt.Errorf("VM with ref %q already registered on this target: %w", vm.VMRef, ErrAlreadyRegistered)
 		}
 		return err
 	}
@@ -1199,8 +1201,26 @@ func (db *DB) ListManagedVMsByTarget(targetID int64) ([]models.ManagedVM, error)
 	return vms, rows.Err()
 }
 
+// Sentinel errors callers map with errors.Is instead of matching text.
+var (
+	ErrInvalidRole       = errors.New("invalid role")
+	ErrAlreadyRegistered = errors.New("already registered")
+)
+
+// isUniqueConstraintError checks the SQLite extended result code rather
+// than the driver's message text, so a driver wording change can't turn a
+// 409 into a 500. SQLITE_CONSTRAINT_UNIQUE (2067) and
+// SQLITE_CONSTRAINT_PRIMARYKEY (1555) are both "this row already exists".
 func isUniqueConstraintError(err error) bool {
-	return strings.Contains(err.Error(), "UNIQUE constraint failed")
+	var se *sqlite.Error
+	if !errors.As(err, &se) {
+		return false
+	}
+	switch se.Code() {
+	case sqlite3.SQLITE_CONSTRAINT_UNIQUE, sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY:
+		return true
+	}
+	return false
 }
 
 // --- VM Snapshots ---

@@ -9,6 +9,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/vmware/govmomi/fault"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/property"
@@ -218,8 +219,8 @@ func (p *Provider) DeployVM(ctx context.Context, spec *provider.DeploySpec) (*pr
 			if datastoreRef != nil {
 				cloneSpec.Location.Disk = append(cloneSpec.Location.Disk,
 					types.VirtualMachineRelocateSpecDiskLocator{
-						DiskId:       disk.Key,
-						Datastore:    *datastoreRef,
+						DiskId:          disk.Key,
+						Datastore:       *datastoreRef,
 						DiskBackingInfo: backing,
 					},
 				)
@@ -1015,9 +1016,18 @@ func buildNICFromTemplate(ctx context.Context, finder *find.Finder, spec *provid
 	}, nil
 }
 
-// isNotSupportedError checks whether an error indicates that the requested
-// operation is not supported (common on standalone ESXi without vCenter).
+// isNotSupportedError reports whether err is vSphere telling us the
+// operation isn't available on this endpoint (standalone ESXi has no
+// CloneVM_Task). The typed check covers the SOAP faults vSphere actually
+// raises; the text check is kept as a fallback for errors that reach us
+// already flattened to a string, so the ESXi fallback never regresses.
 func isNotSupportedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if fault.Is(err, &types.NotSupported{}) || fault.Is(err, &types.NotImplemented{}) || fault.Is(err, &types.RestrictedVersion{}) {
+		return true
+	}
 	return strings.Contains(strings.ToLower(err.Error()), "not supported")
 }
 

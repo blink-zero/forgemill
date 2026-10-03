@@ -612,7 +612,7 @@ func (s *VMService) Resize(ctx context.Context, id int64, cpu, memoryMB int) err
 	}
 
 	if vm.PowerState != "poweredOff" && vm.PowerState != "stopped" {
-		return fmt.Errorf("VM must be powered off to resize (current state: %s)", vm.PowerState)
+		return fmt.Errorf("%w: resize (current state: %s)", ErrRequiresPowerOff, vm.PowerState)
 	}
 
 	p, err := s.targets.GetProvider(vm.TargetID)
@@ -728,6 +728,9 @@ func (s *VMService) ResetHostKey(id int64) error {
 var (
 	ErrVMNotFound     = errors.New("VM not found")
 	ErrInvalidNICSpec = errors.New("invalid network adapter request")
+	// ErrRequiresPowerOff is the provider sentinel re-exported so handlers
+	// depend on the service package only.
+	ErrRequiresPowerOff = provider.ErrRequiresPowerOff
 )
 
 // AddNICRequest is the service-level input for AddNIC.

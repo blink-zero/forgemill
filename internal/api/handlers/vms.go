@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/forgemill/forgemill/internal/api/middleware"
+	"github.com/forgemill/forgemill/internal/db"
 	"github.com/forgemill/forgemill/internal/db/models"
 	"github.com/forgemill/forgemill/internal/provider"
 	"github.com/forgemill/forgemill/internal/service"
@@ -232,7 +233,7 @@ func (h *VMHandler) Resize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svc.Resize(r.Context(), id, req.CPU, req.MemoryMB); err != nil {
-		if strings.Contains(err.Error(), "must be powered off") || strings.Contains(err.Error(), "hot-add") {
+		if errors.Is(err, service.ErrRequiresPowerOff) {
 			writeError(w, "VM must be powered off to change this resource (hot-add not enabled)", http.StatusConflict)
 			return
 		}
@@ -330,7 +331,7 @@ func (h *VMHandler) Register(w http.ResponseWriter, r *http.Request) {
 		TargetID: req.TargetID,
 	}
 	if err := h.svc.Create(vm); err != nil {
-		if strings.Contains(err.Error(), "already registered") {
+		if errors.Is(err, db.ErrAlreadyRegistered) {
 			writeError(w, "a VM with this reference is already registered", http.StatusConflict)
 			return
 		}

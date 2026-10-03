@@ -254,10 +254,10 @@ func (p *Provider) ResizeVM(ctx context.Context, vmID string, cpu int, memoryMB 
 
 	if string(vmProps.Runtime.PowerState) == "poweredOn" {
 		if cpu > 0 && (vmProps.Config == nil || vmProps.Config.CpuHotAddEnabled == nil || !*vmProps.Config.CpuHotAddEnabled) {
-			return fmt.Errorf("VM must be powered off to change CPU (hot-add not enabled)")
+			return fmt.Errorf("%w: CPU (hot-add not enabled)", provider.ErrRequiresPowerOff)
 		}
 		if memoryMB > 0 && (vmProps.Config == nil || vmProps.Config.MemoryHotAddEnabled == nil || !*vmProps.Config.MemoryHotAddEnabled) {
-			return fmt.Errorf("VM must be powered off to change memory (hot-add not enabled)")
+			return fmt.Errorf("%w: memory (hot-add not enabled)", provider.ErrRequiresPowerOff)
 		}
 	}
 

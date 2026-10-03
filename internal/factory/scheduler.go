@@ -242,7 +242,7 @@ func (s *BuildScheduler) checkTemplateUpdate(tmpl *models.Template) (*models.Upd
 
 func (s *BuildScheduler) triggerRebuild(sched models.TemplateSchedule) error {
 	if s.engine.IsRunning() {
-		return fmt.Errorf("a build is already running")
+		return fmt.Errorf("%w: scheduled rebuild skipped", ErrBuildInProgress)
 	}
 
 	// B-5: Read rebuildFunc under mutex to prevent data race with SetRebuildFunc
