@@ -29,6 +29,13 @@ type fakePVE struct {
 	stopped  bool                     // status/current reports "stopped" instead of "running"
 	hits     map[string]int           // request count per path (method-agnostic)
 	server   *httptest.Server
+
+	// Deploy flow (template 9000 → clone 101), see deploy_api_test.go.
+	rejectKeys   []string     // a config PUT on 101 carrying any of these keys gets a 400 with a Proxmox-style error body
+	lockFailures int          // the first N config PUTs on 101 fail with "VM is locked (clone)" (HTTP 500)
+	newPuts      []url.Values // accepted config PUTs on 101, in order
+	deleted      bool         // DELETE /qemu/101 was called (rollback)
+	started      bool         // POST /qemu/101/status/start was called
 }
 
 func newFakePVE(t *testing.T) *fakePVE {
@@ -125,6 +132,69 @@ func newFakePVE(t *testing.T) *fakePVE {
 		}
 		write(w, map[string]interface{}{"status": st, "vmid": 100})
 	})
+	// ---- deploy flow: clone template 9000 into VM 101
+	upid := func(kind string) map[string]string {
+		return map[string]string{"data": "UPID:pve:00001234:0000ABCD:650F0000:" + kind + ":101:root@pam:"}
+	}
+	writeRaw := func(w http.ResponseWriter, v interface{}) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(v)
+	}
+	mux.HandleFunc("/api2/json/cluster/nextid", func(w http.ResponseWriter, r *http.Request) { write(w, "101") })
+	mux.HandleFunc("/api2/json/nodes/pve/qemu/9000/clone", func(w http.ResponseWriter, r *http.Request) { writeRaw(w, upid("qmclone")) })
+	mux.HandleFunc("/api2/json/nodes/pve/tasks/", func(w http.ResponseWriter, r *http.Request) {
+		write(w, map[string]string{"status": "stopped", "exitstatus": "OK"})
+	})
+	mux.HandleFunc("/api2/json/nodes/pve/qemu/101/config", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		switch r.Method {
+		case http.MethodGet:
+			write(w, map[string]string{"scsi0": "local-zfs:vm-101-disk-0,size=20G", "cores": "2", "memory": "2048"})
+		case http.MethodPut:
+			_ = r.ParseForm()
+			if f.lockFailures > 0 {
+				f.lockFailures--
+				w.WriteHeader(500)
+				_, _ = w.Write([]byte(`{"data":null,"message":"VM is locked (clone)"}`))
+				return
+			}
+			for _, k := range f.rejectKeys {
+				if r.PostForm.Has(k) {
+					w.WriteHeader(400)
+					_, _ = w.Write([]byte(`{"data":null,"errors":{"` + k + `":"invalid format - value does not look like a valid ssh key"},"message":"Parameter verification failed.\n"}`))
+					return
+				}
+			}
+			f.newPuts = append(f.newPuts, r.PostForm)
+			write(w, nil)
+		default:
+			w.WriteHeader(405)
+		}
+	})
+	mux.HandleFunc("/api2/json/nodes/pve/qemu/101/resize", func(w http.ResponseWriter, r *http.Request) { write(w, nil) })
+	mux.HandleFunc("/api2/json/nodes/pve/qemu/101/status/current", func(w http.ResponseWriter, r *http.Request) {
+		write(w, map[string]interface{}{"status": "stopped", "vmid": 101})
+	})
+	mux.HandleFunc("/api2/json/nodes/pve/qemu/101/status/start", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.started = true
+		f.mu.Unlock()
+		writeRaw(w, upid("qmstart"))
+	})
+	mux.HandleFunc("/api2/json/nodes/pve/qemu/101/status/shutdown", func(w http.ResponseWriter, r *http.Request) { writeRaw(w, upid("qmshutdown")) })
+	mux.HandleFunc("/api2/json/nodes/pve/qemu/101/status/stop", func(w http.ResponseWriter, r *http.Request) { writeRaw(w, upid("qmstop")) })
+	mux.HandleFunc("/api2/json/nodes/pve/qemu/101", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			w.WriteHeader(405)
+			return
+		}
+		f.mu.Lock()
+		f.deleted = true
+		f.mu.Unlock()
+		writeRaw(w, upid("qmdestroy"))
+	})
+
 	f.server = httptest.NewTLSServer(counted(mux))
 	t.Cleanup(f.server.Close)
 	return f
