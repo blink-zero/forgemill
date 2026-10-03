@@ -169,8 +169,8 @@ export default function FactoryBuildProgress() {
       if (res.data.packer_log) {
         setLogLines(res.data.packer_log.split("\n").filter((l: string) => l));
       }
-    } catch {
-      // handle error silently
+    } catch (e: unknown) {
+      toast(getErrorMessage(e, "Failed to load build"), "error");
     } finally {
       setLoading(false);
     }
@@ -185,8 +185,9 @@ export default function FactoryBuildProgress() {
       if (res.data.packer_log) {
         setLogLines(res.data.packer_log.split("\n").filter((l: string) => l));
       }
-    } catch {
-      // handle error silently
+    } catch (e: unknown) {
+      // Triggered by build events, not a timer — one toast per failed refresh.
+      toast(getErrorMessage(e, "Failed to refresh build"), "error");
     }
   };
 
@@ -195,8 +196,8 @@ export default function FactoryBuildProgress() {
     try {
       await factoryApi.cancelBuild(buildId);
       reloadBuild();
-    } catch {
-      // handle error silently
+    } catch (e: unknown) {
+      toast(getErrorMessage(e, "Failed to cancel build"), "error");
     }
   };
 

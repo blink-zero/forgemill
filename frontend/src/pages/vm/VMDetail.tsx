@@ -329,8 +329,8 @@ export default function VMDetail() {
       }
       // LOW-31: Prevent tabnabbing via noopener,noreferrer
       window.open(url.toString(), "_blank", "noopener,noreferrer");
-    } catch {
-      // silent
+    } catch (e: unknown) {
+      toast(getErrorMessage(e, "Could not open the console"), "error");
     }
   };
 
