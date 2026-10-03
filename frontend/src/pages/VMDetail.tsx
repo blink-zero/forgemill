@@ -29,28 +29,7 @@ import {
 } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { getErrorMessage } from "@/lib/utils";
-
-const powerVariant = (state: string) => {
-  if (state === "poweredOn" || state === "running") return "success" as const;
-  if (state === "poweredOff" || state === "stopped") return "secondary" as const;
-  if (state === "suspended") return "warning" as const;
-  return "secondary" as const;
-};
-
-const powerLabel = (state: string) => {
-  if (state === "poweredOn" || state === "running") return "Running";
-  if (state === "poweredOff" || state === "stopped") return "Stopped";
-  if (state === "suspended") return "Suspended";
-  return state;
-};
-
-const statusVariant = (status: string) => {
-  if (status === "completed") return "success" as const;
-  if (status === "failed") return "destructive" as const;
-  if (status === "running" || status === "pending") return "warning" as const;
-  if (status === "cancelled") return "secondary" as const;
-  return "secondary" as const;
-};
+import { powerVariant, powerLabel, executionStatusVariant } from "@/lib/status";
 
 type Tab = "overview" | "snapshots" | "actions";
 
@@ -1551,7 +1530,7 @@ function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState: string
                     >
                       <div className="flex items-center gap-3">
                         <span className="text-sm font-medium">{exec.action_name}</span>
-                        <Badge variant={statusVariant(exec.status)}>{exec.status}</Badge>
+                        <Badge variant={executionStatusVariant(exec.status)}>{exec.status}</Badge>
                         {exec.exit_code !== null && exec.exit_code !== 0 && (
                           <span className="text-xs text-destructive flex items-center gap-1">
                             <XCircle className="h-3.5 w-3.5" /> Exit code {exec.exit_code}

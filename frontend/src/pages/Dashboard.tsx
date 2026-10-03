@@ -9,16 +9,7 @@ import { Server, Box, Rocket, Monitor, Zap, Plus, ArrowRight, Terminal, Clock } 
 import ProviderIcon, { providerLabel } from "@/components/ProviderIcon";
 import { SkeletonCard, Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/ui/page-header";
-
-const statusVariant = (status: string) => {
-  switch (status) {
-    case "completed": return "success" as const;
-    case "running": return "default" as const;
-    case "failed": return "destructive" as const;
-    case "cancelled": return "warning" as const;
-    default: return "secondary" as const;
-  }
-};
+import { deploymentStatusVariant } from "@/lib/status";
 
 function timeAgo(dateStr: string): string {
   const now = new Date();
@@ -244,7 +235,7 @@ export default function Dashboard() {
                         <Clock className="h-3 w-3 inline mr-1" />
                         {timeAgo(item.date)}
                       </span>
-                      <Badge variant={statusVariant(item.status)}>{item.status}</Badge>
+                      <Badge variant={deploymentStatusVariant(item.status)}>{item.status}</Badge>
                     </div>
                   </Link>
                 ))}

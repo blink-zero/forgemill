@@ -23,16 +23,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
 import { usePageSize } from "@/hooks/usePageSize";
-
-const statusColors: Record<string, string> = {
-  pending: "bg-warning/10 text-warning",
-  downloading: "bg-info/10 text-info",
-  building: "bg-info/10 text-info",
-  converting: "bg-info/10 text-info",
-  completed: "bg-success/10 text-success",
-  failed: "bg-destructive/10 text-destructive",
-  cancelled: "bg-gray-500/10 text-gray-500",
-};
+import { buildStatusClasses } from "@/lib/status";
 
 export default function Factory() {
   const { formatDateTime } = useTimezone();
@@ -281,7 +272,7 @@ export default function Factory() {
                         </span>
                         <Badge
                           variant="secondary"
-                          className={statusColors[build.status] || ""}
+                          className={buildStatusClasses[build.status] || ""}
                         >
                           {build.status}
                         </Badge>

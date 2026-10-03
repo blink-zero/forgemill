@@ -12,16 +12,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { PageHeader } from "@/components/ui/page-header";
 import { usePageSize } from "@/hooks/usePageSize";
 import { EmptyState } from "@/components/ui/empty-state";
-
-const statusVariant = (status: string) => {
-  switch (status) {
-    case "completed": return "success" as const;
-    case "running": return "default" as const;
-    case "failed": return "destructive" as const;
-    case "cancelled": return "warning" as const;
-    default: return "secondary" as const;
-  }
-};
+import { deploymentStatusVariant } from "@/lib/status";
 
 export default function HistoryPage() {
   const { formatDateTime } = useTimezone();
@@ -127,7 +118,7 @@ export default function HistoryPage() {
                       <td className="p-4 font-medium">{d.vm_name}</td>
                       <td className="p-4 text-muted-foreground">{d.template_name}</td>
                       <td className="p-4 text-muted-foreground">{d.target_name}</td>
-                      <td className="p-4"><Badge variant={statusVariant(d.status)}>{d.status}</Badge></td>
+                      <td className="p-4"><Badge variant={deploymentStatusVariant(d.status)}>{d.status}</Badge></td>
                       <td className="p-4 text-muted-foreground">{formatDateTime(d.created_at)}</td>
                       <td className="p-4 text-muted-foreground">{formatDuration(d.started_at, d.completed_at)}</td>
                       <td className="p-4">
