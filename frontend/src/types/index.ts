@@ -465,6 +465,20 @@ export interface ExecuteRequest {
 
 // A virtual network adapter as the hypervisor reports it, returned by
 // POST /api/vms/:id/nics after a successful attach.
+export interface VMDisk {
+  key: number;
+  label: string;
+  size_gb: number;
+  // Datastore (vSphere) / storage (Proxmox) the disk lives on.
+  datastore?: string;
+  // "thin" / "thick" on vSphere; the volume format (qcow2, raw) on Proxmox when known.
+  provisioning?: string;
+  // Backing file ("[ds] vm/vm_1.vmdk") or volume ("local-lvm:vm-100-disk-1").
+  backing?: string;
+  // Proxmox with disk hot-plug disabled: saved, attaches at next power cycle.
+  pending?: boolean;
+}
+
 export interface VMNIC {
   key: number;
   label: string;
@@ -498,6 +512,8 @@ export interface ProviderFeatures {
   linked_clones: boolean;
   vlan_tagging: boolean;
   nic_attach: boolean;
+  // The provider implements AddDisk (POST /vms/:id/disks).
+  disk_attach: boolean;
 }
 
 export interface DeployField {
@@ -519,4 +535,7 @@ export interface ProviderMetadata {
   // Adapter models AddNIC accepts, first is the default. Absent when
   // features.nic_attach is false.
   nic_adapter_types?: string[];
+  // Provisioning modes AddDisk accepts ("thin", "thick"), first is the
+  // default. Absent when the provider can't choose per disk (Proxmox).
+  disk_provisioning_types?: string[];
 }
