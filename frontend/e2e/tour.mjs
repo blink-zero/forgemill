@@ -62,8 +62,14 @@ async function run(theme) {
   // Theme is a class on <html> persisted in localStorage; main.tsx applies it on boot.
   await page.addInitScript((t) => { localStorage.setItem("forgemill_theme", t); }, theme);
   await mockHypervisor(page);
-  const shot = async (name, full = false) => { await page.screenshot({ path: `${OUT}/${theme}-${name}.png`, fullPage: full }); console.log(`${theme}: ${name}`); };
-  const go = async (path, waitFor) => { await page.goto(BASE + path); if (waitFor) await page.waitForSelector(waitFor, { timeout: 20000 }); await sleep(2200); };
+  // Pages show a Loader2 spinner (svg.animate-spin) until their data has
+  // arrived. Waiting for it to disappear — rather than a fixed pause — is what
+  // keeps a cold CI runner from screenshotting a half-loaded page.
+  const settle = async () => {
+    await page.waitForFunction(() => document.querySelectorAll("main svg.animate-spin").length === 0, null, { timeout: 20000 }).catch(() => {});
+  };
+  const shot = async (name, full = false) => { await settle(); await page.screenshot({ path: `${OUT}/${theme}-${name}.png`, fullPage: full }); console.log(`${theme}: ${name}`); };
+  const go = async (path, waitFor) => { await page.goto(BASE + path); if (waitFor) await page.waitForSelector(waitFor, { timeout: 20000 }); await settle(); await sleep(2200); };
 
   await page.goto(BASE + "/login"); await sleep(800);
   await shot("00-login");
@@ -71,6 +77,7 @@ async function run(theme) {
   await page.getByPlaceholder("Password").fill(PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.waitForURL(BASE + "/", { timeout: 15000 }).catch(() => {});
+  await page.waitForSelector("text=staging-app-04", { timeout: 20000 }).catch(() => {});
   await sleep(2500);
   await shot("01-dashboard");
   await sleep(6000);
@@ -109,7 +116,7 @@ async function run(theme) {
   await page.getByPlaceholder("web-server-01").fill("web-03"); await sleep(400); await shot("10-deploy-configure", true);
   await sleep(6000);
   await go("/actions", "text=Security Hardening"); await shot("11-actions"); await sleep(5000);
-  await go("/factory", "text=Template Factory"); await shot("15-factory"); await sleep(5000);
+  await go("/factory", "text=Available Operating Systems"); await shot("15-factory"); await sleep(5000);
   await go("/history", "text=staging-app-04"); await shot("12-history"); await sleep(5000);
   await go("/settings", "text=Settings"); await sleep(1000); await shot("13-settings", true);
   const more = page.locator("button[aria-label*='ctions'], button:has(svg.lucide-ellipsis), button:has(svg.lucide-more-horizontal)").first();

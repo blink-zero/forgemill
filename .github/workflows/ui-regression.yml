@@ -23,9 +23,12 @@ jobs:
         with:
           path: head
 
+      # The base branch's current head, not pull_request.base.sha: GitHub does
+      # not refresh that sha when the base branch moves, so a PR opened before
+      # an unrelated merge would keep being compared with a stale dev.
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.base.ref }}
           path: base
 
       - uses: actions/setup-go@v7
