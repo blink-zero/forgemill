@@ -342,10 +342,10 @@ func (p *Provider) GetTemplate(ctx context.Context, id string) (*provider.Templa
 	if err != nil {
 		return nil, err
 	}
-	name, _ := cfg["name"].(string)
-	ostype, _ := cfg["ostype"].(string)
-	cpus := intFromJSON(cfg["cores"])
-	if sockets := intFromJSON(cfg["sockets"]); sockets > 0 {
+	name := cfg.Str("name")
+	ostype := cfg.Str("ostype")
+	cpus := cfg.Int("cores")
+	if sockets := cfg.Int("sockets"); sockets > 0 {
 		cpus *= sockets
 	}
 
@@ -354,7 +354,7 @@ func (p *Provider) GetTemplate(ctx context.Context, id string) (*provider.Templa
 		Name:     name,
 		Moref:    id,
 		CPU:      cpus,
-		MemoryMB: intFromJSON(cfg["memory"]),
+		MemoryMB: cfg.Int("memory"),
 		OSType:   osTypeFromOSType(ostype),
 		GuestID:  ostype,
 	}, nil
@@ -369,14 +369,14 @@ func (p *Provider) GetTemplateDetail(ctx context.Context, id string) (*provider.
 	}
 
 	// Basic template fields
-	name, _ := data["name"].(string)
-	cores := intFromJSON(data["cores"])
-	sockets := intFromJSON(data["sockets"])
+	name := data.Str("name")
+	cores := data.Int("cores")
+	sockets := data.Int("sockets")
 	if sockets > 0 {
 		cores *= sockets
 	}
-	memory := intFromJSON(data["memory"])
-	ostype, _ := data["ostype"].(string)
+	memory := data.Int("memory")
+	ostype := data.Str("ostype")
 
 	osType := "linux"
 	if strings.HasPrefix(ostype, "win") || strings.HasPrefix(ostype, "w") {
@@ -398,12 +398,12 @@ func (p *Provider) GetTemplateDetail(ctx context.Context, id string) (*provider.
 	}
 
 	// CPU type (e.g. "host", "kvm64", "x86-64-v2-AES")
-	if cpuType, ok := data["cpu"].(string); ok && cpuType != "" {
+	if cpuType := data.Str("cpu"); cpuType != "" {
 		detail.CPUType = cpuType
 	}
 
 	// SCSI controller type
-	if scsihw, ok := data["scsihw"].(string); ok && scsihw != "" {
+	if scsihw := data.Str("scsihw"); scsihw != "" {
 		detail.SCSIType = scsihw
 	}
 
@@ -411,7 +411,7 @@ func (p *Provider) GetTemplateDetail(ctx context.Context, id string) (*provider.
 	for i := 0; i < 4; i++ {
 		for _, bus := range []string{"ide", "scsi", "sata"} {
 			key := fmt.Sprintf("%s%d", bus, i)
-			if val, ok := data[key].(string); ok && strings.Contains(val, "cloudinit") {
+			if val := data.Str(key); strings.Contains(val, "cloudinit") {
 				detail.CloudInit = true
 				break
 			}
@@ -423,7 +423,7 @@ func (p *Provider) GetTemplateDetail(ctx context.Context, id string) (*provider.
 
 	// Datastore + disk size + format: parse from scsi0/virtio0/ide0/sata0 disk fields
 	for _, diskKey := range []string{"scsi0", "virtio0", "ide0", "sata0"} {
-		if val, ok := data[diskKey].(string); ok && val != "" && !strings.Contains(val, "cloudinit") {
+		if val := data.Str(diskKey); val != "" && !strings.Contains(val, "cloudinit") {
 			parts := strings.SplitN(val, ":", 2)
 			if len(parts) == 2 {
 				detail.Datastore = parts[0]
@@ -461,7 +461,7 @@ func (p *Provider) GetTemplateDetail(ctx context.Context, id string) (*provider.
 	networks := []string{}
 	for i := 0; i < 8; i++ {
 		key := fmt.Sprintf("net%d", i)
-		if val, ok := data[key].(string); ok && val != "" {
+		if val := data.Str(key); val != "" {
 			for _, part := range strings.Split(val, ",") {
 				part = strings.TrimSpace(part)
 				if strings.HasPrefix(part, "bridge=") {
@@ -473,26 +473,24 @@ func (p *Provider) GetTemplateDetail(ctx context.Context, id string) (*provider.
 	detail.Networks = networks
 
 	// Firmware
-	if bios, ok := data["bios"].(string); ok && bios != "" {
+	if bios := data.Str("bios"); bios != "" {
 		detail.Firmware = bios
 	} else {
 		detail.Firmware = "seabios"
 	}
 
 	// Annotation from description
-	if desc, ok := data["description"].(string); ok {
-		detail.Annotation = desc
-	}
+	detail.Annotation = data.Str("description")
 
 	// Hardware version: QEMU + machine type
-	if machine, ok := data["machine"].(string); ok && machine != "" {
+	if machine := data.Str("machine"); machine != "" {
 		detail.HardwareVer = "QEMU " + machine
 	} else {
 		detail.HardwareVer = "QEMU"
 	}
 
 	// Tools status from agent field
-	agentVal := intFromJSON(data["agent"])
+	agentVal := data.Int("agent")
 	if agentVal == 1 {
 		detail.ToolsStatus = "installed"
 	} else {
@@ -500,18 +498,6 @@ func (p *Provider) GetTemplateDetail(ctx context.Context, id string) (*provider.
 	}
 
 	return detail, nil
-}
-
-// intFromJSON extracts an int from a JSON value that may be float64 or string.
-func intFromJSON(v interface{}) int {
-	switch val := v.(type) {
-	case float64:
-		return int(val)
-	case string:
-		n, _ := strconv.Atoi(val)
-		return n
-	}
-	return 0
 }
 
 // buildNet0Config builds the Proxmox net0 device config string for a
@@ -1248,13 +1234,12 @@ func (p *Provider) ListDisks(ctx context.Context, vmID string) ([]provider.Disk,
 	for _, prefix := range prefixes {
 		for i := 0; i < 30; i++ {
 			key := fmt.Sprintf("%s%d", prefix, i)
-			val, ok := config[key]
-			if !ok {
+			if !config.Has(key) {
 				continue
 			}
 			// Parse size from "local:vm-100-disk-0,size=32G" style values
 			sizeGB := 0
-			if s, ok := val.(string); ok {
+			if s := config.Str(key); s != "" {
 				for _, part := range strings.Split(s, ",") {
 					if strings.HasPrefix(part, "size=") {
 						sizeStr := strings.TrimPrefix(part, "size=")
@@ -1565,8 +1550,7 @@ func (p *Provider) detectOSType(ctx context.Context, node, vmID string) string {
 	if err != nil {
 		return "linux"
 	}
-	ostype, _ := cfg["ostype"].(string)
-	return osTypeFromOSType(ostype)
+	return osTypeFromOSType(cfg.Str("ostype"))
 }
 
 // osTypeFromOSType maps a Proxmox ostype value (l26, win11, w2k22, ...) to
@@ -1709,7 +1693,7 @@ func (p *Provider) findDiskByIndex(ctx context.Context, node, vmID string, diskK
 	for _, prefix := range prefixes {
 		for i := 0; i < 30; i++ {
 			key := fmt.Sprintf("%s%d", prefix, i)
-			if _, ok := config[key]; ok {
+			if config.Has(key) {
 				if idx == diskKey {
 					return key, nil
 				}
