@@ -127,6 +127,9 @@ async function run(theme) {
   await go("/factory", "text=Available Operating Systems"); await shot("15-factory"); await sleep(5000);
   await go("/history", "text=staging-app-04"); await shot("12-history"); await sleep(5000);
   await go("/settings", "text=Settings"); await sleep(1000); await shot("13-settings", true);
+  // Deep link: the tab comes from ?tab=, so API Keys must be active on a fresh load.
+  await sleep(4000);
+  await go("/settings?tab=apikeys", "text=API Key Authentication"); await shot("13b-settings-deeplink-apikeys");
   const more = page.locator("button[aria-label*='ctions'], button:has(svg.lucide-ellipsis), button:has(svg.lucide-more-horizontal)").first();
   if (await more.count()) { await more.click(); await sleep(500); const del = page.getByRole("menuitem", { name: /Delete user/ }); if (await del.count()) { await del.click(); await sleep(900); await shot("14-confirm-typed"); await page.keyboard.press("Escape"); } }
 
