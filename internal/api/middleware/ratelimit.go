@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -105,6 +106,7 @@ func (rl *RateLimiter) Limit(next http.Handler) http.Handler {
 			w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds(rl.r)))
 			w.WriteHeader(http.StatusTooManyRequests)
 			w.Write([]byte(`{"error":"rate limit exceeded"}`))
+			rateLimitRejections.Add(1)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -119,3 +121,11 @@ func retryAfterSeconds(r rate.Limit) int {
 	}
 	return int(math.Max(1, math.Ceil(1/float64(r))))
 }
+
+// rateLimitRejections counts 429s served since the process started; the
+// diagnostics endpoint exposes it so an operator can see whether "the UI
+// went blank" was the limiter at work.
+var rateLimitRejections atomic.Int64
+
+// RateLimitRejections returns the number of requests refused with 429 since start.
+func RateLimitRejections() int64 { return rateLimitRejections.Load() }

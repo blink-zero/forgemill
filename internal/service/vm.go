@@ -22,6 +22,38 @@ type VMService struct {
 	// syncDebounce coalesces rapid mutations into a single background SyncAll
 	syncTimer *time.Timer
 	syncMu    sync.Mutex
+	// lastSync keeps the outcome of the most recent SyncAll pass per target
+	// (in memory — operational state for the diagnostics view).
+	lastSync   map[int64]TargetSyncInfo
+	lastSyncMu sync.Mutex
+}
+
+// TargetSyncInfo is the outcome of the latest SyncAll pass for one target.
+type TargetSyncInfo struct {
+	At       time.Time `json:"at"`
+	Synced   int       `json:"synced"`
+	Orphaned int       `json:"orphaned"`
+	Errors   []string  `json:"errors,omitempty"`
+}
+
+// LastSyncByTarget returns a copy of the latest per-target sync outcomes.
+func (s *VMService) LastSyncByTarget() map[int64]TargetSyncInfo {
+	s.lastSyncMu.Lock()
+	defer s.lastSyncMu.Unlock()
+	out := make(map[int64]TargetSyncInfo, len(s.lastSync))
+	for k, v := range s.lastSync {
+		out[k] = v
+	}
+	return out
+}
+
+func (s *VMService) recordTargetSync(targetID int64, info TargetSyncInfo) {
+	s.lastSyncMu.Lock()
+	defer s.lastSyncMu.Unlock()
+	if s.lastSync == nil {
+		s.lastSync = map[int64]TargetSyncInfo{}
+	}
+	s.lastSync[targetID] = info
 }
 
 func NewVMService(db *db.DB, targets *TargetService, enc Encryptor) *VMService {
@@ -226,6 +258,69 @@ func (s *VMService) PreviewDelete(id int64, force bool) (*DeletePreview, error) 
 	}, nil
 }
 
+// vmEventSink records provider events against a VM.
+type vmEventSink struct {
+	db       *db.DB
+	vmID     int64
+	targetID int64
+}
+
+func (v vmEventSink) Event(level, message string) {
+	if err := v.db.AddVMEvent(v.vmID, v.targetID, level, message); err != nil {
+		slog.Warn("could not record VM event", "vm_id", v.vmID, "error", err)
+	}
+}
+
+// withVMEvents attaches a per-VM event sink so anything the provider warns
+// about during an operation is kept with the VM (see /vms/{id}/events).
+func (s *VMService) withVMEvents(ctx context.Context, vm *models.ManagedVM) context.Context {
+	return provider.WithEvents(ctx, vmEventSink{db: s.db, vmID: vm.ID, targetID: vm.TargetID})
+}
+
+// recordVMEvent writes a service-level event for a VM.
+func (s *VMService) recordVMEvent(vm *models.ManagedVM, level, message string) {
+	vmEventSink{db: s.db, vmID: vm.ID, targetID: vm.TargetID}.Event(level, message)
+}
+
+// VMEventRetention is how long per-VM events are kept.
+const VMEventRetention = 30 * 24 * time.Hour
+
+// StartEventRetention prunes vm_events older than VMEventRetention once at
+// startup and then daily, until ctx is cancelled.
+func (s *VMService) StartEventRetention(ctx context.Context) {
+	if s == nil || s.db == nil {
+		return
+	}
+	go func() {
+		prune := func() {
+			if n, err := s.db.PruneVMEvents(VMEventRetention); err != nil {
+				slog.Warn("vm events retention: prune failed", "error", err)
+			} else if n > 0 {
+				slog.Info("vm events retention: pruned", "deleted", n)
+			}
+		}
+		prune()
+		tick := time.NewTicker(24 * time.Hour)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				prune()
+			}
+		}
+	}()
+}
+
+// ListVMEvents returns the VM's recent events, newest first.
+func (s *VMService) ListVMEvents(id int64, limit int) ([]models.VMEvent, error) {
+	if _, err := s.db.GetManagedVM(id); err != nil {
+		return nil, fmt.Errorf("%w: id %d", ErrVMNotFound, id)
+	}
+	return s.db.ListVMEvents(id, limit)
+}
+
 func (s *VMService) Delete(ctx context.Context, id int64, force bool) error {
 	vm, err := s.db.GetManagedVM(id)
 	if err != nil {
@@ -247,6 +342,7 @@ func (s *VMService) Delete(ctx context.Context, id int64, force bool) error {
 	deleteCtx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
+	deleteCtx = s.withVMEvents(deleteCtx, vm)
 	if err := p.Connect(deleteCtx); err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
@@ -271,6 +367,7 @@ func (s *VMService) PowerAction(ctx context.Context, id int64, action string) er
 	}
 	defer p.Disconnect()
 
+	ctx = s.withVMEvents(ctx, vm)
 	if err := p.Connect(ctx); err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
@@ -394,10 +491,22 @@ func (s *VMService) SyncAll(ctx context.Context, dryRun bool) (*SyncAllResult, e
 	}
 
 	for targetID, targetVMs := range byTarget {
+		// Per-target outcome for the diagnostics view: everything this pass
+		// adds to result between here and the end of the target's loop.
+		startSynced, startOrphaned, startErrs := result.Synced, result.Orphaned, len(result.Errors)
+		recordSync := func() {
+			if dryRun {
+				return
+			}
+			s.recordTargetSync(targetID, TargetSyncInfo{At: time.Now().UTC(), Synced: result.Synced - startSynced, Orphaned: result.Orphaned - startOrphaned,
+				Errors: append([]string(nil), result.Errors[startErrs:]...)})
+		}
+
 		p, err := s.targets.GetProvider(targetID)
 		if err != nil {
 			slog.Error("sync-all: failed to get provider", "target_id", targetID, "error", err)
 			result.Errors = append(result.Errors, fmt.Sprintf("target %d: %v", targetID, err))
+			recordSync()
 			continue
 		}
 
@@ -405,6 +514,7 @@ func (s *VMService) SyncAll(ctx context.Context, dryRun bool) (*SyncAllResult, e
 			p.Disconnect()
 			slog.Error("sync-all: failed to connect", "target_id", targetID, "error", err)
 			result.Errors = append(result.Errors, fmt.Sprintf("target %d connect: %v", targetID, err))
+			recordSync()
 			continue
 		}
 
@@ -490,6 +600,7 @@ func (s *VMService) SyncAll(ctx context.Context, dryRun bool) (*SyncAllResult, e
 		}
 
 		p.Disconnect()
+		recordSync()
 	}
 
 	return result, nil
@@ -527,6 +638,7 @@ func (s *VMService) CreateSnapshot(ctx context.Context, vmID int64, name, descri
 	}
 	defer p.Disconnect()
 
+	ctx = s.withVMEvents(ctx, vm)
 	if err := p.Connect(ctx); err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
@@ -570,6 +682,7 @@ func (s *VMService) RevertSnapshot(ctx context.Context, vmID, snapID int64) erro
 	}
 	defer p.Disconnect()
 
+	ctx = s.withVMEvents(ctx, vm)
 	if err := p.Connect(ctx); err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
@@ -603,6 +716,7 @@ func (s *VMService) DeleteSnapshot(ctx context.Context, vmID, snapID int64) erro
 	}
 	defer p.Disconnect()
 
+	ctx = s.withVMEvents(ctx, vm)
 	if err := p.Connect(ctx); err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
@@ -643,6 +757,7 @@ func (s *VMService) Resize(ctx context.Context, id int64, cpu, memoryMB int) err
 	}
 	defer p.Disconnect()
 
+	ctx = s.withVMEvents(ctx, vm)
 	if err := p.Connect(ctx); err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
@@ -700,6 +815,7 @@ func (s *VMService) ExpandDisk(ctx context.Context, id int64, diskKey, newSizeGB
 	}
 	defer p.Disconnect()
 
+	ctx = s.withVMEvents(ctx, vm)
 	if err := p.Connect(ctx); err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
@@ -829,14 +945,17 @@ func (s *VMService) AddDisk(ctx context.Context, id int64, req AddDiskRequest) (
 		return nil, fmt.Errorf("get provider: %w", err)
 	}
 	defer p.Disconnect()
+	ctx = s.withVMEvents(ctx, vm)
 	if err := p.Connect(ctx); err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
 	}
 
 	disk, err := p.AddDisk(ctx, vm.VMRef, provider.DiskSpec{SizeGB: req.SizeGB, Datastore: req.Datastore, Provisioning: req.Provisioning})
 	if err != nil {
+		s.recordVMEvent(vm, "error", fmt.Sprintf("Add disk (%d GB) failed: %v", req.SizeGB, err))
 		return nil, err
 	}
+	s.recordVMEvent(vm, "info", fmt.Sprintf("Attached disk %s (%d GB%s)", disk.Label, disk.SizeGB, map[bool]string{true: ", pending until the next power cycle", false: ""}[disk.Pending]))
 	// The disk is attached; a sync failure is logged, not reported as a failure.
 	if _, err := s.SyncState(ctx, id); err != nil {
 		slog.Warn("VM sync after disk attach failed", "vm_id", id, "error", err)
@@ -903,6 +1022,7 @@ func (s *VMService) AddNIC(ctx context.Context, id int64, req AddNICRequest) (*p
 	}
 	defer p.Disconnect()
 
+	ctx = s.withVMEvents(ctx, vm)
 	if err := p.Connect(ctx); err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
 	}
@@ -914,8 +1034,10 @@ func (s *VMService) AddNIC(ctx context.Context, id int64, req AddNICRequest) (*p
 		VLANTag:     req.VLANTag,
 	})
 	if err != nil {
+		s.recordVMEvent(vm, "error", fmt.Sprintf("Add network adapter on %s failed: %v", req.Network, err))
 		return nil, err
 	}
+	s.recordVMEvent(vm, "info", fmt.Sprintf("Attached network adapter %s on %s (%s%s)", nic.Label, nic.Network, nic.AdapterType, map[bool]string{true: ", pending until the next power cycle", false: ""}[nic.Pending]))
 
 	// Refresh the stored record straight away rather than waiting for the
 	// next periodic sync. The adapter is already attached at this point, so

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"strings"
 
@@ -163,7 +162,7 @@ func (p *Provider) AddDisk(ctx context.Context, vmID string, spec provider.DiskS
 	if err != nil {
 		// The disk exists at this point; failing would invite a retry that
 		// attaches a second one.
-		slog.Warn("disk added but post-add device read failed", "vmID", vmID, "error", err)
+		provider.Warnf(ctx, "Disk added but the post-add device read failed", "vmID", vmID, "error", err)
 		return &provider.Disk{SizeGB: spec.SizeGB, Provisioning: provisioning}, nil
 	}
 	for _, dev := range after.SelectByType((*types.VirtualDisk)(nil)) {
@@ -173,7 +172,7 @@ func (p *Provider) AddDisk(ctx context.Context, vmID string, spec provider.DiskS
 		d := diskFromDevice(dev.(*types.VirtualDisk))
 		return &d, nil
 	}
-	slog.Warn("disk added but not found in post-add device list", "vmID", vmID)
+	provider.Warnf(ctx, "Disk added but not found in the post-add device list", "vmID", vmID)
 	return &provider.Disk{SizeGB: spec.SizeGB, Provisioning: provisioning}, nil
 }
 
@@ -219,4 +218,75 @@ func (p *Provider) checkDatastoreAccessible(ctx context.Context, c *vim25.Client
 		}
 	}
 	return fmt.Errorf("%w: %q is not mounted on host %s (accessible: %s)", provider.ErrDatastoreNotAccessible, dsName, host.Name, strings.Join(names, ", "))
+}
+
+// deployFinder returns a Finder scoped to the deploy's datacenter (or the
+// ESXi default), for validating extras before any VM exists.
+func (p *Provider) deployFinder(ctx context.Context, datacenter string) (*find.Finder, error) {
+	client, err := p.getClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	finder := find.NewFinder(client.Client, true)
+	dcName := datacenter
+	if p.esxiMode && dcName == "" {
+		dcName = "ha-datacenter"
+	}
+	dc, err := finder.Datacenter(ctx, dcName)
+	if err != nil {
+		return nil, fmt.Errorf("find datacenter %q: %w", dcName, err)
+	}
+	finder.SetDatacenter(dc)
+	return finder, nil
+}
+
+// ValidateNICSpec implements provider.ExtrasValidator: the network must
+// resolve in the deploy's datacenter (bare name or inventory path, exactly
+// as AddNIC resolves it) and the adapter model must be one we create.
+func (p *Provider) ValidateNICSpec(ctx context.Context, datacenter string, spec provider.NICSpec) error {
+	if strings.TrimSpace(spec.Network) == "" {
+		return fmt.Errorf("network is required")
+	}
+	if _, err := normalizeNICAdapterType(spec.AdapterType); err != nil {
+		return err
+	}
+	finder, err := p.deployFinder(ctx, datacenter)
+	if err != nil {
+		return err
+	}
+	if _, err := finder.Network(ctx, spec.Network); err != nil {
+		var notFound *find.NotFoundError
+		if errors.As(err, &notFound) {
+			return fmt.Errorf("%w: %q", provider.ErrNetworkNotFound, spec.Network)
+		}
+		return fmt.Errorf("find network %q: %w", spec.Network, err)
+	}
+	return nil
+}
+
+// ValidateDiskSpec implements provider.ExtrasValidator: a named datastore
+// must resolve in the deploy's datacenter (host accessibility can only be
+// checked once the VM is placed) and provisioning must be thin or thick.
+func (p *Provider) ValidateDiskSpec(ctx context.Context, datacenter string, spec provider.DiskSpec) error {
+	if spec.SizeGB <= 0 {
+		return fmt.Errorf("size_gb must be positive")
+	}
+	if _, err := normalizeProvisioning(spec.Provisioning); err != nil {
+		return err
+	}
+	if strings.TrimSpace(spec.Datastore) == "" {
+		return nil
+	}
+	finder, err := p.deployFinder(ctx, datacenter)
+	if err != nil {
+		return err
+	}
+	if _, err := finder.Datastore(ctx, spec.Datastore); err != nil {
+		var notFound *find.NotFoundError
+		if errors.As(err, &notFound) {
+			return fmt.Errorf("%w: %q", provider.ErrDatastoreNotFound, spec.Datastore)
+		}
+		return fmt.Errorf("find datastore %q: %w", spec.Datastore, err)
+	}
+	return nil
 }

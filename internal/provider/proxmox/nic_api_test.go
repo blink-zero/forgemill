@@ -36,6 +36,10 @@ type fakePVE struct {
 	newPuts      []url.Values // accepted config PUTs on 101, in order
 	deleted      bool         // DELETE /qemu/101 was called (rollback)
 	started      bool         // POST /qemu/101/status/start was called
+	resizeFails  bool         // PUT /qemu/101/resize answers 500 "storage full"
+	vlanAware    []string     // bridges reported with bridge_vlan_aware=1
+	hotplugFails bool         // a config PUT on 100 adding a netN answers 400 "hotplug problem"
+	deletes      []string     // keys removed via PUT config delete=<key> on 100
 }
 
 func newFakePVE(t *testing.T) *fakePVE {
@@ -44,6 +48,8 @@ func newFakePVE(t *testing.T) *fakePVE {
 		config:  map[string]string{"net0": "virtio=BC:24:11:00:00:01,bridge=vmbr0", "scsi0": "local-zfs:vm-100-disk-0,size=40G", "hotplug": "network,disk,usb"},
 		pending: map[string]string{},
 		bridges: []string{"vmbr0", "vmbr1"},
+		// vmbr0 is a flat bridge, vmbr1 is VLAN aware — the usual lab shape.
+		vlanAware: []string{"vmbr1"},
 	}
 	f.hits = map[string]int{}
 	mux := http.NewServeMux()
@@ -75,11 +81,19 @@ func newFakePVE(t *testing.T) *fakePVE {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		var out []map[string]string
+		var outAny []map[string]interface{}
 		for _, b := range f.bridges {
-			out = append(out, map[string]string{"iface": b, "type": "bridge"})
+			e := map[string]interface{}{"iface": b, "type": "bridge"}
+			for _, v := range f.vlanAware {
+				if v == b {
+					e["bridge_vlan_aware"] = 1
+				}
+			}
+			outAny = append(outAny, e)
 		}
-		out = append(out, map[string]string{"iface": "eno1", "type": "eth"})
-		write(w, out)
+		outAny = append(outAny, map[string]interface{}{"iface": "eno1", "type": "eth"})
+		_ = out
+		write(w, outAny)
 	})
 	mux.HandleFunc("/api2/json/nodes/pve/qemu/100/config", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -91,6 +105,23 @@ func newFakePVE(t *testing.T) *fakePVE {
 			if err := r.ParseForm(); err != nil {
 				w.WriteHeader(400)
 				return
+			}
+			if del := r.PostForm.Get("delete"); del != "" {
+				f.deletes = append(f.deletes, del)
+				delete(f.config, del)
+				write(w, nil)
+				return
+			}
+			if f.hotplugFails {
+				for k := range r.PostForm {
+					if strings.HasPrefix(k, "net") {
+						// Proxmox saves the key as pending and then reports the hot-plug failure.
+						f.config[k] = r.PostForm.Get(k)
+						w.WriteHeader(400)
+						_, _ = w.Write([]byte(`{"data":null,"errors":{"` + k + `":"hotplug problem - VM 100 qmp command 'netdev_add' failed - network script /var/lib/qemu-server/pve-bridge failed with status 6400"},"message":"Parameter verification failed.\n"}`))
+						return
+					}
+				}
 			}
 			f.puts = append(f.puts, r.PostForm)
 			for k, vals := range r.PostForm {
@@ -184,7 +215,17 @@ func newFakePVE(t *testing.T) *fakePVE {
 			w.WriteHeader(405)
 		}
 	})
-	mux.HandleFunc("/api2/json/nodes/pve/qemu/101/resize", func(w http.ResponseWriter, r *http.Request) { write(w, nil) })
+	mux.HandleFunc("/api2/json/nodes/pve/qemu/101/resize", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		fail := f.resizeFails
+		f.mu.Unlock()
+		if fail {
+			w.WriteHeader(500)
+			_, _ = w.Write([]byte(`{"data":null,"message":"storage 'local-zfs' is full"}`))
+			return
+		}
+		write(w, nil)
+	})
 	mux.HandleFunc("/api2/json/nodes/pve/qemu/101/status/current", func(w http.ResponseWriter, r *http.Request) {
 		write(w, map[string]interface{}{"status": "stopped", "vmid": 101})
 	})

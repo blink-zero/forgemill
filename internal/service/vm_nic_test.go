@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -26,16 +27,19 @@ const nicTestKey = "0123456789abcdef0123456789abcdef"
 // test (the targets table has a CHECK constraint on type, so a made-up
 // type can't be inserted) and the real factory is restored on cleanup.
 type fakeNICProvider struct {
-	addNICCalls []provider.NICSpec
-	addNICErr   error
-	statusCalls int
-	nics        []provider.NIC
-	listNICsErr error
-	vms         []provider.VMInfo // ListVMs result; nil => errTestList (listing unavailable)
-	disks       []provider.Disk   // ListDisks result; nil => errTestList
-	expandCalls [][2]int          // (diskKey, newSizeGB) passed to ExpandDisk
-	addDiskSpec []provider.DiskSpec
-	addDiskErr  error
+	addNICCalls      []provider.NICSpec
+	addNICErr        error
+	statusCalls      int
+	nics             []provider.NIC
+	listNICsErr      error
+	vms              []provider.VMInfo // ListVMs result; nil => errTestList (listing unavailable)
+	disks            []provider.Disk   // ListDisks result; nil => errTestList
+	expandCalls      [][2]int          // (diskKey, newSizeGB) passed to ExpandDisk
+	addDiskSpec      []provider.DiskSpec
+	addDiskErr       error
+	deployOK         bool   // DeployVM/GetDeployProgress succeed (vm-200) instead of erroring
+	deployWarn       string // when set, DeployVM raises this provider warning via the context sink
+	deployPartialErr error  // when set, DeployVM returns PartialDeployError{VMID: vm-200, Err: this}
 }
 
 var fakeNIC *fakeNICProvider
@@ -65,10 +69,22 @@ func (f *fakeNICProvider) GetTemplate(context.Context, string) (*provider.Templa
 func (f *fakeNICProvider) GetTemplateDetail(context.Context, string) (*provider.TemplateDetail, error) {
 	return nil, errTestList
 }
-func (f *fakeNICProvider) DeployVM(context.Context, *provider.DeploySpec) (*provider.DeployResult, error) {
+func (f *fakeNICProvider) DeployVM(ctx context.Context, _ *provider.DeploySpec) (*provider.DeployResult, error) {
+	if f.deployWarn != "" {
+		provider.Warnf(ctx, f.deployWarn, "vm", "web-01", "error", "simulated")
+	}
+	if f.deployPartialErr != nil {
+		return nil, &provider.PartialDeployError{VMID: "vm-200", Err: f.deployPartialErr}
+	}
+	if f.deployOK {
+		return &provider.DeployResult{TaskID: "task-1", VMID: "vm-200"}, nil
+	}
 	return nil, errTestList
 }
 func (f *fakeNICProvider) GetDeployProgress(context.Context, string) (*provider.Progress, error) {
+	if f.deployOK {
+		return &provider.Progress{State: provider.ProgressStateSuccess, Percent: 100, Message: "Deployment completed"}, nil
+	}
 	return nil, errTestList
 }
 func (f *fakeNICProvider) PowerOn(context.Context, string) error  { return errTestList }
@@ -106,8 +122,9 @@ func (f *fakeNICProvider) ExpandDisk(_ context.Context, _ string, key, size int)
 	f.expandCalls = append(f.expandCalls, [2]int{key, size})
 	return nil
 }
-func (f *fakeNICProvider) AddNIC(_ context.Context, _ string, spec provider.NICSpec) (*provider.NIC, error) {
+func (f *fakeNICProvider) AddNIC(ctx context.Context, _ string, spec provider.NICSpec) (*provider.NIC, error) {
 	f.addNICCalls = append(f.addNICCalls, spec)
+	provider.Warnf(ctx, "Network adapter added but the connect reconfigure failed", "vmID", "vm-100", "error", "simulated")
 	if f.addNICErr != nil {
 		return nil, f.addNICErr
 	}
@@ -426,4 +443,23 @@ func TestSyncAllStillUsesStatusWhenListingUnavailable(t *testing.T) {
 	if res.Orphaned != 0 {
 		t.Errorf("no VM may be treated as orphaned when the listing failed, got %d", res.Orphaned)
 	}
+}
+
+// ExtrasValidator on the fake: "bad-net" / "bad-ds" are refused, VLAN on
+// "flat" is refused, everything else is fine.
+func (f *fakeNICProvider) ValidateNICSpec(_ context.Context, _ string, spec provider.NICSpec) error {
+	if spec.Network == "bad-net" {
+		return fmt.Errorf("%w: %q", provider.ErrNetworkNotFound, spec.Network)
+	}
+	if spec.Network == "flat" && spec.VLANTag > 0 {
+		return fmt.Errorf("%w: bridge %q", provider.ErrVLANUnsupportedOnNetwork, spec.Network)
+	}
+	return nil
+}
+
+func (f *fakeNICProvider) ValidateDiskSpec(_ context.Context, _ string, spec provider.DiskSpec) error {
+	if spec.Datastore == "bad-ds" {
+		return fmt.Errorf("%w: %q", provider.ErrDatastoreNotFound, spec.Datastore)
+	}
+	return nil
 }

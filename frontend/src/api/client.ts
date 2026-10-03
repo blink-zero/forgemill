@@ -34,6 +34,8 @@ import type {
   VMNIC,
   ProviderMetadata,
   VMDisk,
+  Diagnostics,
+  VMEvent,
 } from "@/types";
 
 const api = axios.create({
@@ -200,6 +202,8 @@ export const vms = {
   // defaults to true; vlan_tag is Proxmox-only.
   // Live from the hypervisor, like listDisks.
   listNICs: (id: number) => api.get<VMNIC[]>(`/vms/${id}/nics`),
+  // Recent operational events for the VM (provider warnings, attach results), newest first.
+  listEvents: (id: number, limit = 100) => api.get<VMEvent[]>(`/vms/${id}/events`, { params: { limit } }),
   addNIC: (id: number, data: { network: string; adapter_type?: string; connected?: boolean; vlan_tag?: number }) =>
     api.post<{ status: string; nic: VMNIC }>(`/vms/${id}/nics`, data),
   console: (id: number) => api.get<{ url: string }>(`/vms/${id}/console`),
@@ -406,6 +410,11 @@ export interface ActionVersion {
   changed_by?: number | null;
   created_at: string;
 }
+
+// Admin operational snapshot — Settings → Diagnostics.
+export const diagnostics = {
+  get: () => api.get<Diagnostics>("/diagnostics"),
+};
 
 export const auditLogs = {
   list: (params?: { page?: number; page_size?: number; action?: string; since?: string; until?: string; actor_id?: number }) =>

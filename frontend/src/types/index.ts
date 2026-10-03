@@ -539,3 +539,29 @@ export interface ProviderMetadata {
   // default. Absent when the provider can't choose per disk (Proxmox).
   disk_provisioning_types?: string[];
 }
+
+export interface VMEvent {
+  id: number;
+  vm_id: number;
+  target_id?: number;
+  level: "info" | "warn" | "error" | string;
+  message: string;
+  created_at: string;
+}
+
+export interface TargetSyncInfo {
+  at: string;
+  synced: number;
+  orphaned: number;
+  errors?: string[];
+}
+
+export interface Diagnostics {
+  generated_at: string;
+  build: { version: string; commit: string; date: string };
+  targets: { id: number; name: string; type: string; status: string; last_connected_at: string | null; last_sync: TargetSyncInfo | null }[];
+  recent_vm_events: VMEvent[];
+  recent_failed_deployments: { id: number; vm_name: string; target_name: string; error_message: string; completed_at: string | null }[];
+  recent_server_errors: { time: string; status: number; message: string; error: string }[];
+  rate_limited_requests: number;
+}

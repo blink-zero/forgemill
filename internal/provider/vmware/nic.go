@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"strings"
 
@@ -134,7 +133,7 @@ func (p *Provider) AddNIC(ctx context.Context, vmID string, spec provider.NICSpe
 	if err != nil {
 		// The adapter is attached at this point; failing the call would
 		// mislead the caller into retrying and attaching a second one.
-		slog.Warn("network adapter added but post-add device read failed", "vmID", vmID, "error", err)
+		provider.Warnf(ctx, "Network adapter added but the post-add device read failed", "vmID", vmID, "error", err)
 		return &provider.NIC{AdapterType: adapter, Network: spec.Network, Connected: spec.Connected}, nil
 	}
 	for _, dev := range after.SelectByType((*types.VirtualEthernetCard)(nil)) {
@@ -143,7 +142,7 @@ func (p *Provider) AddNIC(ctx context.Context, vmID string, spec provider.NICSpe
 		}
 		if spec.Connected {
 			if err := p.ensureConnected(ctx, vm, dev); err != nil {
-				slog.Warn("network adapter added but connect reconfigure failed", "vmID", vmID, "error", err)
+				provider.Warnf(ctx, "Network adapter added but the connect reconfigure failed — it may show as disconnected", "vmID", vmID, "error", err)
 			} else if refreshed, err := vm.Device(ctx); err == nil {
 				if d := refreshed.FindByKey(dev.GetVirtualDevice().Key); d != nil {
 					after, dev = refreshed, d
@@ -152,7 +151,7 @@ func (p *Provider) AddNIC(ctx context.Context, vmID string, spec provider.NICSpe
 		}
 		return nicFromDevice(after, dev, spec.Network), nil
 	}
-	slog.Warn("network adapter added but not found in post-add device list", "vmID", vmID)
+	provider.Warnf(ctx, "Network adapter added but not found in the post-add device list", "vmID", vmID)
 	return &provider.NIC{AdapterType: adapter, Network: spec.Network, Connected: spec.Connected}, nil
 }
 

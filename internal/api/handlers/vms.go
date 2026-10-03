@@ -395,6 +395,7 @@ func addNICErrorResponse(err error) (status int, msg string, logIt bool) {
 		return http.StatusNotFound, "VM not found", false
 	case errors.Is(err, provider.ErrNotSupported),
 		errors.Is(err, provider.ErrNetworkNotFound),
+		errors.Is(err, provider.ErrVLANUnsupportedOnNetwork),
 		errors.Is(err, provider.ErrInvalidAdapterType),
 		errors.Is(err, service.ErrInvalidNICSpec):
 		return http.StatusBadRequest, err.Error(), false
@@ -508,6 +509,27 @@ func (h *VMHandler) AddDisk(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"status": "attached", "disk": disk})
+}
+
+// ListEvents returns the VM's recent operational events (provider warnings,
+// attach results), newest first. ?limit= caps the count (default 100).
+func (h *VMHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	events, err := h.svc.ListVMEvents(id, limit)
+	if err != nil {
+		if errors.Is(err, service.ErrVMNotFound) {
+			writeError(w, "VM not found", http.StatusNotFound)
+			return
+		}
+		writeErrorLog(w, "failed to list VM events", http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, events)
 }
 
 func (h *VMHandler) ListNICs(w http.ResponseWriter, r *http.Request) {
