@@ -171,7 +171,15 @@ func (s *TargetService) getProvider(id int64) (provider.Provider, error) {
 	// Providers register themselves via init() in their respective packages.
 	// See: internal/provider/vmware/client.go, internal/provider/proxmox/client.go
 	if factory := provider.GetProviderFactory(target.Type); factory != nil {
-		return factory(target.Hostname, target.Port, target.Username, password, target.ValidateCerts), nil
+		p := factory(target.Hostname, target.Port, target.Username, password, target.ValidateCerts)
+		// Providers that SSH to the hypervisor (Proxmox snippet uploads) get
+		// trust-on-first-use host-key verification backed by the targets
+		// table. Until this was wired here, only a dead fallback path ever
+		// called SetTOFU and those connections accepted any host key (#186).
+		if t, ok := p.(provider.HostKeyTrusting); ok {
+			t.SetTOFU(target.ID, s.db)
+		}
+		return p, nil
 	}
 
 	// Both in-tree providers register themselves in init(); an unknown type
