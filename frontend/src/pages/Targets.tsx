@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { targets as targetApi } from "@/api/client";
 import type { Target } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -7,7 +8,7 @@ import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, Trash2, RefreshCw, Wifi, X, ShieldCheck, Info, AlertTriangle, Box, Monitor, Rocket, Wrench, Terminal, Pencil, Loader2, MoreHorizontal } from "lucide-react";
+import { Plus, Trash2, RefreshCw, Wifi, X, ShieldCheck, Info, AlertTriangle, Box, Monitor, Rocket, Wrench, Terminal, Pencil, Loader2, MoreHorizontal, Import } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import ProviderIcon, { providerLabel } from "@/components/ProviderIcon";
 import { getErrorMessage, timeAgo } from "@/lib/utils";
@@ -142,6 +143,7 @@ function TargetForm({ form, setForm, onSubmit, onCancel, submitLabel, title, isE
 }
 
 export default function Targets() {
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [targets, setTargets] = useState<Target[]>([]);
   const [loading, setLoading] = useState(true);
@@ -393,6 +395,12 @@ export default function Targets() {
                               default
                             </span>
                           )}
+                          {(t.unmanaged_vms ?? 0) > 0 && (
+                            <Link to={`/targets/${t.id}/discover`} onClick={(e) => e.stopPropagation()} title={`${t.unmanaged_vms} VM${t.unmanaged_vms === 1 ? "" : "s"} on this target that Forgemill doesn't manage — click to discover`} className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning/15 text-warning hover:bg-warning/25">
+                              <Import className="h-2.5 w-2.5" />
+                              {t.unmanaged_vms} unmanaged
+                            </Link>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground font-mono text-xs hidden sm:table-cell">{t.hostname}:{t.port}</td>
@@ -424,6 +432,9 @@ export default function Targets() {
                             >
                               Sync templates
                             </DropdownMenuItem>
+                            <DropdownMenuItem icon={<Import />} onClick={() => navigate(`/targets/${t.id}/discover`)}>
+                              Discover VMs
+                            </DropdownMenuItem>
                             <DropdownMenuItem icon={<Pencil />} onClick={() => handleEditClick(t)}>
                               Edit target
                             </DropdownMenuItem>
@@ -454,6 +465,12 @@ export default function Targets() {
                               <Star className="h-2.5 w-2.5" />
                               default
                             </span>
+                          )}
+                          {(t.unmanaged_vms ?? 0) > 0 && (
+                            <Link to={`/targets/${t.id}/discover`} title={`${t.unmanaged_vms} VM${t.unmanaged_vms === 1 ? "" : "s"} on this target that Forgemill doesn't manage — click to discover`} className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning/15 text-warning hover:bg-warning/25">
+                              <Import className="h-2.5 w-2.5" />
+                              {t.unmanaged_vms} unmanaged
+                            </Link>
                           )}
                         </div>
                         <p className="text-sm text-muted-foreground truncate">
@@ -490,6 +507,9 @@ export default function Targets() {
                           onClick={() => handleSync(t)}
                         >
                           Sync templates
+                        </DropdownMenuItem>
+                        <DropdownMenuItem icon={<Import />} onClick={() => navigate(`/targets/${t.id}/discover`)}>
+                          Discover VMs
                         </DropdownMenuItem>
                         <DropdownMenuItem icon={<Pencil />} onClick={() => handleEditClick(t)}>
                           Edit target

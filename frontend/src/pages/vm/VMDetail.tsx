@@ -428,7 +428,7 @@ export default function VMDetail() {
           {powerLabel(vm.power_state)}
         </Badge>
         <span className="hidden md:inline text-13 text-muted-foreground truncate">
-          {vm.target_name}{vm.template_name ? ` · from ${vm.template_name}` : ""}
+          {vm.target_name}{vm.template_name ? ` · from ${vm.template_name}` : vm.origin === "adopted" ? " · adopted" : vm.origin === "registered" ? " · registered by ref" : ""}
         </span>
         {/* Primary actions live in the header: power, console, sync. */}
         <div className="ml-auto flex items-center gap-1.5 flex-wrap">
@@ -517,7 +517,11 @@ export default function VMDetail() {
               <CardContent className="space-y-1">
                 {[
                   { label: "Target", value: vm.target_name },
-                  { label: "Template", value: vm.template_name || "N/A" },
+                  vm.origin === "adopted"
+                    ? { label: "Origin", value: `Adopted${vm.adopted_at ? ` ${formatDateTime(vm.adopted_at)}` : ""} — not deployed by Forgemill` }
+                    : vm.origin === "registered"
+                      ? { label: "Origin", value: "Registered by reference — not deployed by Forgemill" }
+                      : { label: "Template", value: vm.template_name || "N/A" },
                   { label: "IP Address", value: vm.ip_address || "N/A", mono: true, copyable: !!vm.ip_address },
                   { label: "OS Type", value: vm.os_type || "N/A" },
                 ].map((row) => (

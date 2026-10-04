@@ -39,6 +39,9 @@ export interface Target {
   is_default: boolean;
   status: string;
   last_connected_at: string | null;
+  // From the last sync: VMs on this target Forgemill doesn't manage and nobody ignored.
+  unmanaged_vms?: number;
+  unmanaged_checked_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -254,6 +257,10 @@ export interface ManagedVM {
   last_powered_on_at: string | null;
   last_powered_off_at: string | null;
   total_runtime_seconds: number;
+  // deployed (Forgemill created it) | adopted (discovered and taken under management) | registered (added by ref)
+  origin?: "deployed" | "adopted" | "registered" | string;
+  adopted_at?: string | null;
+  adopted_by?: number | null;
 }
 
 export interface VMSnapshot {
@@ -564,4 +571,40 @@ export interface Diagnostics {
   recent_failed_deployments: { id: number; vm_name: string; target_name: string; error_message: string; completed_at: string | null }[];
   recent_server_errors: { time: string; status: number; message: string; error: string }[];
   rate_limited_requests: number;
+}
+
+export interface DiscoveredVM {
+  ref: string;
+  name: string;
+  power_state: string;
+  ip_address?: string;
+  cpu: number;
+  memory_mb: number;
+  disk_gb: number;
+  guest_id?: string;
+  host?: string;
+  ignored: boolean;
+}
+
+export interface DiscoverResult {
+  target_id: number;
+  target_name: string;
+  computed_at: string;
+  managed: number;
+  unmanaged: number;
+  ignored: number;
+  vms: DiscoveredVM[];
+}
+
+export interface AdoptResult {
+  adopted: ManagedVM[];
+  skipped: { ref: string; reason: string }[];
+}
+
+export interface IgnoredVM {
+  target_id: number;
+  vm_ref: string;
+  vm_name: string;
+  ignored_by?: number | null;
+  created_at: string;
 }
