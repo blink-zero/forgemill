@@ -608,3 +608,22 @@ export interface IgnoredVM {
   ignored_by?: number | null;
   created_at: string;
 }
+
+// SSH login Forgemill would use for a VM. `source` says where it comes from:
+// set explicitly on the VM, or inherited from the deployment. A private key
+// is never echoed back — only the fact that one is stored.
+export interface VMCredentials {
+  username: string;
+  password?: string;
+  kind: "password" | "private_key";
+  source: "vm" | "deployment";
+  has_private_key?: boolean;
+  set_at?: string | null;
+  set_by?: number | null;
+}
+
+export interface SetVMCredentialsRequest {
+  username: string;
+  password?: string;
+  private_key?: string;
+}

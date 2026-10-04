@@ -18,7 +18,7 @@ const (
 	sshDefaultTimeout = 10 * time.Minute
 	sshMaxTimeout     = 30 * time.Minute
 	sshIdleTimeout    = 5 * time.Minute
-	maxScriptSize     = 64 * 1024  // 64KB
+	maxScriptSize     = 64 * 1024   // 64KB
 	maxOutputSize     = 1024 * 1024 // 1MB
 )
 
@@ -50,13 +50,30 @@ func validateScript(script string) error {
 	return nil
 }
 
+// sshAuth is how to log in: a password or a PEM private key (exactly one).
+type sshAuth struct {
+	Password   string
+	PrivateKey string
+}
+
+func (a sshAuth) methods() ([]ssh.AuthMethod, error) {
+	if a.PrivateKey != "" {
+		signer, err := ssh.ParsePrivateKey([]byte(a.PrivateKey))
+		if err != nil {
+			return nil, fmt.Errorf("ssh private key: %w", err)
+		}
+		return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
+	}
+	return []ssh.AuthMethod{ssh.Password(a.Password)}, nil
+}
+
 // sshExecute connects to a host via SSH, executes a script, and streams output
 // line-by-line via outputFn. Returns the exit code and any error.
 //
 // If hkStore is non-nil, TOFU host key verification is applied:
 //   - First connection (no stored fingerprint): accept and store the key
 //   - Subsequent connections: verify the key matches the stored fingerprint
-func sshExecute(ctx context.Context, host string, port int, username, password, script, paramEnvBlock string, outputFn func(line string), hkStore HostKeyStore, vmID, execID int64) (int, error) {
+func sshExecute(ctx context.Context, host string, port int, username string, auth sshAuth, script, paramEnvBlock string, outputFn func(line string), hkStore HostKeyStore, vmID, execID int64) (int, error) {
 	if port == 0 {
 		port = 22
 	}
@@ -88,11 +105,13 @@ func sshExecute(ctx context.Context, host string, port int, username, password, 
 		}
 	}
 
+	methods, err := auth.methods()
+	if err != nil {
+		return -1, err
+	}
 	config := &ssh.ClientConfig{
-		User: username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(password),
-		},
+		User:            username,
+		Auth:            methods,
 		HostKeyCallback: hostKeyCallback,
 		Timeout:         sshConnectTimeout,
 	}
@@ -222,7 +241,6 @@ func sshExecute(ctx context.Context, host string, port int, username, password, 
 		return 0, nil
 	}
 }
-
 
 // execMarker is the argv[0] the remote job runs under, unique per execution.
 func execMarker(execID int64) string { return fmt.Sprintf("forgemill-exec-%d", execID) }

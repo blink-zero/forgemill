@@ -40,7 +40,10 @@ func startFakeSSHD(t *testing.T, firstMode string) *fakeSSHD {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := &ssh.ServerConfig{PasswordCallback: func(ssh.ConnMetadata, []byte) (*ssh.Permissions, error) { return nil, nil }}
+	cfg := &ssh.ServerConfig{
+		PasswordCallback:  func(ssh.ConnMetadata, []byte) (*ssh.Permissions, error) { return nil, nil },
+		PublicKeyCallback: func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error) { return nil, nil },
+	}
 	cfg.AddHostKey(signer)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -124,7 +127,7 @@ func TestSSHExecuteRunsScriptUnderExecutionMarkerAndStreamsOutput(t *testing.T) 
 	srv := startFakeSSHD(t, "ok")
 	host, port := hostPort(t, srv.addr)
 	var lines []string
-	code, err := sshExecute(context.Background(), host, port, "u", "p", "echo hi", "", func(l string) { lines = append(lines, l) }, nil, 0, 42)
+	code, err := sshExecute(context.Background(), host, port, "u", sshAuth{Password: "p"}, "echo hi", "", func(l string) { lines = append(lines, l) }, nil, 0, 42)
 	if err != nil || code != 0 {
 		t.Fatalf("exit=%d err=%v", code, err)
 	}
@@ -147,7 +150,7 @@ func TestSSHExecuteCancelKillsRemoteJobAndReturnsPromptly(t *testing.T) {
 	go func() { time.Sleep(300 * time.Millisecond); cancel() }()
 
 	start := time.Now()
-	_, err := sshExecute(ctx, host, port, "u", "p", "sleep 300", "", func(string) {}, nil, 0, 7)
+	_, err := sshExecute(ctx, host, port, "u", sshAuth{Password: "p"}, "sleep 300", "", func(string) {}, nil, 0, 7)
 	elapsed := time.Since(start)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled so the execution is marked cancelled, got %v", err)

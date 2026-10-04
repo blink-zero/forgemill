@@ -379,10 +379,79 @@ func (h *VMHandler) GetCredentials(w http.ResponseWriter, r *http.Request) {
 	}
 	creds, err := h.svc.GetCredentials(r.Context(), id)
 	if err != nil {
+		if errors.Is(err, service.ErrNoCredentials) {
+			writeError(w, "no SSH credentials for this VM — set them on the VM page to run actions", http.StatusNotFound)
+			return
+		}
 		writeErrorLog(w, "credentials not available", http.StatusNotFound, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, creds)
+}
+
+// SetCredentials stores an explicit SSH login for the VM (PUT /vms/{id}/credentials).
+func (h *VMHandler) SetCredentials(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	var req service.SetCredentialsRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	actor := middleware.UserFromContext(r.Context())
+	var actorID *int64
+	actorName := "api"
+	if actor != nil {
+		actorID, actorName = &actor.ID, actor.Username
+	}
+	if err := h.svc.SetCredentials(r.Context(), id, req, actorID, actorName); err != nil {
+		switch {
+		case errors.Is(err, service.ErrVMNotFound):
+			writeError(w, "VM not found", http.StatusNotFound)
+		case errors.Is(err, service.ErrInvalidCredentials):
+			writeError(w, err.Error(), http.StatusBadRequest)
+		default:
+			writeErrorLog(w, "failed to store credentials", http.StatusInternalServerError, err)
+		}
+		return
+	}
+	if actor != nil {
+		kind := "password"
+		if req.PrivateKey != "" {
+			kind = "private_key"
+		}
+		h.audit.Log(actor.Username, &actor.ID, "vm.credentials.set", "vm", fmt.Sprintf("%d", id), service.IPFromRequest(r), map[string]interface{}{"username": req.Username, "kind": kind})
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ClearCredentials removes the explicit SSH login (DELETE /vms/{id}/credentials).
+func (h *VMHandler) ClearCredentials(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	actor := middleware.UserFromContext(r.Context())
+	actorName := "api"
+	if actor != nil {
+		actorName = actor.Username
+	}
+	if err := h.svc.ClearCredentials(r.Context(), id, actorName); err != nil {
+		if errors.Is(err, service.ErrVMNotFound) {
+			writeError(w, "VM not found", http.StatusNotFound)
+			return
+		}
+		writeErrorLog(w, "failed to clear credentials", http.StatusInternalServerError, err)
+		return
+	}
+	if actor != nil {
+		h.audit.Log(actor.Username, &actor.ID, "vm.credentials.cleared", "vm", fmt.Sprintf("%d", id), service.IPFromRequest(r), nil)
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type addNICRequest struct {

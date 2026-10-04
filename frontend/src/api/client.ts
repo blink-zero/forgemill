@@ -39,6 +39,8 @@ import type {
   DiscoverResult,
   AdoptResult,
   IgnoredVM,
+  VMCredentials,
+  SetVMCredentialsRequest,
 } from "@/types";
 
 const api = axios.create({
@@ -220,7 +222,9 @@ export const vms = {
   addNIC: (id: number, data: { network: string; adapter_type?: string; connected?: boolean; vlan_tag?: number }) =>
     api.post<{ status: string; nic: VMNIC }>(`/vms/${id}/nics`, data),
   console: (id: number) => api.get<{ url: string }>(`/vms/${id}/console`),
-  credentials: (id: number) => api.get<{ username: string; password: string }>(`/vms/${id}/credentials`),
+  credentials: (id: number) => api.get<VMCredentials>(`/vms/${id}/credentials`),
+  setCredentials: (id: number, body: SetVMCredentialsRequest) => api.put(`/vms/${id}/credentials`, body),
+  clearCredentials: (id: number) => api.delete(`/vms/${id}/credentials`),
   resetHostKey: (id: number) => api.post(`/vms/${id}/reset-host-key`),
 };
 
