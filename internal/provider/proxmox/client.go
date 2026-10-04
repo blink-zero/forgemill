@@ -1307,6 +1307,7 @@ func (p *Provider) ListVMs(ctx context.Context) ([]provider.VMInfo, error) {
 			// exposes no guest id); mirror that so a sync fed from the
 			// listing writes the same OS type it always has.
 			GuestID: "linux",
+			Host:    vm.Node,
 		})
 	}
 	p.nodeMu.Unlock()

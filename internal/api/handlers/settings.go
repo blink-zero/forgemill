@@ -44,7 +44,18 @@ var allowedSettingKeys = map[string]bool{
 	"default_target_id":             true,
 	"audit_retention_days":          true,
 	"target_check_interval_minutes": true,
+	// Who may adopt/ignore discovered VMs and set per-VM credentials:
+	// "admin" (default) or "user" (operators and admins).
+	"vm_adoption_role": true,
 }
+
+// settingAllowedValues restricts enumerated settings to their valid values.
+var settingAllowedValues = map[string]map[string]bool{
+	"vm_adoption_role": {"admin": true, "user": true},
+}
+
+// SettingVMAdoptionRole is the app_settings key for the adoption permission.
+const SettingVMAdoptionRole = "vm_adoption_role"
 
 func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var req map[string]string
@@ -57,9 +68,13 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	// HIGH-04: Validate ALL keys against allowlist before writing any
-	for key := range req {
+	for key, value := range req {
 		if !allowedSettingKeys[key] {
 			writeError(w, "unknown setting key: "+key, http.StatusBadRequest)
+			return
+		}
+		if allowed, ok := settingAllowedValues[key]; ok && !allowed[value] {
+			writeError(w, fmt.Sprintf("invalid value for %s: %q", key, value), http.StatusBadRequest)
 			return
 		}
 	}

@@ -66,6 +66,7 @@ var migrations = []struct {
 	{40, migrationV40},
 	{41, migrationV41},
 	{42, migrationV42},
+	{43, migrationV43},
 }
 
 const migrationV1 = `
@@ -1412,6 +1413,26 @@ INSERT INTO schema_version (version) VALUES (38);
 // actually vouch for; it starts accumulating cleanly from this migration.
 // V40 adds no schema; the two built-in actions are inserted post-migration
 // (see runMigrations). A no-op statement keeps the version bookkeeping uniform.
+// V43: discover & adopt — where a managed VM came from, per-target unmanaged
+// counts from the sync, and the per-target ignore list for discovery.
+const migrationV43 = `
+ALTER TABLE managed_vms ADD COLUMN origin TEXT NOT NULL DEFAULT 'deployed';
+ALTER TABLE managed_vms ADD COLUMN adopted_at DATETIME;
+ALTER TABLE managed_vms ADD COLUMN adopted_by INTEGER;
+UPDATE managed_vms SET origin = 'registered' WHERE deployment_id IS NULL;
+ALTER TABLE targets ADD COLUMN unmanaged_vms INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE targets ADD COLUMN unmanaged_checked_at DATETIME;
+CREATE TABLE IF NOT EXISTS target_ignored_vms (
+    target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+    vm_ref TEXT NOT NULL,
+    vm_name TEXT NOT NULL DEFAULT '',
+    ignored_by INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (target_id, vm_ref)
+);
+INSERT INTO schema_version (version) VALUES (43);
+`
+
 // V41: per-VM event log — what the hypervisor did or refused during
 // operations on a VM (warnings that were previously only in the server log).
 const migrationV41 = `

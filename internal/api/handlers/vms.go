@@ -32,6 +32,16 @@ func (h *VMHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeErrorLog(w, "failed to list VMs", http.StatusInternalServerError, err)
 		return
 	}
+	// ?origin=deployed|adopted|registered narrows the list (the UI's Origin filter).
+	if origin := r.URL.Query().Get("origin"); origin != "" {
+		filtered := vms[:0]
+		for _, vm := range vms {
+			if vm.Origin == origin {
+				filtered = append(filtered, vm)
+			}
+		}
+		vms = filtered
+	}
 	writeJSON(w, http.StatusOK, vms)
 }
 
