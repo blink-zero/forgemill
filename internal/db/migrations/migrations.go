@@ -65,6 +65,7 @@ var migrations = []struct {
 	{39, migrationV39},
 	{40, migrationV40},
 	{41, migrationV41},
+	{42, migrationV42},
 }
 
 const migrationV1 = `
@@ -744,8 +745,10 @@ func runMigrations(db *sql.DB, dbPath string) error {
 					tags = a.tags
 				}
 				if _, err := db.Exec(
-					`INSERT INTO actions (name, description, category, script, script_type, platform, builtin, parameters, tags, created_at, updated_at) VALUES (?, ?, ?, ?, 'bash', 'linux', 1, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-					a.name, a.description, a.category, a.script, params, tags,
+					`INSERT INTO actions (name, description, category, script, script_type, platform, builtin, parameters, tags, created_at, updated_at)
+					 SELECT ?, ?, ?, ?, 'bash', 'linux', 1, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+					 WHERE NOT EXISTS (SELECT 1 FROM actions WHERE builtin = 1 AND name = ?)`,
+					a.name, a.description, a.category, a.script, params, tags, a.name,
 				); err != nil {
 					slog.Warn("failed to insert V38 builtin action", "name", a.name, "error", err)
 				}
@@ -1422,10 +1425,37 @@ CREATE TABLE IF NOT EXISTS vm_events (
 );
 CREATE INDEX IF NOT EXISTS idx_vm_events_vm ON vm_events(vm_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_vm_events_created ON vm_events(created_at);
+INSERT INTO schema_version (version) VALUES (41);
+`
+
+// V42: repair for v0.19.0/v0.19.1 — V40 and V41 never recorded their
+// schema_version, so both re-ran on every start and V40 inserted another
+// copy of its two built-in actions each time. Collapse the duplicates onto
+// the oldest row (repointing deployment, execution and version-history
+// references first) so action lists, blueprints and MCP tools see one of each.
+const migrationV42 = `
+CREATE TEMP TABLE dup_actions AS
+    SELECT a.id AS dup_id, (SELECT MIN(b.id) FROM actions b WHERE b.builtin = 1 AND b.name = a.name) AS keep_id
+    FROM actions a
+    WHERE a.builtin = 1
+      AND a.id <> (SELECT MIN(b.id) FROM actions b WHERE b.builtin = 1 AND b.name = a.name);
+UPDATE action_executions SET action_id = (SELECT keep_id FROM dup_actions WHERE dup_id = action_executions.action_id)
+    WHERE action_id IN (SELECT dup_id FROM dup_actions);
+DELETE FROM deployment_actions
+    WHERE action_id IN (SELECT dup_id FROM dup_actions)
+      AND EXISTS (SELECT 1 FROM deployment_actions d2, dup_actions x
+                  WHERE x.dup_id = deployment_actions.action_id AND d2.deployment_id = deployment_actions.deployment_id AND d2.action_id = x.keep_id);
+UPDATE deployment_actions SET action_id = (SELECT keep_id FROM dup_actions WHERE dup_id = deployment_actions.action_id)
+    WHERE action_id IN (SELECT dup_id FROM dup_actions);
+DELETE FROM action_versions WHERE action_id IN (SELECT dup_id FROM dup_actions);
+DELETE FROM actions WHERE id IN (SELECT dup_id FROM dup_actions);
+DROP TABLE dup_actions;
+INSERT INTO schema_version (version) VALUES (42);
 `
 
 const migrationV40 = `
 UPDATE actions SET updated_at = updated_at WHERE 0;
+INSERT INTO schema_version (version) VALUES (40);
 `
 
 const migrationV39 = `
