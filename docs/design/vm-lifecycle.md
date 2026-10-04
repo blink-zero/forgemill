@@ -2,6 +2,8 @@
 
 Status: proposal (2026-10-04). Focus item 4 from the post-audit roadmap.
 
+**Decision 2026-10-04:** *Discover & adopt* (section 3) is approved in principle and is being built. *Expiry* (section 2) is **deferred** — automated destruction was judged too risky for now; the section stays as the record of the design should it be revisited.
+
 Two capabilities, one idea: **Forgemill owns the whole life of a VM, not just its birth.**
 
 - **Expiry** — a VM can carry an expiry; when it arrives, Forgemill retires the VM (destroy, or power off) and tells you beforehand. Disposable VMs stop becoming orphans.
@@ -167,6 +169,8 @@ SyncAllResult.targets[{target_id, unmanaged}]   (additive)
 ---
 
 ## 4. Delivery plan (one PR each, same gates as always)
+
+*Expiry rows (1–3) are deferred; the adopt rows (4–7) are the active plan, with 6 (credentials) shipping alongside adoption.*
 
 | # | PR | contents | gate |
 |---|---|---|---|
