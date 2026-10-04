@@ -14,6 +14,7 @@ const Templates = lazy(() => import("@/pages/Templates"));
 const Deploy = lazy(() => import("@/pages/Deploy"));
 const DeployLive = lazy(() => import("@/pages/DeployLive"));
 const Targets = lazy(() => import("@/pages/Targets"));
+const Discover = lazy(() => import("@/pages/Discover"));
 const HistoryPage = lazy(() => import("@/pages/History"));
 const SettingsPage = lazy(() => import("@/pages/Settings"));
 const VMs = lazy(() => import("@/pages/VMs"));
@@ -48,6 +49,7 @@ export default function App() {
           <Route path="/deploy" element={<Deploy />} />
           <Route path="/deploy/:id" element={<DeployLive />} />
           <Route path="/targets" element={<Targets />} />
+          <Route path="/targets/:id/discover" element={<Discover />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/vms" element={<VMs />} />
