@@ -123,25 +123,14 @@ func (s *ExecutorService) Execute(ctx context.Context, vmID int64, req ExecuteRe
 		return nil, fmt.Errorf("VM has no IP address — is it powered on?")
 	}
 
-	// Resolve credentials
-	if vm.DeploymentID == nil || *vm.DeploymentID == 0 {
-		return nil, fmt.Errorf("no deploy credentials available")
-	}
-	dep, err := s.db.GetDeployment(*vm.DeploymentID)
+	// Resolve credentials: an explicitly set per-VM login wins, otherwise the
+	// deployment's initial credentials.
+	creds, err := resolveVMCredentials(s.db, s.encryptor, vm)
 	if err != nil {
-		return nil, fmt.Errorf("get deployment: %w", err)
+		return nil, err
 	}
-	if dep.InitialPwdEnc == "" {
-		return nil, fmt.Errorf("no credentials stored for this deployment")
-	}
-	if s.encryptor == nil {
-		return nil, fmt.Errorf("encryption not available")
-	}
-	password, err := s.encryptor.Decrypt(dep.InitialPwdEnc)
-	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve credentials")
-	}
-	username := dep.InitialUsername
+	username := creds.Username
+	auth := sshAuth{Password: creds.Password, PrivateKey: creds.PrivateKey}
 
 	// Resolve script
 	var script string
@@ -221,7 +210,7 @@ func (s *ExecutorService) Execute(ctx context.Context, vmID int64, req ExecuteRe
 	s.cancels[exec.ID] = cancel
 	s.mu.Unlock()
 
-	go s.runExecution(execCtx, cancel, exec.ID, vmID, vm.IPAddress, username, password, script, paramEnvBlock)
+	go s.runExecution(execCtx, cancel, exec.ID, vmID, vm.IPAddress, username, auth, script, paramEnvBlock)
 
 	return exec, nil
 }
@@ -233,7 +222,7 @@ func (s *dbHostKeyStore) GetHostKeyFP(vmID int64) (string, error) { return s.db.
 func (s *dbHostKeyStore) SetHostKeyFP(vmID int64, fp string) error { return s.db.UpdateManagedVMHostKeyFP(vmID, fp) }
 
 // runExecution performs the actual SSH execution in a goroutine.
-func (s *ExecutorService) runExecution(ctx context.Context, cancel context.CancelFunc, execID, vmID int64, host, username, password, script, paramEnvBlock string) {
+func (s *ExecutorService) runExecution(ctx context.Context, cancel context.CancelFunc, execID, vmID int64, host, username string, auth sshAuth, script, paramEnvBlock string) {
 	defer cancel()
 	defer func() {
 		s.mu.Lock()
@@ -265,11 +254,11 @@ func (s *ExecutorService) runExecution(ctx context.Context, cancel context.Cance
 		}
 	}
 
-	exitCode, err := sshExecute(ctx, host, 22, username, password, script, paramEnvBlock, outputFn, &dbHostKeyStore{s.db}, vmID, execID)
+	exitCode, err := sshExecute(ctx, host, 22, username, auth, script, paramEnvBlock, outputFn, &dbHostKeyStore{s.db}, vmID, execID)
 
-	// Clear password from stack (best effort — Go GC may have already copied)
-	password = ""
-	_ = password
+	// Clear the secret from the stack (best effort — Go GC may have already copied)
+	auth = sshAuth{}
+	_ = auth
 
 	output := string(outputBuf)
 

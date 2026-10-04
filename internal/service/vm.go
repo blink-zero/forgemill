@@ -79,41 +79,6 @@ func (s *VMService) scheduleSyncAll(delay time.Duration) {
 	})
 }
 
-// VMCredentials holds the decrypted SSH credentials for a deployed VM.
-type VMCredentials struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-// GetCredentials returns the deploy credentials for a managed VM.
-func (s *VMService) GetCredentials(ctx context.Context, vmID int64) (*VMCredentials, error) {
-	vm, err := s.db.GetManagedVM(vmID)
-	if err != nil {
-		return nil, fmt.Errorf("get VM: %w", err)
-	}
-	if vm.DeploymentID == nil || *vm.DeploymentID == 0 {
-		return nil, fmt.Errorf("VM was not deployed by Forgemill")
-	}
-	dep, err := s.db.GetDeployment(*vm.DeploymentID)
-	if err != nil {
-		return nil, fmt.Errorf("get deployment: %w", err)
-	}
-	if dep.InitialPwdEnc == "" {
-		return nil, fmt.Errorf("no credentials stored for this deployment")
-	}
-	if s.encryptor == nil {
-		return nil, fmt.Errorf("encryption not available")
-	}
-	pwd, err := s.encryptor.Decrypt(dep.InitialPwdEnc)
-	if err != nil {
-		return nil, fmt.Errorf("decrypt credentials: %w", err)
-	}
-	return &VMCredentials{
-		Username: dep.InitialUsername,
-		Password: pwd,
-	}, nil
-}
-
 func (s *VMService) List() ([]models.ManagedVM, error) {
 	return s.db.ListManagedVMs()
 }

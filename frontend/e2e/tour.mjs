@@ -51,7 +51,7 @@ async function mockHypervisor(page) {
       { ref: "vm-4101", name: "jenkins-agent-02", power_state: "poweredOn", ip_address: "10.20.10.44", cpu: 4, memory_mb: 8192, disk_gb: 80, guest_id: "ubuntu64Guest", host: "esx-01", ignored: false },
       { ref: "vm-4102", name: "legacy-crm", power_state: "poweredOn", ip_address: "10.20.10.70", cpu: 2, memory_mb: 4096, disk_gb: 120, guest_id: "windows2019srvNext_64Guest", host: "esx-02", ignored: false },
       { ref: "vm-4103", name: "old-test-vm", power_state: "poweredOff", cpu: 2, memory_mb: 2048, disk_gb: 20, host: "esx-01", ignored: false }] }) }));
-  await page.route("**/api/vms/*/credentials", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ username: "forgemill", password: "s3cr3t-Pa55" }) }));
+  await page.route("**/api/vms/*/credentials", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ username: "forgemill", password: "s3cr3t-Pa55", kind: "password", source: "deployment" }) }));
   // The only server-clock value the tour renders: the admin's last login,
   // stamped at real time by the login the tour itself just performed. Pin it
   // so the Users table lays out identically on every run.
@@ -125,8 +125,11 @@ async function run(theme) {
   await page.getByRole("button", { name: /^Resize$/ }).click(); await sleep(300);
   if (await addNic.count()) { await addNic.click(); await sleep(300); }
   if (await addDisk.count()) { await addDisk.click(); await sleep(300); }
-  const reveal = page.getByRole("button", { name: /Reveal Credentials/ }).first();
-  if (await reveal.count()) { await reveal.click(); await sleep(900); await shot("06c-vm-credentials", true); }
+  // Credentials load on mount (masked); show the password, then the set-credentials form.
+  const showPwd = page.getByRole("button", { name: "Show password" }).first();
+  if (await showPwd.count()) { await showPwd.click(); await sleep(400); await shot("06c-vm-credentials", true); await page.getByRole("button", { name: "Hide password" }).first().click(); }
+  const override = page.getByRole("button", { name: /^(Override|Change)$/ }).first();
+  if (await override.count()) { await override.click(); await sleep(400); await shot("06d-vm-credentials-set", true); await page.getByRole("button", { name: /^Cancel$/ }).first().click(); await sleep(300); }
   await page.getByRole("button", { name: "Destroy VM" }).click(); await sleep(600);
   await page.getByPlaceholder("web-01").fill("web-0"); await sleep(300);
   await page.locator("text=Danger zone").first().scrollIntoViewIfNeeded(); await sleep(300);

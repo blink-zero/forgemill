@@ -217,6 +217,9 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 				r.Post("/targets/{id}/adopt", discoveryH.Adopt)
 				r.Post("/targets/{id}/ignore", discoveryH.Ignore)
 				r.Delete("/targets/{id}/ignore", discoveryH.Unignore)
+				// Setting a VM's SSH login is part of taking it under management.
+				r.Put("/vms/{id}/credentials", vmH.SetCredentials)
+				r.Delete("/vms/{id}/credentials", vmH.ClearCredentials)
 			})
 			r.Get("/vms/{id}/executions", execH.ListVMExecutions)
 			r.Get("/executions/{id}", execH.GetExecution)

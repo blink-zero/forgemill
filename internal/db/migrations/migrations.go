@@ -67,6 +67,7 @@ var migrations = []struct {
 	{41, migrationV41},
 	{42, migrationV42},
 	{43, migrationV43},
+	{44, migrationV44},
 }
 
 const migrationV1 = `
@@ -1415,6 +1416,22 @@ INSERT INTO schema_version (version) VALUES (38);
 // (see runMigrations). A no-op statement keeps the version bookkeeping uniform.
 // V43: discover & adopt — where a managed VM came from, per-target unmanaged
 // counts from the sync, and the per-target ignore list for discovery.
+// V44: per-VM SSH credentials. Adopted and registered VMs have no deployment
+// to inherit credentials from, so actions need a place to get them; a row
+// here also overrides the deployment credentials of a deployed VM (e.g. after
+// a password rotation). The secret is AES-256 encrypted like everything else.
+const migrationV44 = `
+CREATE TABLE IF NOT EXISTS vm_credentials (
+    vm_id INTEGER PRIMARY KEY REFERENCES managed_vms(id) ON DELETE CASCADE,
+    username TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'password' CHECK(kind IN ('password', 'private_key')),
+    secret_enc TEXT NOT NULL,
+    set_by INTEGER,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO schema_version (version) VALUES (44);
+`
+
 const migrationV43 = `
 ALTER TABLE managed_vms ADD COLUMN origin TEXT NOT NULL DEFAULT 'deployed';
 ALTER TABLE managed_vms ADD COLUMN adopted_at DATETIME;

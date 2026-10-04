@@ -399,6 +399,24 @@ type ActionExecution struct {
 	CreatedAt       time.Time         `json:"created_at"`
 }
 
+// VMCredential is the SSH login Forgemill uses for actions on one VM when it
+// was set explicitly (adopted/registered VMs, or a deployed VM whose password
+// was rotated). Kind is "password" or "private_key"; SecretEnc is encrypted
+// and never serialised.
+type VMCredential struct {
+	VMID      int64     `json:"vm_id"`
+	Username  string    `json:"username"`
+	Kind      string    `json:"kind"`
+	SecretEnc string    `json:"-"`
+	SetBy     *int64    `json:"set_by,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+const (
+	CredentialKindPassword   = "password"
+	CredentialKindPrivateKey = "private_key"
+)
+
 // VMEvent is one line of a VM's operational history: what the hypervisor
 // did or refused during an operation on it.
 type VMEvent struct {
