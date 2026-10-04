@@ -204,7 +204,13 @@ func (s *VMService) updateVMPowerState(vm *models.ManagedVM, newPowerState, ipAd
 	return next, err
 }
 
+// dbErrAlreadyRegistered is the DB sentinel for a duplicate (target, ref).
+func dbErrAlreadyRegistered() error { return db.ErrAlreadyRegistered }
+
 func (s *VMService) Create(vm *models.ManagedVM) error {
+	if vm.Origin == "" {
+		vm.Origin = models.VMOriginRegistered
+	}
 	if vm.PowerState == "" {
 		vm.PowerState = "unknown"
 	}
@@ -524,6 +530,12 @@ func (s *VMService) SyncAll(ctx context.Context, dryRun bool) (*SyncAllResult, e
 		if listErr == nil {
 			for _, hvm := range hypervisorVMs {
 				hypervisorRefs[hvm.ID] = hvm
+			}
+			// The listing is also the inventory Discover works from: record how
+			// many of these VMs nobody manages or ignores, so the Targets page
+			// can point at them without another hypervisor call.
+			if !dryRun {
+				s.recordUnmanaged(targetID, targetVMs, hypervisorVMs)
 			}
 		} else {
 			// The sync continues per VM via GetVMStatus, but orphan detection
@@ -1071,4 +1083,26 @@ func (s *VMService) ListNICs(ctx context.Context, id int64) ([]provider.NIC, err
 		nics = []provider.NIC{}
 	}
 	return nics, nil
+}
+
+// recordUnmanaged stores the number of VMs in a target listing that are
+// neither managed nor ignored.
+func (s *VMService) recordUnmanaged(targetID int64, managed []models.ManagedVM, listed []provider.VMInfo) {
+	managedRefs := map[string]bool{}
+	for _, vm := range managed {
+		managedRefs[vm.VMRef] = true
+	}
+	ignored, err := s.ignoredRefs(targetID)
+	if err != nil {
+		return
+	}
+	n := 0
+	for _, vm := range listed {
+		if _, ig := ignored[vm.ID]; !managedRefs[vm.ID] && !ig {
+			n++
+		}
+	}
+	if err := s.db.UpdateTargetUnmanaged(targetID, n); err != nil {
+		slog.Warn("sync-all: could not record unmanaged count", "target_id", targetID, "error", err)
+	}
 }

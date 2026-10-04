@@ -321,6 +321,9 @@ type VMInfo struct {
 	MemoryMB   int    `json:"memory_mb"`
 	DiskGB     int    `json:"disk_gb"`
 	GuestID    string `json:"guest_id"`
+	// Host is the node/host the VM lives on where the listing already says
+	// so (Proxmox node); empty otherwise. Informational, shown by Discover.
+	Host string `json:"host,omitempty"`
 }
 
 // TargetHostKeyStore persists one SSH host-key fingerprint per target for

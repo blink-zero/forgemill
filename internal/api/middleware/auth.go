@@ -18,9 +18,9 @@ import (
 type contextKey string
 
 const (
-	userContextKey         contextKey = "user"
-	effectiveRoleKey       contextKey = "effective_role"
-	effectiveScopeKey      contextKey = "effective_scope"
+	userContextKey    contextKey = "user"
+	effectiveRoleKey  contextKey = "effective_role"
+	effectiveScopeKey contextKey = "effective_scope"
 )
 
 // roleLevel is the canonical role ladder. Higher = more privileged.
@@ -334,4 +334,23 @@ func EffectiveRoleFromContext(ctx context.Context) string {
 func EffectiveScopeFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(effectiveScopeKey).(string)
 	return v
+}
+
+// RequireRoleFrom is RequireRole with the minimum role decided per request
+// by minRole() — for permissions an admin can loosen or tighten in Settings
+// (e.g. who may adopt VMs). An unknown or empty role from minRole falls back
+// to fallback.
+func (m *AuthMiddleware) RequireRoleFrom(minRole func() string, fallback string) func(http.Handler) http.Handler {
+	if _, ok := roleLevel[fallback]; !ok {
+		panic(fmt.Sprintf("RequireRoleFrom called with unknown fallback role %q", fallback))
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			role := minRole()
+			if _, ok := roleLevel[role]; !ok {
+				role = fallback
+			}
+			m.RequireRole(role)(next).ServeHTTP(w, r)
+		})
+	}
 }

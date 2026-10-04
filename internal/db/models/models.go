@@ -33,6 +33,11 @@ type Target struct {
 	LastConnectedAt *time.Time `json:"last_connected_at"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
+	// UnmanagedVMs is how many VMs the last sync saw on this target that
+	// Forgemill doesn't manage and nobody has ignored; the entry point to
+	// Discover. UnmanagedCheckedAt says when that was computed.
+	UnmanagedVMs       int        `json:"unmanaged_vms"`
+	UnmanagedCheckedAt *time.Time `json:"unmanaged_checked_at"`
 	// Proxmox-specific fields
 	StoragePool   string `json:"storage_pool,omitempty"`
 	NetworkBridge string `json:"network_bridge,omitempty"`
@@ -186,6 +191,12 @@ type ManagedVM struct {
 	CreatedAt    time.Time  `json:"created_at"`
 	TargetName   string     `json:"target_name,omitempty"`
 	TemplateName string     `json:"template_name,omitempty"`
+	// Origin: "deployed" (Forgemill created it), "adopted" (discovered on the
+	// target and taken under management) or "registered" (added by ref via
+	// the API).
+	Origin    string     `json:"origin"`
+	AdoptedAt *time.Time `json:"adopted_at,omitempty"`
+	AdoptedBy *int64     `json:"adopted_by,omitempty"`
 
 	// Lifecycle tracking. StateChangedAt/LastPoweredOnAt/LastPoweredOffAt are
 	// nil until the first observed power-state transition (e.g. a VM
@@ -396,5 +407,22 @@ type VMEvent struct {
 	TargetID  int64     `json:"target_id,omitempty"`
 	Level     string    `json:"level"` // info | warn | error
 	Message   string    `json:"message"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Origin values for ManagedVM.Origin.
+const (
+	VMOriginDeployed   = "deployed"
+	VMOriginAdopted    = "adopted"
+	VMOriginRegistered = "registered"
+)
+
+// IgnoredVM is a VM on a target that discovery should not list (an
+// appliance, another team's VM) until it is un-ignored.
+type IgnoredVM struct {
+	TargetID  int64     `json:"target_id"`
+	VMRef     string    `json:"vm_ref"`
+	VMName    string    `json:"vm_name"`
+	IgnoredBy *int64    `json:"ignored_by,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
