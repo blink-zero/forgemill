@@ -237,6 +237,8 @@ This prevents secrets from appearing in `docker inspect` output or process listi
 - Web console access (noVNC / VMRC)
 - Managed VM inventory with live status tracking and orphan detection on sync
 - **Delete preview** — see exactly what a delete would do (hypervisor destroy vs. untrack, dependent snapshots / executions) before confirming
+- **Discover & adopt** — see every VM on a target that Forgemill doesn't manage (live from the hypervisor, templates excluded) and take the ones you want under management without touching the hypervisor; ignore the rest so they stop counting. Adopted VMs are marked with their origin and get power, snapshots, disks, NICs, sync and destroy immediately
+- **Per-VM SSH credentials** — set a login (password or private key) on any VM so actions can run on adopted VMs, or to rotate a deployed VM's password; stored AES-256 encrypted, a private key is never shown again. Adoption and credential changes are admin-only by default; Settings → Preferences can open them to operators
 - Reveal deploy credentials (AES-256 at rest, decrypted only on reveal, syntax-highlighted for readability)
 
 ### Blueprints and bulk deployment
@@ -367,6 +369,7 @@ forgemill-cli templates list --json
 > "Which VMs on pve-01 have been running longer than 30 days?"
 > "Preview a deploy of web-03 from ubuntu-24.04-cloudinit onto vcenter-lab, then do it."
 > "Attach a second NIC on dvPG-Backend to api-01."
+> "What's running on pve-01 that Forgemill isn't tracking? Adopt the two jenkins agents."
 
 - **Read-only by default** — the mutating tools (deploy, power, snapshot, resize, add NIC, run actions, …) only register when `FORGEMILL_MCP_ALLOW_MUTATIONS=true`
 - Authenticates with a Forgemill API key, so it inherits exactly the role and scope you issue the key with
@@ -406,6 +409,10 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 | `GET` | `/api/targets/:id/resources` | List datastores, networks, folders, hosts |
 | `GET` | `/api/targets/:id/delete-preview` | What deleting the target would affect |
 | `GET` | `/api/targets/types` | Provider metadata: features, deploy fields, NIC adapter types |
+| `GET` | `/api/targets/:id/discover` | VMs on the target Forgemill doesn't manage, live (`?include_ignored=true`) |
+| `POST` | `/api/targets/:id/adopt` | Take VMs under management by ref: `{"vm_refs": [...]}` → adopted + skipped (adoption role) |
+| `POST` / `DELETE` | `/api/targets/:id/ignore` | Hide / unhide VMs from discovery (adoption role) |
+| `GET` | `/api/targets/:id/ignored` | VMs hidden from discovery |
 
 ### Templates
 
@@ -432,7 +439,7 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/vms` | List managed VMs |
+| `GET` | `/api/vms` | List managed VMs (`?origin=deployed|adopted|registered`) |
 | `GET` | `/api/vms/:id` | VM details |
 | `POST` | `/api/vms/:id/power/:action` | Power operations (admin) |
 | `POST` | `/api/vms/:id/snapshots` | Create snapshot (admin) |
@@ -444,7 +451,8 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 | `GET` | `/api/vms/:id/nics` | Network adapters with network, MAC, guest-reported addresses |
 | `POST` | `/api/vms/:id/nics` | Attach an additional network adapter (admin; optional `vlan_tag` on Proxmox) |
 | `GET` | `/api/vms/:id/console` | Console URL (admin) |
-| `GET` | `/api/vms/:id/credentials` | Reveal deploy credentials (admin) |
+| `GET` | `/api/vms/:id/credentials` | The SSH login Forgemill uses for the VM: username, kind, source (admin; a private key is never returned) |
+| `PUT` / `DELETE` | `/api/vms/:id/credentials` | Set `{"username", "password" \| "private_key"}` or clear the VM's explicit login (adoption role) |
 | `POST` | `/api/vms/:id/reset-host-key` | Reset SSH host-key fingerprint (admin) |
 | `POST` | `/api/vms/:id/execute` | Run action on VM (admin) |
 | `GET` | `/api/vms/:id/executions` | List executions for VM |
