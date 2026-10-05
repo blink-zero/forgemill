@@ -70,7 +70,10 @@ function TargetForm({ form, setForm, onSubmit, onCancel, submitLabel, title, isE
               ))}
             </Select>
             {currentProvider && (
-              <p className="text-xs text-muted-foreground">{currentProvider.description}</p>
+              <div className="flex items-start gap-2">
+                <ProviderIcon type={form.type} size={16} className="shrink-0 mt-px" />
+                <p className="text-xs text-muted-foreground">{currentProvider.description}</p>
+              </div>
             )}
           </div>
           <div className="space-y-2">

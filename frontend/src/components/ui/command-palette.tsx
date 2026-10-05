@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { Monitor, FileBox, Server, Zap, Search, Loader2, X, Play, Square } from "lucide-react";
+import ProviderIcon, { providerLabel } from "@/components/ProviderIcon";
 import { cn } from "@/lib/utils";
 import { vms as vmApi, templates, targets, actions } from "@/api/client";
 import type { ManagedVM, Template, Target, Action } from "@/types";
@@ -19,6 +20,8 @@ interface SearchResult {
   badge?: string;
   badgeVariant?: "success" | "secondary" | "warning";
   powerState?: string;
+  /** Target results: provider type, so the row shows the vendor mark instead of the generic icon. */
+  providerType?: string;
 }
 
 interface SearchData {
@@ -173,7 +176,8 @@ export function CommandPalette() {
         id: t.id,
         type: "targets",
         name: t.name,
-        subtitle: `${t.type} - ${t.hostname}`,
+        subtitle: `${providerLabel(t.type)} - ${t.hostname}`,
+        providerType: t.type,
         badge: t.status,
         badgeVariant: t.status === "connected" ? "success" : "secondary",
       });
@@ -373,7 +377,11 @@ export function CommandPalette() {
                           role="option"
                           aria-selected={isSelected}
                         >
-                          <Icon className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                          {item.providerType ? (
+                            <ProviderIcon type={item.providerType} size={16} className="shrink-0" />
+                          ) : (
+                            <Icon className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                          )}
                           <div className="flex-1 min-w-0">
                             <div className="font-medium truncate">{item.name}</div>
                             <div className="text-xs text-muted-foreground truncate">{item.subtitle}</div>
