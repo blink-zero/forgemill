@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon, Copy, Send, Pencil, Check, UserCheck, UserX, LogOut as LogOutIcon, MoreHorizontal, Search, Wifi, RefreshCw, Activity, Import } from "lucide-react";
+import ProviderIcon, { providerLabel } from "@/components/ProviderIcon";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { ForgemillLogo } from "@/components/ForgemillLogo";
 import { Select } from "@/components/ui/select";
@@ -1317,7 +1318,7 @@ export default function SettingsPage() {
                         <tbody>
                           {diag.targets.map((t) => (
                             <tr key={t.id} className="border-b last:border-0 align-top">
-                              <td className="py-2 pr-3 whitespace-nowrap"><span className="font-medium">{t.name}</span> <span className="text-muted-foreground text-xs">{t.type}</span></td>
+                              <td className="py-2 pr-3 whitespace-nowrap"><span className="inline-flex items-center gap-1.5"><ProviderIcon type={t.type} size={14} className="shrink-0" /><span className="font-medium">{t.name}</span> <span className="text-muted-foreground text-xs">{providerLabel(t.type)}</span></span></td>
                               <td className="py-2 pr-3"><Badge variant={t.status === "connected" ? "success" : t.status === "error" ? "destructive" : "secondary"} dot>{t.status}</Badge></td>
                               <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">{t.last_connected_at ? formatDateTime(t.last_connected_at) : "—"}</td>
                               <td className="py-2 pr-3 whitespace-nowrap">{t.last_sync ? <>{t.last_sync.synced} synced, {t.last_sync.orphaned} orphaned <span className="text-muted-foreground text-xs">· {formatDateTime(t.last_sync.at)}</span></> : <span className="text-muted-foreground">not since start</span>}</td>

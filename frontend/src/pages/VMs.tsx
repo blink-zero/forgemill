@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, Monitor, Cpu, MemoryStick, HardDrive, Power, RefreshCw, Play, Square, Rocket, MoreHorizontal, ExternalLink, Terminal, Camera, RotateCw, X, Box, Clock, CalendarDays, Import } from "lucide-react";
+import ProviderIcon from "@/components/ProviderIcon";
 import { cn, getErrorMessage, timeAgo, copyText } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
 import { Pagination } from "@/components/ui/pagination";
@@ -43,6 +44,7 @@ export default function VMs() {
   // Targets for the Discover entry point (one target → straight there).
   const [targetRows, setTargetRows] = useState<Target[]>([]);
   useEffect(() => { targetApi.list().then((res) => setTargetRows(res.data || [])).catch(() => { /* entry point degrades to the Targets page */ }); }, []);
+  const targetTypeByName = useMemo(() => Object.fromEntries(targetRows.map((t) => [t.name, t.type])), [targetRows]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = usePageSize("vms", 25);
   const [syncing, setSyncing] = useState(false);
@@ -467,7 +469,12 @@ export default function VMs() {
                       <td className="px-4 py-2.5 text-muted-foreground hidden md:table-cell whitespace-nowrap">
                         {vm.cpu || "?"}C · {vm.memory_mb ? `${Math.round(vm.memory_mb / 1024)}G` : "?"} · {vm.disk_gb || "?"}G
                       </td>
-                      <td className="px-4 py-2.5 text-muted-foreground hidden lg:table-cell">{vm.target_name}</td>
+                      <td className="px-4 py-2.5 text-muted-foreground hidden lg:table-cell">
+                        <span className="inline-flex items-center gap-1.5">
+                          {targetTypeByName[vm.target_name] && <ProviderIcon type={targetTypeByName[vm.target_name]} size={14} className="shrink-0" />}
+                          {vm.target_name}
+                        </span>
+                      </td>
                       <td className="px-4 py-2.5">
                         <Badge variant={powerVariant(vm.power_state)}>
                           <Power className="h-3 w-3 mr-1" />
@@ -525,6 +532,7 @@ export default function VMs() {
                           <OSBadge osType={vm.os_type} platform={vm.platform} size="xs" />
                         </div>
                         <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+                          {targetTypeByName[vm.target_name] && <ProviderIcon type={targetTypeByName[vm.target_name]} size={12} className="shrink-0" />}
                           <span>{vm.target_name}</span>
                           <span className="font-mono opacity-60">· #{vm.id}</span>
                         </div>
