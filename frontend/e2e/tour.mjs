@@ -129,7 +129,13 @@ async function run(theme) {
   const showPwd = page.getByRole("button", { name: "Show password" }).first();
   if (await showPwd.count()) { await showPwd.click(); await sleep(400); await shot("06c-vm-credentials", true); await page.getByRole("button", { name: "Hide password" }).first().click(); }
   const override = page.getByRole("button", { name: /^(Override|Change)$/ }).first();
-  if (await override.count()) { await override.click(); await sleep(400); await shot("06d-vm-credentials-set", true); await page.getByRole("button", { name: /^Cancel$/ }).first().click(); await sleep(300); }
+  if (await override.count()) {
+    await override.click(); await sleep(400);
+    const help = page.getByRole("button", { name: /How to set up passwordless sudo/ });
+    if (await help.count()) { await help.click(); await sleep(300); await help.scrollIntoViewIfNeeded(); await sleep(200); }
+    await shot("06d-vm-credentials-set", true);
+    await page.getByRole("button", { name: /^Cancel$/ }).first().click(); await sleep(300);
+  }
   await page.getByRole("button", { name: "Destroy VM" }).click(); await sleep(600);
   await page.getByPlaceholder("web-01").fill("web-0"); await sleep(300);
   await page.locator("text=Danger zone").first().scrollIntoViewIfNeeded(); await sleep(300);

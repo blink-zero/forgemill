@@ -68,6 +68,7 @@ var migrations = []struct {
 	{42, migrationV42},
 	{43, migrationV43},
 	{44, migrationV44},
+	{45, migrationV45},
 }
 
 const migrationV1 = `
@@ -1420,6 +1421,13 @@ INSERT INTO schema_version (version) VALUES (38);
 // to inherit credentials from, so actions need a place to get them; a row
 // here also overrides the deployment credentials of a deployed VM (e.g. after
 // a password rotation). The secret is AES-256 encrypted like everything else.
+// V45: optional sudo password on a VM credential. A key login has no
+// password to hand to sudo; a password login may use a different one.
+const migrationV45 = `
+ALTER TABLE vm_credentials ADD COLUMN sudo_password_enc TEXT NOT NULL DEFAULT '';
+INSERT INTO schema_version (version) VALUES (45);
+`
+
 const migrationV44 = `
 CREATE TABLE IF NOT EXISTS vm_credentials (
     vm_id INTEGER PRIMARY KEY REFERENCES managed_vms(id) ON DELETE CASCADE,

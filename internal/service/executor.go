@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"context"
 	"fmt"
 	"log/slog"
@@ -127,10 +128,13 @@ func (s *ExecutorService) Execute(ctx context.Context, vmID int64, req ExecuteRe
 	// deployment's initial credentials.
 	creds, err := resolveVMCredentials(s.db, s.encryptor, vm)
 	if err != nil {
+		if errors.Is(err, ErrNoCredentials) {
+			return nil, fmt.Errorf("%w — set SSH credentials on the VM page (adopted and registered VMs have none until you do)", err)
+		}
 		return nil, err
 	}
 	username := creds.Username
-	auth := sshAuth{Password: creds.Password, PrivateKey: creds.PrivateKey}
+	auth := sshAuth{Password: creds.Password, PrivateKey: creds.PrivateKey, SudoPassword: creds.SudoPassword}
 
 	// Resolve script
 	var script string
@@ -278,8 +282,18 @@ func (s *ExecutorService) runExecution(ctx context.Context, cancel context.Cance
 			s.notifyCompleted(execID)
 			return
 		}
-		s.db.UpdateExecutionStatus(execID, "failed", nil, output+"\n[ERROR] "+err.Error())
-		s.sendWSError(execID, err.Error())
+		msg := err.Error()
+		var sudoErr *SudoError
+		if errors.As(err, &sudoErr) {
+			// The login worked; sudo is the problem. Say so in plain words and
+			// leave a trace on the VM so it is visible without opening the run.
+			msg = sudoErr.Message()
+			if vm, vmErr := s.db.GetManagedVM(vmID); vmErr == nil {
+				vmEventSink{db: s.db, vmID: vm.ID, targetID: vm.TargetID}.Event("warn", "Action could not run: "+msg)
+			}
+		}
+		s.db.UpdateExecutionStatus(execID, "failed", nil, output+"\n[ERROR] "+msg)
+		s.sendWSError(execID, msg)
 		slog.Error("execution failed", "execution_id", execID, "error", err)
 		s.notifyCompleted(execID)
 		return

@@ -408,7 +408,11 @@ type VMCredential struct {
 	Username  string    `json:"username"`
 	Kind      string    `json:"kind"`
 	SecretEnc string    `json:"-"`
-	SetBy     *int64    `json:"set_by,omitempty"`
+	// SudoPasswordEnc: what to hand sudo when it asks (encrypted, optional).
+	// Empty means "use the login password" for password logins and
+	// "none — the user needs passwordless sudo" for key logins.
+	SudoPasswordEnc string `json:"-"`
+	SetBy           *int64 `json:"set_by,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 

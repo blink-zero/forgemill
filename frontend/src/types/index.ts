@@ -618,6 +618,7 @@ export interface VMCredentials {
   kind: "password" | "private_key";
   source: "vm" | "deployment";
   has_private_key?: boolean;
+  has_sudo_password?: boolean;
   set_at?: string | null;
   set_by?: number | null;
 }
@@ -626,4 +627,19 @@ export interface SetVMCredentialsRequest {
   username: string;
   password?: string;
   private_key?: string;
+  /** Handed to sudo when it asks. Optional for password logins (defaults to the login password). */
+  sudo_password?: string;
+  /** Save even if the live check fails or can't run. */
+  force?: boolean;
+}
+
+// Live result of trying credentials on the VM: SSH login, then sudo.
+export interface CredentialCheck {
+  skipped: boolean;
+  ssh_ok: boolean;
+  sudo?: "nopasswd" | "password" | "needs_password" | "wrong_password" | "not_permitted" | "requiretty" | "probe_failed" | "unknown_failure" | string;
+  ok: boolean;
+  message: string;
+  detail?: string;
+  checked_via?: string;
 }
