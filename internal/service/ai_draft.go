@@ -95,7 +95,7 @@ func (s *AIAssistService) DraftAction(ctx context.Context, in ActionDraftInput, 
 	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
 	var parsed modelDraft
-	resp, err := completeJSON(ctx, p, ai.Request{System: draftSystemPrompt, User: user, MaxTokens: 4000, Temperature: 0.3, JSON: true}, &parsed)
+	resp, err := completeJSON(ctx, p, ai.Request{System: draftSystemPrompt, User: user, MaxTokens: 8000, Temperature: 0.3, JSON: true}, &parsed)
 	duration := time.Since(start).Milliseconds()
 	s.auditAI(actor, actorID, "ai.action.draft", cfg, resp, report, err, duration, len(in.Prompt)+len(in.ExistingScript))
 	if err != nil {

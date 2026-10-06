@@ -165,7 +165,9 @@ func (s *AIAssistService) Test(ctx context.Context, actor string, actorID *int64
 	var probe struct {
 		OK bool `json:"ok"`
 	}
-	resp, err := completeJSON(ctx, p, ai.Request{System: "You are a connectivity check for Forgemill. Answer with exactly this JSON object and nothing else: {\"ok\": true}", User: "ping", MaxTokens: 20, JSON: true}, &probe)
+	// Generous output cap: a model that reasons before it answers can spend
+	// a tiny budget on thinking and return no text at all.
+	resp, err := completeJSON(ctx, p, ai.Request{System: "You are a connectivity check for Forgemill. Answer with exactly this JSON object and nothing else: {\"ok\": true}", User: "ping", MaxTokens: 512, JSON: true}, &probe)
 	res := AITestResult{Provider: cfg.Provider, Model: cfg.Model, LatencyMs: time.Since(start).Milliseconds()}
 	if err != nil {
 		res.Error = userFacingAIError(err)

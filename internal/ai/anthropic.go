@@ -62,7 +62,8 @@ func (a *anthropic) Complete(ctx context.Context, req Request) (*Response, error
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
-		Usage struct {
+		StopReason string `json:"stop_reason"`
+		Usage      struct {
 			InputTokens  int `json:"input_tokens"`
 			OutputTokens int `json:"output_tokens"`
 		} `json:"usage"`
@@ -71,13 +72,24 @@ func (a *anthropic) Complete(ctx context.Context, req Request) (*Response, error
 		return nil, &ProviderError{Provider: "Anthropic", Status: resp.StatusCode, Message: "unexpected response shape"}
 	}
 	var text strings.Builder
+	var otherBlocks []string
 	for _, c := range out.Content {
 		if c.Type == "text" {
 			text.WriteString(c.Text)
+		} else {
+			otherBlocks = append(otherBlocks, c.Type)
 		}
 	}
 	if text.Len() == 0 {
-		return nil, &ProviderError{Provider: "Anthropic", Status: resp.StatusCode, Message: "empty answer"}
+		// Models that reason before answering can spend the whole output
+		// budget without producing text; say so instead of "empty answer".
+		msg := "empty answer"
+		if out.StopReason == "max_tokens" {
+			msg = fmt.Sprintf("the model used its whole output budget (%d tokens) without producing an answer; raise max_tokens", maxTokens)
+		} else if len(otherBlocks) > 0 {
+			msg = fmt.Sprintf("the model returned no text (only %s blocks)", strings.Join(otherBlocks, ", "))
+		}
+		return nil, &ProviderError{Provider: "Anthropic", Status: resp.StatusCode, Message: msg}
 	}
 	return &Response{Text: text.String(), Model: out.Model, InputTokens: out.Usage.InputTokens, OutputTokens: out.Usage.OutputTokens}, nil
 }
