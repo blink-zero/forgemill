@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { settings as settingsApi, ai as aiApi } from "@/api/client";
-import type { AITestResult } from "@/types";
+import type { AITestResult, AIModelInfo } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
 import { getErrorMessage } from "@/lib/utils";
-import { Sparkles, FlaskConical, Loader2, ShieldCheck, ShieldAlert, KeyRound, X } from "lucide-react";
+import { Sparkles, FlaskConical, Loader2, ShieldCheck, ShieldAlert, KeyRound, X, RefreshCw } from "lucide-react";
 
 /*
   Settings → AI. Off by default. The admin chooses a provider and model and
@@ -51,6 +51,28 @@ export function AISettings() {
   const [testing, setTesting] = useState(false);
   const [test, setTest] = useState<AITestResult | null>(null);
   const [dirty, setDirty] = useState(false);
+  // Models offered by the saved provider/key. Loaded once the key is saved
+  // (or straight away for keyless endpoints); a free-text fallback stays
+  // available for models the list doesn't show.
+  const [models, setModels] = useState<AIModelInfo[] | null>(null);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [customModel, setCustomModel] = useState(false);
+
+  const loadModels = async () => {
+    setLoadingModels(true);
+    setModelsError(null);
+    try {
+      const res = await aiApi.models();
+      setModels(res.data.models);
+      setCustomModel(Boolean(form.model) && !res.data.models.some((m) => m.id === form.model));
+    } catch (e: unknown) {
+      setModels(null);
+      setModelsError(getErrorMessage(e, "Could not list models"));
+    } finally {
+      setLoadingModels(false);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -68,6 +90,7 @@ export function AISettings() {
         allow_private_endpoint: s.ai_allow_private_endpoint === "true",
       });
       setDirty(false);
+      if (s.ai_api_key_set === "true" || s.ai_provider === "openai") void loadModels();
     } catch (e: unknown) {
       toast(getErrorMessage(e, "Failed to load AI settings"), "error");
     } finally {
@@ -94,6 +117,7 @@ export function AISettings() {
       setForm((f) => ({ ...f, api_key: "", key_set: res.data.ai_api_key_set === "true" }));
       setDirty(false);
       toast(form.enabled ? "AI settings saved — assistance is on" : "AI settings saved — assistance is off");
+      if (res.data.ai_api_key_set === "true" || form.provider === "openai") void loadModels();
       return true;
     } catch (e: unknown) {
       toast(getErrorMessage(e, "Failed to save AI settings"), "error");
@@ -170,10 +194,28 @@ export function AISettings() {
                   <p className="text-xs text-muted-foreground">{d.hint}</p>
                 </div>
                 <div className="space-y-2">
-                  <Label>Model</Label>
-                  <Input list="ai-model-suggestions" value={form.model} onChange={(e) => update({ model: e.target.value })} placeholder={d.models[0]} className="font-mono" />
+                  <Label className="flex items-center justify-between">
+                    <span>Model</span>
+                    <button type="button" className="text-xs font-normal text-primary hover:underline inline-flex items-center gap-1 disabled:opacity-50" onClick={loadModels} disabled={loadingModels || (form.provider === "anthropic" && !form.key_set)} title={form.provider === "anthropic" && !form.key_set ? "Save an API key first" : "Ask the provider which models it offers"}>
+                      <RefreshCw className={`h-3 w-3 ${loadingModels ? "animate-spin" : ""}`} /> {models ? "Refresh list" : "Load models"}
+                    </button>
+                  </Label>
+                  {models && models.length > 0 && !customModel ? (
+                    <Select value={models.some((m) => m.id === form.model) ? form.model : ""} onChange={(e) => { if (e.target.value === "__custom__") { setCustomModel(true); } else update({ model: e.target.value }); }} className="font-mono">
+                      <option value="" disabled>Choose a model…</option>
+                      {models.map((m) => <option key={m.id} value={m.id}>{m.name ? `${m.name} (${m.id})` : m.id}</option>)}
+                      <option value="__custom__">Other — type a model id…</option>
+                    </Select>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Input list="ai-model-suggestions" value={form.model} onChange={(e) => update({ model: e.target.value })} placeholder={d.models[0]} className="font-mono" />
+                      {models && models.length > 0 && <Button size="sm" variant="ghost" onClick={() => setCustomModel(false)}>Pick from list</Button>}
+                    </div>
+                  )}
                   <datalist id="ai-model-suggestions">{d.models.map((m) => <option key={m} value={m} />)}</datalist>
-                  <p className="text-xs text-muted-foreground">Any model id your provider accepts. Suggestions are examples, not a list of what's available.</p>
+                  <p className="text-xs text-muted-foreground">
+                    {models && models.length > 0 ? `${models.length} models offered by your provider.` : modelsError ? `Couldn't list models: ${modelsError} — type a model id instead.` : form.provider === "anthropic" && !form.key_set ? "Save your API key, then load the list — or type a model id." : "Load the list from your provider, or type a model id."}
+                  </p>
                 </div>
                 <div className="space-y-2 sm:col-span-2">
                   <Label>Base URL <span className="text-muted-foreground font-normal">(leave empty for the provider default)</span></Label>
