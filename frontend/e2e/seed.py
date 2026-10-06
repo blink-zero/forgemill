@@ -51,6 +51,11 @@ c.execute("""INSERT INTO targets (id,name,type,hostname,port,username,password_e
           (PW_BLOB, ts(minutes=3), ts(days=95), ts(minutes=3)))
 # Unmanaged VMs seen on the last sync (drives the Targets badge, VMs → Discover picker and the Dashboard tile).
 c.execute("UPDATE targets SET unmanaged_vms = 3, unmanaged_checked_at = ? WHERE id = 1", (ts(minutes=3),))
+# A free-licensed standalone ESXi host: reachable, inventory-only.
+c.execute("""INSERT INTO targets (id,name,type,hostname,port,username,password_encrypted,validate_certs,is_default,status,last_connected_at,created_at,updated_at,datacenter,datastore,network,license_edition,deploy_supported,capability_note)
+             VALUES (3,'esxi-free-lab','esxi','esxi-free.lab.internal',443,'root',?,0,0,'connected',?,?,?,'ha-datacenter','datastore1','VM Network','VMware vSphere 8 Hypervisor',0,
+             'This ESXi host''s license prohibits vSphere API write operations (free vSphere Hypervisor license). Forgemill can read its inventory, sync, discover and adopt VMs, but cannot deploy, power, reconfigure, snapshot or destroy VMs on it. Use a licensed or evaluation-mode host, or manage it through vCenter.')""",
+          (PW_BLOB, ts(minutes=3), ts(days=30), ts(minutes=3)))
 
 c.execute("""INSERT INTO template_builds (id,os_definition_id,target_id,status,template_name,config_json,iso_url,iso_checksum,started_at,completed_at,created_by,created_at,version,auto_triggered)
              VALUES (1,'ubuntu-24.04',1,'completed','ubuntu-24.04-cloudinit','{}','https://releases.ubuntu.com/24.04/ubuntu-24.04.3-live-server-amd64.iso','sha256:c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b',?,?,1,?,3,0)""",

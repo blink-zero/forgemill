@@ -69,6 +69,7 @@ var migrations = []struct {
 	{43, migrationV43},
 	{44, migrationV44},
 	{45, migrationV45},
+	{46, migrationV46},
 }
 
 const migrationV1 = `
@@ -1423,6 +1424,16 @@ INSERT INTO schema_version (version) VALUES (38);
 // a password rotation). The secret is AES-256 encrypted like everything else.
 // V45: optional sudo password on a VM credential. A key login has no
 // password to hand to sudo; a password login may use a different one.
+// V46: what a target can do beyond reading inventory. Free-licensed
+// standalone ESXi hosts reject every vSphere API write; record that on the
+// target so the UI can say so and deploys are refused before a row exists.
+const migrationV46 = `
+ALTER TABLE targets ADD COLUMN license_edition TEXT NOT NULL DEFAULT '';
+ALTER TABLE targets ADD COLUMN deploy_supported INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE targets ADD COLUMN capability_note TEXT NOT NULL DEFAULT '';
+INSERT INTO schema_version (version) VALUES (46);
+`
+
 const migrationV45 = `
 ALTER TABLE vm_credentials ADD COLUMN sudo_password_enc TEXT NOT NULL DEFAULT '';
 INSERT INTO schema_version (version) VALUES (45);

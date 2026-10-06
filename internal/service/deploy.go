@@ -274,6 +274,11 @@ func (s *DeployService) Preflight(ctx context.Context, req *DeployRequest) (*Pre
 		addBlocker("template %d not found", req.TemplateID)
 	}
 	if target, err := s.targets.Get(req.TargetID); err == nil {
+		if !target.DeploySupported {
+			// Known from the last connection test: nothing below would succeed.
+			addBlocker("%s", targetCapabilityNote(target))
+			return result, nil
+		}
 		if err := validateExtrasForProvider(req, provider.GetMetadata(target.Type)); err != nil {
 			addBlocker("%s", err.Error())
 		}
@@ -340,6 +345,11 @@ func (s *DeployService) Start(req *DeployRequest, userID int64) (*DeployResponse
 		return nil, fmt.Errorf("template not found: %w", err)
 	}
 	if target, err := s.targets.Get(req.TargetID); err == nil {
+		if !target.DeploySupported {
+			// Refuse before a deployment row exists: the hypervisor would
+			// reject the first write anyway.
+			return nil, fmt.Errorf("%w: %s", ErrInvalidDeployRequest, targetCapabilityNote(target))
+		}
 		if err := validateExtrasForProvider(req, provider.GetMetadata(target.Type)); err != nil {
 			return nil, err
 		}
@@ -574,9 +584,24 @@ func (s *DeployService) runDeploy(ctx context.Context, deploymentID, targetID in
 // Hypervisor errors (govmomi, Proxmox API) are generally safe to expose — they
 // contain technical details like "datastore not found" or "disk space" but not
 // credentials. This strips any URL-like patterns and truncates for display.
+// targetCapabilityNote is the stored explanation for an inventory-only
+// target, with a fallback for rows written before the note existed.
+func targetCapabilityNote(t *models.Target) string {
+	if t.CapabilityNote != "" {
+		return fmt.Sprintf("target %q: %s", t.Name, t.CapabilityNote)
+	}
+	return fmt.Sprintf("target %q: %s", t.Name, provider.LicenseRestrictedMessage)
+}
+
 func sanitizeHypervisorError(err error) string {
 	if err == nil {
 		return "unknown error"
+	}
+	if provider.IsLicenseRestricted(err) {
+		// The raw fault ("Current license or ESXi version prohibits execution
+		// of the requested operation") is accurate but says nothing about why
+		// or what to do.
+		return provider.LicenseRestrictedMessage
 	}
 	msg := err.Error()
 	// Strip URL patterns that might contain hostnames (but not credentials — govmomi doesn't include those)

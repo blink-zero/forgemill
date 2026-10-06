@@ -350,3 +350,41 @@ type ExtrasValidator interface {
 	ValidateNICSpec(ctx context.Context, datacenter string, spec NICSpec) error
 	ValidateDiskSpec(ctx context.Context, datacenter string, spec DiskSpec) error
 }
+
+// HostCapabilities is what a target can do for Forgemill beyond reading its
+// inventory. Standalone ESXi hosts on the free "vSphere Hypervisor" license
+// make the vSphere API read-only for third-party clients: inventory, sync,
+// discover and adopt work, but every write (clone/copy, create, power,
+// reconfigure, snapshot, destroy) is rejected with RestrictedVersion.
+type HostCapabilities struct {
+	LicenseEdition string `json:"license_edition,omitempty"` // display name of the active license
+	WritesAllowed  bool   `json:"writes_allowed"`            // false = inventory-only
+	Note           string `json:"note,omitempty"`            // what the user should know when writes are off
+}
+
+// CapabilityReporter is implemented by providers that can tell up front
+// whether writes will be accepted; others are assumed fully capable.
+type CapabilityReporter interface {
+	HostCapabilities(ctx context.Context) (*HostCapabilities, error)
+}
+
+// ErrLicenseRestricted: the hypervisor refused a write because of its
+// license (vSphere RestrictedVersion). Handlers turn it into the message
+// below instead of a generic 500.
+var ErrLicenseRestricted = errors.New("hypervisor license prohibits this operation")
+
+// LicenseRestrictedMessage is the one explanation shown wherever the license
+// gate is hit, so it reads the same on the target, in preflight and on a run.
+const LicenseRestrictedMessage = "This ESXi host's license prohibits vSphere API write operations (free vSphere Hypervisor license). Forgemill can read its inventory, sync, discover and adopt VMs, but cannot deploy, power, reconfigure, snapshot or destroy VMs on it. Use a licensed or evaluation-mode host, or manage it through vCenter."
+
+// IsLicenseRestricted reports whether err is the license gate, by sentinel
+// or by the fault text vSphere has used for it for years.
+func IsLicenseRestricted(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrLicenseRestricted) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "license or esxi version prohibits")
+}
