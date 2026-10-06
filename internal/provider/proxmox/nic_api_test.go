@@ -166,6 +166,16 @@ func newFakePVE(t *testing.T) *fakePVE {
 		}
 		write(w, map[string]interface{}{"result": f.agent})
 	})
+	mux.HandleFunc("/api2/json/nodes/pve/qemu/100/agent/get-osinfo", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.agentErr {
+			w.WriteHeader(500)
+			_, _ = w.Write([]byte(`{"data":null,"message":"No QEMU guest agent configured"}`))
+			return
+		}
+		write(w, map[string]interface{}{"result": map[string]interface{}{"id": "ubuntu", "name": "Ubuntu", "pretty-name": "Ubuntu 22.04.4 LTS", "version-id": "22.04", "kernel-release": "5.15.0-105-generic"}})
+	})
 	mux.HandleFunc("/api2/json/nodes/pve/qemu/100/status/current", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -529,5 +539,26 @@ func TestConfigReadersShareOneFetchPerOperation(t *testing.T) {
 	}
 	if got := f.hit("/nodes/pve/qemu/100/config"); got != 3 {
 		t.Errorf("three config readers should fetch the config exactly three times, got %d", got)
+	}
+}
+
+// The guest agent's get-osinfo gives the real OS name; without an agent the
+// status still comes back, with only the family.
+func TestGetVMStatusReportsGuestOSFromAgent(t *testing.T) {
+	f := newFakePVE(t)
+	p := f.provider(t)
+	st, err := p.GetVMStatus(context.Background(), "100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.GuestOS != "Ubuntu 22.04.4 LTS" || st.GuestID != "linux" {
+		t.Errorf("guest os = %q id = %q", st.GuestOS, st.GuestID)
+	}
+	f.mu.Lock()
+	f.agentErr = true
+	f.mu.Unlock()
+	st, err = p.GetVMStatus(context.Background(), "100")
+	if err != nil || st.GuestOS != "" {
+		t.Errorf("without an agent: guest os = %q err %v", st.GuestOS, err)
 	}
 }

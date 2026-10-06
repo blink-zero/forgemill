@@ -973,14 +973,45 @@ func (p *Provider) GetVMStatus(ctx context.Context, vmID string) (*provider.VMSt
 		GuestID:    "linux", // Proxmox doesn't expose guest ID in status
 	}
 
-	// PV-P10: Try guest agent for IP address
+	// PV-P10: Try guest agent for IP address and the real OS name
 	if powerState == "running" {
 		if ip := p.getGuestAgentIP(ctx, node, vmID); ip != "" {
 			status.IPAddress = ip
 		}
+		status.GuestOS = p.getGuestAgentOS(ctx, node, vmID)
 	}
 
 	return status, nil
+}
+
+// getGuestAgentOS asks the QEMU guest agent what the guest is running
+// ("Ubuntu 22.04.4 LTS"). Empty when there is no agent or it doesn't know.
+func (p *Provider) getGuestAgentOS(ctx context.Context, node, vmID string) string {
+	body, err := p.doGet(ctx, fmt.Sprintf("/nodes/%s/qemu/%s/agent/get-osinfo", url.PathEscape(node), url.PathEscape(vmID)))
+	if err != nil {
+		return ""
+	}
+	var result struct {
+		Data struct {
+			Result struct {
+				ID         string `json:"id"`
+				Name       string `json:"name"`
+				PrettyName string `json:"pretty-name"`
+				VersionID  string `json:"version-id"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return ""
+	}
+	r := result.Data.Result
+	if r.PrettyName != "" {
+		return r.PrettyName
+	}
+	if r.Name != "" {
+		return strings.TrimSpace(r.Name + " " + r.VersionID)
+	}
+	return r.ID
 }
 
 // ValidateDeploySpec is a no-op for Proxmox: unlike vCenter/ESXi, DeployVM

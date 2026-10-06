@@ -415,11 +415,11 @@ func (s *VMService) SyncState(ctx context.Context, id int64) (*models.ManagedVM,
 		vm.MemoryMB = status.MemoryMB
 		vm.DiskGB = status.DiskGB
 	}
-	if status.GuestID != "" && vm.OSType == "" {
-		if err := s.db.UpdateManagedVMOSType(id, status.GuestID); err != nil {
+	if next := chooseOSType(vm.OSType, status); next != "" {
+		if err := s.db.UpdateManagedVMOSType(id, next); err != nil {
 			slog.Error("failed to update VM OS type", "vm_id", id, "error", err)
 		}
-		vm.OSType = status.GuestID
+		vm.OSType = next
 	}
 	vm.PowerState = lifecycle.PowerState
 	vm.StateChangedAt = lifecycle.StateChangedAt
@@ -568,8 +568,8 @@ func (s *VMService) SyncAll(ctx context.Context, dryRun bool) (*SyncAllResult, e
 					slog.Error("sync-all: failed to update resources", "vm_id", vm.ID, "error", err)
 				}
 			}
-			if status.GuestID != "" {
-				if err := s.db.UpdateManagedVMOSType(vm.ID, status.GuestID); err != nil {
+			if next := chooseOSType(vm.OSType, status); next != "" {
+				if err := s.db.UpdateManagedVMOSType(vm.ID, next); err != nil {
 					slog.Error("sync-all: failed to update OS type", "vm_id", vm.ID, "error", err)
 				}
 			}

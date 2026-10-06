@@ -152,6 +152,9 @@ func (p *Provider) GetVMStatus(ctx context.Context, vmID string) (*provider.VMSt
 	if vm.Guest != nil {
 		status.IPAddress = vm.Guest.IpAddress
 		status.HostName = vm.Guest.HostName
+		// Tools-reported ("Ubuntu Linux (64-bit)"); more truthful than the
+		// configured guest id when the two disagree.
+		status.GuestOS = vm.Guest.GuestFullName
 	}
 	if vm.Config != nil {
 		status.CPU = int(vm.Config.Hardware.NumCPU)
