@@ -49,7 +49,7 @@ func TestDeployRefusedOnInventoryOnlyTarget(t *testing.T) {
 
 func TestSanitizeHypervisorErrorExplainsLicenseGate(t *testing.T) {
 	msg := sanitizeHypervisorError(errors.New("start VMDK copy: ServerFaultCode: Current license or ESXi version prohibits execution of the requested operation."))
-	if !strings.Contains(msg, "free vSphere Hypervisor license") || strings.Contains(msg, "ServerFaultCode") {
+	if !strings.Contains(msg, "free vSphere Hypervisor license or its evaluation has expired") || strings.Contains(msg, "ServerFaultCode") {
 		t.Errorf("deploy failure must be explained, got %q", msg)
 	}
 }

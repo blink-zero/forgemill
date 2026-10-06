@@ -373,9 +373,14 @@ type CapabilityReporter interface {
 // below instead of a generic 500.
 var ErrLicenseRestricted = errors.New("hypervisor license prohibits this operation")
 
-// LicenseRestrictedMessage is the one explanation shown wherever the license
-// gate is hit, so it reads the same on the target, in preflight and on a run.
-const LicenseRestrictedMessage = "This ESXi host's license prohibits vSphere API write operations (free vSphere Hypervisor license). Forgemill can read its inventory, sync, discover and adopt VMs, but cannot deploy, power, reconfigure, snapshot or destroy VMs on it. Use a licensed or evaluation-mode host, or manage it through vCenter."
+// LicenseRestrictedMessage is shown when the hypervisor refuses a write with
+// the license fault and nothing more specific is known (a VM operation on a
+// host that wasn't re-tested, for instance). It names both causes rather
+// than guessing one; the target's own note is specific.
+const LicenseRestrictedMessage = "This ESXi host's license prohibits vSphere API write operations — it is on the free vSphere Hypervisor license or its evaluation has expired. Forgemill can read its inventory, sync, discover and adopt VMs, but cannot deploy, power, reconfigure, snapshot or destroy VMs on it. Assign a paid or VMUG license key to the host, or manage it through vCenter."
+
+// FreeLicenseMessage is the target note when the free SKU was identified.
+const FreeLicenseMessage = "This ESXi host is on the free vSphere Hypervisor license, which prohibits vSphere API write operations. Forgemill can read its inventory, sync, discover and adopt VMs, but cannot deploy, power, reconfigure, snapshot or destroy VMs on it. Assign a paid or VMUG license key to the host, or manage it through vCenter."
 
 // EvaluationExpiredMessage: the host's 60-day evaluation ran out. ESXi keeps
 // reporting "Evaluation Mode" but refuses every API write from then on.
