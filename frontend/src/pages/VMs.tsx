@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, Monitor, Cpu, MemoryStick, HardDrive, Power, RefreshCw, Play, Square, Rocket, MoreHorizontal, ExternalLink, Terminal, Camera, RotateCw, X, Box, Clock, CalendarDays, Import } from "lucide-react";
 import ProviderIcon from "@/components/ProviderIcon";
+import { isInventoryOnly } from "@/components/InventoryOnlyBadge";
 import { cn, getErrorMessage, timeAgo, copyText } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
 import { Pagination } from "@/components/ui/pagination";
@@ -45,6 +46,8 @@ export default function VMs() {
   const [targetRows, setTargetRows] = useState<Target[]>([]);
   useEffect(() => { targetApi.list().then((res) => setTargetRows(res.data || [])).catch(() => { /* entry point degrades to the Targets page */ }); }, []);
   const targetTypeByName = useMemo(() => Object.fromEntries(targetRows.map((t) => [t.name, t.type])), [targetRows]);
+  // Inventory-only hosts reject power operations; say so instead of failing.
+  const hvNoteByName = useMemo(() => Object.fromEntries(targetRows.filter((t) => isInventoryOnly(t)).map((t) => [t.name, t.capability_note || "This target's license prohibits hypervisor write operations."])), [targetRows]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = usePageSize("vms", 25);
   const [syncing, setSyncing] = useState(false);
@@ -459,7 +462,7 @@ export default function VMs() {
                             </span>
                           )}
                           {vm.origin === "adopted" && (
-                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-info/15 text-info" title="Discovered on the target and adopted into Forgemill">adopted</span>
+                            <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded border border-border bg-muted text-muted-foreground" title="Discovered on the target and adopted into Forgemill"><Import className="h-2.5 w-2.5" />adopted</span>
                           )}
                         </div>
                       </td>
@@ -473,6 +476,7 @@ export default function VMs() {
                         <span className="inline-flex items-center gap-1.5">
                           {targetTypeByName[vm.target_name] && <ProviderIcon type={targetTypeByName[vm.target_name]} size={14} className="shrink-0" />}
                           {vm.target_name}
+                          {hvNoteByName[vm.target_name] && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning/15 text-warning" title={hvNoteByName[vm.target_name]}>inventory-only</span>}
                         </span>
                       </td>
                       <td className="px-4 py-2.5">
@@ -499,11 +503,11 @@ export default function VMs() {
                       <td className="px-2 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-0.5">
                           {isPoweredOn(vm.power_state) ? (
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => doQuickPower(e, vm.id, "stop")} disabled={actingOn === vm.id} title="Stop">
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => doQuickPower(e, vm.id, "stop")} disabled={actingOn === vm.id || Boolean(hvNoteByName[vm.target_name])} title={hvNoteByName[vm.target_name] || "Stop"}>
                               <Square className="h-3.5 w-3.5" />
                             </Button>
                           ) : isPoweredOff(vm.power_state) ? (
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => doQuickPower(e, vm.id, "start")} disabled={actingOn === vm.id} title="Start">
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => doQuickPower(e, vm.id, "start")} disabled={actingOn === vm.id || Boolean(hvNoteByName[vm.target_name])} title={hvNoteByName[vm.target_name] || "Start"}>
                               <Play className="h-3.5 w-3.5" />
                             </Button>
                           ) : null}
@@ -534,6 +538,7 @@ export default function VMs() {
                         <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
                           {targetTypeByName[vm.target_name] && <ProviderIcon type={targetTypeByName[vm.target_name]} size={12} className="shrink-0" />}
                           <span>{vm.target_name}</span>
+                          {hvNoteByName[vm.target_name] && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning/15 text-warning" title={hvNoteByName[vm.target_name]}>inventory-only</span>}
                           <span className="font-mono opacity-60">· #{vm.id}</span>
                         </div>
                         {vm.template_name && (
@@ -544,11 +549,11 @@ export default function VMs() {
                       </div>
                       <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                         {isPoweredOn(vm.power_state) ? (
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => doQuickPower(e, vm.id, "stop")} disabled={actingOn === vm.id} title="Stop">
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => doQuickPower(e, vm.id, "stop")} disabled={actingOn === vm.id || Boolean(hvNoteByName[vm.target_name])} title={hvNoteByName[vm.target_name] || "Stop"}>
                             <Square className="h-3 w-3" />
                           </Button>
                         ) : isPoweredOff(vm.power_state) ? (
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => doQuickPower(e, vm.id, "start")} disabled={actingOn === vm.id} title="Start">
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => doQuickPower(e, vm.id, "start")} disabled={actingOn === vm.id || Boolean(hvNoteByName[vm.target_name])} title={hvNoteByName[vm.target_name] || "Start"}>
                             <Play className="h-3 w-3" />
                           </Button>
                         ) : null}

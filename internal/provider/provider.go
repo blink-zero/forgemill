@@ -193,6 +193,10 @@ type VMStatus struct {
 	MemoryMB   int    `json:"memory_mb"`
 	DiskGB     int    `json:"disk_gb"`
 	GuestID    string `json:"guest_id"`
+	// GuestOS is what the guest itself reports when an agent / Tools is
+	// running — "Ubuntu 22.04.4 LTS", "Ubuntu Linux (64-bit)" — and beats
+	// GuestID, which on Proxmox is only ever a family (l26 / win11).
+	GuestOS string `json:"guest_os,omitempty"`
 }
 
 type Resources struct {

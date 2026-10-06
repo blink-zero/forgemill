@@ -143,6 +143,8 @@ async function run(theme) {
   await page.getByRole("button", { name: "Destroy VM" }).click(); await sleep(400);
   await page.getByRole("button", { name: "Snapshots" }).first().click(); await sleep(1200);
   await shot("07b-vm-snapshots");
+  // A VM on an inventory-only host: banner + disabled hypervisor controls.
+  if (await goSoft("/vms/9", "text=Inventory-only host")) await shot("07c-vm-inventory-only");
   const revert = page.getByRole("button", { name: /Revert/ }).first();
   if (await revert.count()) { await revert.click(); await sleep(900); await shot("08-confirm-destructive"); await page.keyboard.press("Escape"); await sleep(300); }
   await sleep(6000);
