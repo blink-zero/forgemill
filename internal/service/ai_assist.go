@@ -160,13 +160,21 @@ func (s *AIAssistService) Test(ctx context.Context, actor string, actorID *int64
 	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
 	start := time.Now()
-	resp, err := p.Complete(ctx, ai.Request{System: "You are a connectivity check. Reply with the single word OK and nothing else.", User: "ping", MaxTokens: 5})
+	// Same request shape as review and draft (system prompt, JSON answer,
+	// output cap) so a model that would refuse those refuses here too.
+	var probe struct {
+		OK bool `json:"ok"`
+	}
+	resp, err := completeJSON(ctx, p, ai.Request{System: "You are a connectivity check for Forgemill. Answer with exactly this JSON object and nothing else: {\"ok\": true}", User: "ping", MaxTokens: 20, JSON: true}, &probe)
 	res := AITestResult{Provider: cfg.Provider, Model: cfg.Model, LatencyMs: time.Since(start).Milliseconds()}
 	if err != nil {
-		res.Error = err.Error()
+		res.Error = userFacingAIError(err)
 	} else {
 		res.OK = true
-		res.Reply = strings.TrimSpace(resp.Text)
+		res.Reply = "OK"
+		if !probe.OK {
+			res.Reply = strings.TrimSpace(resp.Text)
+		}
 		if resp.Model != "" {
 			res.Model = resp.Model
 		}

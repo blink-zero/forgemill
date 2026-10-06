@@ -20,7 +20,7 @@ func newAITestService(t *testing.T) (*AIAssistService, map[string]string) {
 		}
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"model":"llama3","choices":[{"message":{"content":"OK"}}]}`))
+		_, _ = w.Write([]byte(`{"model":"llama3","choices":[{"message":{"content":"{\"ok\": true}"}}]}`))
 	}))
 	t.Cleanup(srv.Close)
 	set(SettingAIProvider, ai.ProviderOpenAI)

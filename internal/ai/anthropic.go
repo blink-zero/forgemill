@@ -32,9 +32,10 @@ func (a *anthropic) Complete(ctx context.Context, req Request) (*Response, error
 	if req.System != "" {
 		body["system"] = req.System
 	}
-	if req.Temperature > 0 {
-		body["temperature"] = req.Temperature
-	}
+	// No temperature: the current Claude models reject the parameter
+	// ("`temperature` is deprecated for this model") and the default is
+	// right for review and drafting anyway. Request.Temperature is honoured
+	// by the OpenAI-compatible adapter only.
 	payload, _ := json.Marshal(body)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.cfg.effectiveBaseURL()+"/v1/messages", bytes.NewReader(payload))
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 // openAI speaks Chat Completions — OpenAI itself and every compatible server
@@ -54,7 +55,16 @@ func (o *openAI) Complete(ctx context.Context, req Request) (*Response, error) {
 		return nil, &ProviderError{Provider: "OpenAI-compatible endpoint", Status: resp.StatusCode, Message: "could not read response"}
 	}
 	if resp.StatusCode/100 != 2 {
-		return nil, &ProviderError{Provider: "OpenAI-compatible endpoint", Status: resp.StatusCode, Message: apiErrorMessage(raw)}
+		msg := apiErrorMessage(raw)
+		// Some models (reasoning models, newer gateways) refuse sampling
+		// parameters or JSON mode. Retry once without them rather than fail.
+		if resp.StatusCode == 400 && (req.Temperature > 0 || req.JSON) && refusesParameter(msg) {
+			plain := req
+			plain.Temperature = 0
+			plain.JSON = false
+			return o.Complete(ctx, plain)
+		}
+		return nil, &ProviderError{Provider: "OpenAI-compatible endpoint", Status: resp.StatusCode, Message: msg}
 	}
 	var out struct {
 		Model   string `json:"model"`
@@ -75,4 +85,11 @@ func (o *openAI) Complete(ctx context.Context, req Request) (*Response, error) {
 		return nil, &ProviderError{Provider: "OpenAI-compatible endpoint", Status: resp.StatusCode, Message: "empty answer"}
 	}
 	return &Response{Text: out.Choices[0].Message.Content, Model: out.Model, InputTokens: out.Usage.PromptTokens, OutputTokens: out.Usage.CompletionTokens}, nil
+}
+
+// refusesParameter recognises "this model does not accept X" errors.
+func refusesParameter(msg string) bool {
+	l := strings.ToLower(msg)
+	return (strings.Contains(l, "temperature") || strings.Contains(l, "response_format") || strings.Contains(l, "json")) &&
+		(strings.Contains(l, "deprecated") || strings.Contains(l, "not supported") || strings.Contains(l, "unsupported") || strings.Contains(l, "does not support") || strings.Contains(l, "is not allowed"))
 }
