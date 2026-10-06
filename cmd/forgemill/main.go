@@ -131,6 +131,7 @@ func main() {
 		slog.Info("cleaned up stale builds from previous run", "count", n)
 	}
 	auditSvc := service.NewAuditService(database)
+	aiSvc := service.NewAIAssistService(database, enc, auditSvc)
 	auditSvc.StartRetentionCleanup()
 	factorySvc := service.NewFactoryService(database, buildEngine, enc)
 	factorySvc.SetWebhookService(webhookSvc)
@@ -153,6 +154,7 @@ func main() {
 		LDAPService:       ldapSvc,
 		FactoryService:    factorySvc,
 		AuditService:        auditSvc,
+		AIAssistService:     aiSvc,
 		NotificationService: notificationSvc,
 		ExecutorService:   executorSvc,
 		Hub:               hub,

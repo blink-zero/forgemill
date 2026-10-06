@@ -650,3 +650,24 @@ export interface CredentialCheck {
   detail?: string;
   checked_via?: string;
 }
+
+// AI assistance status. Non-admins only receive enabled/configured.
+export interface AIStatus {
+  enabled: boolean;
+  configured: boolean;
+  provider?: "anthropic" | "openai" | string;
+  model?: string;
+  base_url?: string;
+  key_set?: boolean;
+  redact_hostnames: boolean;
+  problem?: string;
+}
+
+export interface AITestResult {
+  ok: boolean;
+  provider?: string;
+  model?: string;
+  latency_ms?: number;
+  reply?: string;
+  error?: string;
+}

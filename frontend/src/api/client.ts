@@ -42,6 +42,8 @@ import type {
   VMCredentials,
   SetVMCredentialsRequest,
   CredentialCheck,
+  AIStatus,
+  AITestResult,
 } from "@/types";
 
 const api = axios.create({
@@ -160,9 +162,16 @@ export const history = {
 };
 
 export const settings = {
-  get: () => api.get("/settings"),
-  update: (data: Record<string, unknown>) => api.put("/settings", data),
+  get: () => api.get<Record<string, string>>("/settings"),
+  update: (data: Record<string, unknown>) => api.put<Record<string, string>>("/settings", data),
   clearDeploymentHistory: () => api.delete<{ deleted: number }>("/deployment-history"),
+};
+
+// AI assistance (optional, admin-configured). Status tells the editor whether
+// to show AI controls; test is Settings → AI → Test.
+export const ai = {
+  status: () => api.get<AIStatus>("/ai/status"),
+  test: () => api.post<AITestResult>("/ai/test"),
 };
 
 export const users = {

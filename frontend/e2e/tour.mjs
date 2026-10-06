@@ -166,6 +166,8 @@ async function run(theme) {
   await go("/settings?tab=diagnostics", "text=Recent server errors"); await shot("13c-settings-diagnostics", true);
   await sleep(4000);
   if (await goSoft("/settings?tab=preferences", "text=VM Adoption")) await shot("13d-settings-preferences", true);
+  await sleep(4000);
+  if (await goSoft("/settings?tab=ai", "text=AI assistance")) await shot("13e-settings-ai", true);
   const more = page.locator("button[aria-label*='ctions'], button:has(svg.lucide-ellipsis), button:has(svg.lucide-more-horizontal)").first();
   if (await more.count()) { await more.click(); await sleep(500); const del = page.getByRole("menuitem", { name: /Delete user/ }); if (await del.count()) { await del.click(); await sleep(900); await shot("14-confirm-typed"); await page.keyboard.press("Escape"); } }
 

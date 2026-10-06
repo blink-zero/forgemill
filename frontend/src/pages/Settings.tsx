@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon, Copy, Send, Pencil, Check, UserCheck, UserX, LogOut as LogOutIcon, MoreHorizontal, Search, Wifi, RefreshCw, Activity, Import } from "lucide-react";
 import ProviderIcon, { providerLabel } from "@/components/ProviderIcon";
+import { AISettings } from "@/pages/settings/AISettings";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { ForgemillLogo } from "@/components/ForgemillLogo";
 import { Select } from "@/components/ui/select";
@@ -32,9 +33,9 @@ const WEBHOOK_EVENTS = [
   "execution.completed",
 ] as const;
 
-type SettingsTab = "users" | "webhooks" | "apikeys" | "preferences" | "auditlog" | "diagnostics" | "about";
-const SETTINGS_TABS: readonly SettingsTab[] = ["users", "webhooks", "apikeys", "preferences", "auditlog", "diagnostics", "about"];
-const ADMIN_ONLY_TABS: ReadonlySet<string> = new Set(["webhooks", "auditlog", "diagnostics"]);
+type SettingsTab = "users" | "webhooks" | "apikeys" | "preferences" | "ai" | "auditlog" | "diagnostics" | "about";
+const SETTINGS_TABS: readonly SettingsTab[] = ["users", "webhooks", "apikeys", "preferences", "ai", "auditlog", "diagnostics", "about"];
+const ADMIN_ONLY_TABS: ReadonlySet<string> = new Set(["webhooks", "ai", "auditlog", "diagnostics"]);
 const isSettingsTab = (v: string | null): v is SettingsTab => v !== null && (SETTINGS_TABS as readonly string[]).includes(v);
 
 export default function SettingsPage() {
@@ -414,6 +415,7 @@ export default function SettingsPage() {
     { key: "webhooks", label: "Webhooks", adminOnly: true },
     { key: "apikeys", label: "API Keys" },
     { key: "preferences", label: "Preferences" },
+    { key: "ai", label: "AI", adminOnly: true },
     { key: "auditlog", label: "Audit Log", adminOnly: true },
     { key: "diagnostics", label: "Diagnostics", adminOnly: true },
     { key: "about", label: "About" },
@@ -1271,6 +1273,8 @@ export default function SettingsPage() {
           )}
         </div>
       )}
+
+      {tab === "ai" && isAdmin && <AISettings />}
 
       {tab === "diagnostics" && isAdmin && (
         <div className="space-y-4">
