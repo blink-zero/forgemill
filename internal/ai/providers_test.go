@@ -39,6 +39,41 @@ func TestAnthropicAdapterRequestAndResponse(t *testing.T) {
 	if got["system"] != "sys" || got["max_tokens"].(float64) != 100 || got["model"] != "claude-x" {
 		t.Errorf("body %v", got)
 	}
+	// The current Claude models reject `temperature`; never send it.
+	if _, present := got["temperature"]; present {
+		t.Error("anthropic request must not carry temperature")
+	}
+}
+
+// A compatible server that refuses sampling parameters gets one retry without them.
+func TestOpenAIAdapterRetriesWithoutRefusedParameters(t *testing.T) {
+	var bodies []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var got map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		bodies = append(bodies, got)
+		if _, has := got["temperature"]; has {
+			w.WriteHeader(400)
+			_, _ = w.Write([]byte(`{"error":{"message":"Unsupported parameter: 'temperature' is not supported with this model.","type":"invalid_request_error"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"OK"}}]}`))
+	}))
+	defer srv.Close()
+	p, _ := New(Config{Provider: ProviderOpenAI, BaseURL: srv.URL, Model: "o-x", AllowPrivateEndpoint: true})
+	resp, err := p.Complete(context.Background(), Request{User: "u", Temperature: 0.2, JSON: true})
+	if err != nil || resp.Text != "OK" {
+		t.Fatalf("retry: %+v %v", resp, err)
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("want 2 requests, got %d", len(bodies))
+	}
+	if _, has := bodies[1]["temperature"]; has {
+		t.Error("retry must drop temperature")
+	}
+	if _, has := bodies[1]["response_format"]; has {
+		t.Error("retry must drop response_format")
+	}
 }
 
 func TestOpenAIAdapterRequestResponseAndErrors(t *testing.T) {
