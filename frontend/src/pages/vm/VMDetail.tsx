@@ -6,7 +6,7 @@ import type { DeletePreview } from "@/api/client";
 import { useProviders } from "@/context/ProviderContext";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
-import type { ManagedVM, VMSnapshot, ResourceItem, VMNIC, VMDisk } from "@/types";
+import type { ManagedVM, VMSnapshot, ResourceItem, VMNIC, VMDisk, Target } from "@/types";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,12 +19,10 @@ import { TimeWithTooltip } from "@/components/ui/time-with-tooltip";
 import { useNowTick } from "@/hooks/useNowTick";
 import { vmLifecycleLabel, totalLifetimeRuntimeMs, formatDuration } from "@/lib/vmLifecycle";
 import { timeAgo } from "@/lib/utils";
-import {
-  Play, Square, RotateCcw, Pause, Trash2, Camera, Undo2, ExternalLink, Cpu, MemoryStick,
-  HardDrive, RefreshCw, KeyRound, Copy, X, Loader2, AlertTriangle, Clock, History, Network,
-} from "lucide-react";
+import { Play, Square, RotateCcw, Pause, Trash2, Camera, Undo2, ExternalLink, Cpu, MemoryStick, HardDrive, RefreshCw, KeyRound, Copy, X, Loader2, AlertTriangle, Clock, History, Network, BookOpen } from "lucide-react";
 import ProviderIcon from "@/components/ProviderIcon";
 import { getErrorMessage, copyText } from "@/lib/utils";
+import { InventoryOnlyBadge, isInventoryOnly } from "@/components/InventoryOnlyBadge";
 import { powerVariant, powerLabel } from "@/lib/status";
 
 import { NetworkAdaptersCard } from "./NetworkAdaptersCard";
@@ -76,6 +74,12 @@ export default function VMDetail() {
   // resource inventory, the same list the deploy form uses.
   const { getProvider } = useProviders();
   const [targetType, setTargetType] = useState("");
+  // The VM's target: an inventory-only host (free / expired-evaluation ESXi)
+  // rejects every hypervisor write, so those controls are disabled with the
+  // reason instead of failing one by one.
+  const [vmTarget, setVMTarget] = useState<Target | null>(null);
+  const inventoryOnly = isInventoryOnly(vmTarget);
+  const hvTitle = inventoryOnly ? (vmTarget?.capability_note || "This target's license prohibits hypervisor write operations.") : undefined;
   const [showAddNIC, setShowAddNIC] = useState(false);
   const [nicNetworks, setNicNetworks] = useState<ResourceItem[]>([]);
   const [nicNetworksLoading, setNicNetworksLoading] = useState(false);
@@ -128,6 +132,8 @@ export default function VMDetail() {
       // 8.14: Track timer for cleanup
       const timer = setTimeout(reload, 1000);
       pendingTimers.current.push(timer);
+    } catch (e: unknown) {
+      toast(getErrorMessage(e, `Failed to ${action} VM`), "error");
     } finally {
       setActing(false);
     }
@@ -151,6 +157,8 @@ export default function VMDetail() {
       setSnapName("");
       setSnapDesc("");
       reload();
+    } catch (e: unknown) {
+      toast(getErrorMessage(e, "Failed to create snapshot"), "error");
     } finally {
       setActing(false);
     }
@@ -166,6 +174,8 @@ export default function VMDetail() {
       // 8.14: Track timer for cleanup
       const timer = setTimeout(reload, 1000);
       pendingTimers.current.push(timer);
+    } catch (e: unknown) {
+      toast(getErrorMessage(e, "Failed to revert snapshot"), "error");
     } finally {
       setActing(false);
     }
@@ -179,6 +189,8 @@ export default function VMDetail() {
     try {
       await vmApi.deleteSnapshot(vmId, snapId);
       reload();
+    } catch (e: unknown) {
+      toast(getErrorMessage(e, "Failed to delete snapshot"), "error");
     } finally {
       setActing(false);
     }
@@ -191,6 +203,8 @@ export default function VMDetail() {
       await vmApi.resize(vmId, { cpu: resizeCPU, memory_mb: resizeMem });
       setShowResize(false);
       reload();
+    } catch (e: unknown) {
+      toast(getErrorMessage(e, "Failed to resize VM"), "error");
     } finally {
       setActing(false);
     }
@@ -264,7 +278,7 @@ export default function VMDetail() {
     if (!vm?.target_id) return;
     let cancelled = false;
     targetApi.get(vm.target_id)
-      .then((res) => { if (!cancelled) setTargetType(res.data.type); })
+      .then((res) => { if (!cancelled) { setTargetType(res.data.type); setVMTarget(res.data); } })
       .catch(() => { /* leave the control hidden if the target can't be read */ });
     return () => { cancelled = true; };
   }, [vm?.target_id]);
@@ -372,6 +386,8 @@ export default function VMDetail() {
     try {
       await vmApi.delete(vmId, forceLocal);
       navigate("/vms");
+    } catch (e: unknown) {
+      toast(getErrorMessage(e, forceLocal ? "Failed to untrack VM" : "Failed to destroy VM"), "error");
     } finally {
       setActing(false);
     }
@@ -437,23 +453,23 @@ export default function VMDetail() {
         {/* Primary actions live in the header: power, console, sync. */}
         <div className="ml-auto flex items-center gap-1.5 flex-wrap">
           <div className="inline-flex items-center rounded-md border border-border bg-card shadow-xs overflow-hidden">
-            <Button size="sm" variant="ghost" className="rounded-none h-8 px-2.5 gap-1.5 text-success hover:text-success" onClick={() => doPower("start")} disabled={acting} title="Start">
+            <Button size="sm" variant="ghost" className="rounded-none h-8 px-2.5 gap-1.5 text-success hover:text-success" onClick={() => doPower("start")} disabled={acting || inventoryOnly} title={hvTitle || "Start"}>
               <Play className="h-3.5 w-3.5" /> Start
             </Button>
             <span className="h-5 w-px bg-border" aria-hidden="true" />
-            <Button size="sm" variant="ghost" className="rounded-none h-8 px-2.5 gap-1.5" onClick={() => doPower("stop")} disabled={acting} title="Stop">
+            <Button size="sm" variant="ghost" className="rounded-none h-8 px-2.5 gap-1.5" onClick={() => doPower("stop")} disabled={acting || inventoryOnly} title={hvTitle || "Stop"}>
               <Square className="h-3.5 w-3.5" /> Stop
             </Button>
             <span className="h-5 w-px bg-border" aria-hidden="true" />
-            <Button size="sm" variant="ghost" className="rounded-none h-8 px-2.5 gap-1.5" onClick={() => doPower("restart")} disabled={acting} title="Restart">
+            <Button size="sm" variant="ghost" className="rounded-none h-8 px-2.5 gap-1.5" onClick={() => doPower("restart")} disabled={acting || inventoryOnly} title={hvTitle || "Restart"}>
               <RotateCcw className="h-3.5 w-3.5" /> Restart
             </Button>
             <span className="h-5 w-px bg-border" aria-hidden="true" />
-            <Button size="sm" variant="ghost" className="rounded-none h-8 px-2.5 gap-1.5" onClick={() => doPower("suspend")} disabled={acting} title="Suspend">
+            <Button size="sm" variant="ghost" className="rounded-none h-8 px-2.5 gap-1.5" onClick={() => doPower("suspend")} disabled={acting || inventoryOnly} title={hvTitle || "Suspend"}>
               <Pause className="h-3.5 w-3.5" /> Suspend
             </Button>
           </div>
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={doConsole}>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={doConsole} disabled={inventoryOnly} title={hvTitle}>
             <ExternalLink className="h-3.5 w-3.5" /> Console
           </Button>
           <Button variant="outline" size="sm" onClick={doSync} disabled={syncing} className="gap-1.5">
@@ -462,6 +478,17 @@ export default function VMDetail() {
           </Button>
         </div>
       </div>
+
+      {inventoryOnly && vmTarget && (
+        <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2.5 flex items-start gap-2.5">
+          <BookOpen className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+          <div className="text-sm space-y-0.5 min-w-0">
+            <p className="font-medium flex items-center gap-2 flex-wrap">Inventory-only host <InventoryOnlyBadge target={vmTarget} /></p>
+            <p className="text-13 text-muted-foreground">{vmTarget.capability_note}</p>
+            <p className="text-13 text-muted-foreground">Power, console, resize, disks, network adapters, snapshots and destroy are disabled here. <span className="text-foreground">SSH actions, sync and Untrack still work</span> — the restriction is on the vSphere API, not on SSH.</p>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex border-b">
@@ -568,9 +595,9 @@ export default function VMDetail() {
             <Card>
               <CardHeader>
                 <CardTitle>Operations</CardTitle>
-                <CardDescription>Resize, storage, networking and access.</CardDescription>
+                <CardDescription>{inventoryOnly ? "Disabled: this host's license prohibits hypervisor writes." : "Resize, storage, networking and access."}</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-2">
+              <CardContent className="space-y-2" aria-disabled={inventoryOnly || undefined} title={hvTitle} style={inventoryOnly ? { pointerEvents: "none", opacity: 0.55 } : undefined}>
                 <div className="space-y-2">
                   <Button size="sm" variant="outline" className="w-full justify-start gap-2" onClick={() => {
                     if (!showResize && vm) {
@@ -843,7 +870,7 @@ export default function VMDetail() {
                   </div>
                 )}
               >
-                <Button size="sm" variant="destructive" className="gap-1.5" onClick={() => { setDeleteMode(deleteMode === "destroy" ? null : "destroy"); setDestroyConfirmText(""); }} disabled={acting} aria-expanded={deleteMode === "destroy"}>
+                <Button size="sm" variant="destructive" className="gap-1.5" onClick={() => { setDeleteMode(deleteMode === "destroy" ? null : "destroy"); setDestroyConfirmText(""); }} disabled={acting || inventoryOnly} title={hvTitle} aria-expanded={deleteMode === "destroy"}>
                   <Trash2 className="h-3.5 w-3.5" /> Destroy VM
                 </Button>
               </DangerZoneItem>
@@ -856,8 +883,9 @@ export default function VMDetail() {
         <Card>
           <CardHeader>
             <CardTitle>Snapshots</CardTitle>
+            {inventoryOnly && <CardDescription className="text-warning">Snapshot operations are disabled: this host's license prohibits hypervisor writes.</CardDescription>}
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4" aria-disabled={inventoryOnly || undefined} title={hvTitle} style={inventoryOnly ? { pointerEvents: "none", opacity: 0.55 } : undefined}>
             <div className="flex gap-3 items-end">
               <div className="flex-1">
                 <Label className="text-xs">Snapshot Name</Label>

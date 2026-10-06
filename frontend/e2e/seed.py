@@ -113,6 +113,12 @@ for (i, name, tid, tpl, ref, state, ip, cpu, mem, disk, osn, cdays, ondays, rt_h
               (i, i, tid, name, ref, state, ip, cpu, mem, disk, osn, ts(minutes=2), done, changed,
                on_at or ts(days=cdays), off_at, rt_h * 3600))
 
+# An adopted VM on the inventory-only ESXi host (no deployment): the VM page
+# shows the banner and disables hypervisor controls.
+c.execute("""INSERT INTO managed_vms (id,deployment_id,target_id,vm_name,vm_ref,power_state,ip_address,cpu,memory_mb,disk_gb,os_type,last_synced_at,created_at,platform,state_changed_at,last_powered_on_at,last_powered_off_at,total_runtime_seconds,origin,adopted_at,adopted_by)
+             VALUES (9,NULL,3,'legacy-fileserver','12','poweredOn','10.20.30.5',2,4096,200,'Ubuntu 22.04 LTS',?,?,'linux',?,?,NULL,?,'adopted',?,1)""",
+          (ts(minutes=2), ts(days=20), ts(days=20), ts(days=20), 480 * 3600, ts(days=20)))
+
 c.execute("INSERT INTO vm_snapshots (vm_id,snapshot_ref,name,description,created_at) VALUES (1,'snapshot-501','pre-upgrade','Before nginx 1.26 upgrade',?)", (ts(days=5),))
 c.execute("INSERT INTO vm_snapshots (vm_id,snapshot_ref,name,description,created_at) VALUES (1,'snapshot-517','post-hardening','After Security Hardening action',?)", (ts(days=2, hours=3),))
 c.execute("INSERT INTO vm_snapshots (vm_id,snapshot_ref,name,description,created_at) VALUES (4,'snapshot-520','nightly','Nightly automated snapshot',?)", (ts(hours=9),))
