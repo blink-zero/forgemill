@@ -377,6 +377,19 @@ var ErrLicenseRestricted = errors.New("hypervisor license prohibits this operati
 // gate is hit, so it reads the same on the target, in preflight and on a run.
 const LicenseRestrictedMessage = "This ESXi host's license prohibits vSphere API write operations (free vSphere Hypervisor license). Forgemill can read its inventory, sync, discover and adopt VMs, but cannot deploy, power, reconfigure, snapshot or destroy VMs on it. Use a licensed or evaluation-mode host, or manage it through vCenter."
 
+// EvaluationExpiredMessage: the host's 60-day evaluation ran out. ESXi keeps
+// reporting "Evaluation Mode" but refuses every API write from then on.
+const EvaluationExpiredMessage = "This ESXi host's evaluation license has expired, so the vSphere API refuses write operations. Forgemill can read its inventory, sync, discover and adopt VMs, but cannot deploy, power, reconfigure, snapshot or destroy VMs on it. Assign a license key to the host (a paid or VMUG key restores everything; the free vSphere Hypervisor key keeps it inventory-only) or manage it through vCenter."
+
+// WriteProbeRefusedMessage: the host rejected Forgemill's test write with
+// the license fault although the license itself didn't explain why.
+func WriteProbeRefusedMessage(edition string) string {
+	if edition == "" {
+		edition = "unknown"
+	}
+	return "This ESXi host rejected a test write: its license (" + edition + ") prohibits vSphere API write operations. Forgemill can read its inventory, sync, discover and adopt VMs, but cannot deploy, power, reconfigure, snapshot or destroy VMs on it. Check the host's licensing (expired evaluation or free vSphere Hypervisor key), assign a paid or VMUG key, or manage it through vCenter."
+}
+
 // IsLicenseRestricted reports whether err is the license gate, by sentinel
 // or by the fault text vSphere has used for it for years.
 func IsLicenseRestricted(err error) bool {
