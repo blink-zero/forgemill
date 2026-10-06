@@ -47,6 +47,7 @@ type RouterConfig struct {
 	Encryptor            interface{ Encrypt(string) (string, error); Decrypt(string) (string, error) } // V3-M14
 	TLSCert              string // MED-03: Used to detect production mode for CORS enforcement
 	AuditService         *service.AuditService
+	AIAssistService      *service.AIAssistService
 	NotificationService  *service.NotificationService
 }
 
@@ -118,6 +119,10 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 	deployH := handlers.NewDeployHandler(cfg.DeployService, cfg.AuditService)
 	historyH := handlers.NewHistoryHandler(cfg.DeployService)
 	settingsH := handlers.NewSettingsHandler(cfg.DB, cfg.AuditService)
+	if cfg.Encryptor != nil {
+		settingsH.SetEncryptor(cfg.Encryptor)
+	}
+	aiH := handlers.NewAIHandler(cfg.AIAssistService)
 	apiKeyH := handlers.NewAPIKeyHandler(cfg.DB, cfg.AuditService)
 	webhookH := handlers.NewWebhookHandler(cfg.DB, cfg.AllowPrivateWebhooks, cfg.Encryptor, cfg.WebhookService, cfg.AuditService)
 	auditH := handlers.NewAuditHandler(cfg.DB)
@@ -209,6 +214,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 			r.Get("/vms/{id}/snapshots", vmH.ListSnapshots)
 			r.Get("/vms/{id}/nics", vmH.ListNICs)
 			r.Get("/vms/{id}/events", vmH.ListEvents)
+			r.Get("/ai/status", aiH.Status)
 			// Discover is a read-only look at a target; adopt/ignore are gated below.
 			r.Get("/targets/{id}/discover", discoveryH.Discover)
 			r.Get("/targets/{id}/ignored", discoveryH.ListIgnored)
@@ -338,6 +344,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 				r.Post("/vms/{id}/reset-host-key", vmH.ResetHostKey)
 
 				// Settings
+				r.Post("/ai/test", aiH.Test)
 				r.Route("/settings", func(r chi.Router) {
 					r.Get("/", settingsH.GetSettings)
 					r.Put("/", settingsH.UpdateSettings)
