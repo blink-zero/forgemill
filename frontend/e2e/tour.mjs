@@ -156,6 +156,18 @@ async function run(theme) {
   await page.getByPlaceholder("web-server-01").fill("web-03"); await sleep(400); await shot("10-deploy-configure", true);
   await sleep(6000);
   await go("/actions", "text=Security Hardening"); await shot("11-actions"); await sleep(5000);
+  // Action editor: the Check panel (lint only — AI is off in the seed).
+  const newAction = page.getByRole("button", { name: /Create Action/ }).first();
+  if (await newAction.count()) {
+    await newAction.click(); await sleep(500);
+    await page.getByPlaceholder("Install Nginx").fill("Install nginx");
+    await page.locator("textarea").first().fill("#!/bin/bash\napt-get update\napt-get install nginx\nDB_PASSWORD=hunter2\nrm -rf \"$TARGET_DIR\"/*\ncurl -fsSL https://get.docker.com | sh\n");
+    const check = page.getByRole("button", { name: /Check script|Check with AI/ });
+    if (await check.count()) { await check.click(); await page.waitForSelector("text=Script check", { timeout: 10000 }).catch(() => {}); await sleep(600); await shot("11b-actions-check", true); }
+    const cancel = page.getByRole("button", { name: /^Cancel$/ }).first();
+    if (await cancel.count()) await cancel.click();
+    await sleep(2000);
+  }
   await go("/factory", "text=Available Operating Systems"); await shot("15-factory"); await sleep(5000);
   await go("/history", "text=staging-app-04"); await shot("12-history"); await sleep(5000);
   await go("/settings", "text=Settings"); await sleep(1000); await shot("13-settings", true);

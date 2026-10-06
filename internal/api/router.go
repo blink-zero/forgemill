@@ -345,6 +345,8 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 
 				// Settings
 				r.Post("/ai/test", aiH.Test)
+				r.Post("/ai/actions/lint", aiH.LintAction)
+				r.Post("/ai/actions/review", aiH.ReviewAction)
 				r.Route("/settings", func(r chi.Router) {
 					r.Get("/", settingsH.GetSettings)
 					r.Put("/", settingsH.UpdateSettings)

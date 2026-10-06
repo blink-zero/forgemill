@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"encoding/json"
+	"errors"
 	"net/http"
 
+	"github.com/forgemill/forgemill/internal/ai"
 	"github.com/forgemill/forgemill/internal/api/middleware"
 	"github.com/forgemill/forgemill/internal/service"
 )
@@ -33,4 +36,68 @@ func (h *AIHandler) Test(w http.ResponseWriter, r *http.Request) {
 		actor, actorID = u.Username, &u.ID
 	}
 	writeJSON(w, http.StatusOK, h.svc.Test(r.Context(), actor, actorID))
+}
+
+func (h *AIHandler) actor(r *http.Request) (string, *int64) {
+	if u := middleware.UserFromContext(r.Context()); u != nil {
+		return u.Username, &u.ID
+	}
+	return "api", nil
+}
+
+func decodeReviewInput(w http.ResponseWriter, r *http.Request) (service.ActionReviewInput, bool) {
+	var in service.ActionReviewInput
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, ai.MaxInputBytes+64*1024)).Decode(&in); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return in, false
+	}
+	return in, true
+}
+
+func writeAIError(w http.ResponseWriter, what string, err error) {
+	switch {
+	case errors.Is(err, service.ErrAIInput):
+		writeError(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, ai.ErrNotConfigured):
+		writeError(w, err.Error(), http.StatusConflict)
+	case errors.Is(err, service.ErrAIRateLimited):
+		writeError(w, err.Error(), http.StatusTooManyRequests)
+	default:
+		var pe *ai.ProviderError
+		if errors.As(err, &pe) {
+			writeError(w, "The model could not be reached or refused: "+pe.Message, http.StatusBadGateway)
+			return
+		}
+		writeErrorLog(w, what, http.StatusInternalServerError, err)
+	}
+}
+
+// LintAction: POST /api/ai/actions/lint — deterministic checks only; works with AI off.
+func (h *AIHandler) LintAction(w http.ResponseWriter, r *http.Request) {
+	in, ok := decodeReviewInput(w, r)
+	if !ok {
+		return
+	}
+	review, err := h.svc.LintOnly(in)
+	if err != nil {
+		writeAIError(w, "lint failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, review)
+}
+
+// ReviewAction: POST /api/ai/actions/review — lint plus the model's review
+// when AI assistance is on. A model failure still returns the lint result.
+func (h *AIHandler) ReviewAction(w http.ResponseWriter, r *http.Request) {
+	in, ok := decodeReviewInput(w, r)
+	if !ok {
+		return
+	}
+	actor, actorID := h.actor(r)
+	review, err := h.svc.ReviewAction(r.Context(), in, actor, actorID)
+	if err != nil {
+		writeAIError(w, "review failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, review)
 }
