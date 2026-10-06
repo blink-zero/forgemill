@@ -110,3 +110,46 @@ func TestProbeWriteSucceedsAndCleansUp(t *testing.T) {
 		t.Errorf("probe directory left behind: %+v", res.File)
 	}
 }
+
+// The license half of the decision, with lists vcsim cannot produce. A
+// vCenter's list always carries its built-in evaluation entry, expired
+// forever once real keys are in use — it must never mark the target.
+func TestDecideCapabilities(t *testing.T) {
+	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	expiredEval := types.LicenseManagerLicenseInfo{EditionKey: "eval", Name: "Product Evaluation", Properties: []types.KeyAnyValue{{Key: "expirationHours", Value: int32(0)}}}
+	freshEval := types.LicenseManagerLicenseInfo{EditionKey: "eval", Name: "Evaluation Mode", Properties: []types.KeyAnyValue{{Key: "expirationHours", Value: int32(900)}}}
+	free := types.LicenseManagerLicenseInfo{EditionKey: "esx.hypervisor.free", Name: "VMware vSphere 8 Hypervisor"}
+	vcStd := types.LicenseManagerLicenseInfo{EditionKey: "vc.standard", Name: "VMware vCenter Server 8 Standard"}
+	esxEnt := types.LicenseManagerLicenseInfo{EditionKey: "esx.enterprisePlus", Name: "VMware vSphere 8 Enterprise Plus"}
+
+	cases := []struct {
+		name     string
+		esxi     bool
+		licenses []types.LicenseManagerLicenseInfo
+		allowed  bool
+		edition  string
+	}{
+		{"vcenter with keys and stale expired eval entry", false, []types.LicenseManagerLicenseInfo{expiredEval, vcStd, esxEnt}, true, "VMware vCenter Server 8 Standard"},
+		{"vcenter only expired eval listed", false, []types.LicenseManagerLicenseInfo{expiredEval}, true, "Product Evaluation"},
+		{"vcenter lists a free host key", false, []types.LicenseManagerLicenseInfo{vcStd, free}, true, "VMware vCenter Server 8 Standard"},
+		{"esxi fresh eval", true, []types.LicenseManagerLicenseInfo{freshEval}, true, "Evaluation Mode"},
+		{"esxi expired eval", true, []types.LicenseManagerLicenseInfo{expiredEval}, false, "Product Evaluation (expired)"},
+		{"esxi free", true, []types.LicenseManagerLicenseInfo{free}, false, "VMware vSphere 8 Hypervisor"},
+		{"esxi paid", true, []types.LicenseManagerLicenseInfo{esxEnt}, true, "VMware vSphere 8 Enterprise Plus"},
+		{"esxi eval without expiration info", true, []types.LicenseManagerLicenseInfo{{EditionKey: "eval", Name: "Evaluation Mode"}}, true, "Evaluation Mode"},
+	}
+	for _, tc := range cases {
+		caps := decideCapabilities(tc.esxi, tc.licenses, nil, now)
+		if caps.WritesAllowed != tc.allowed || caps.LicenseEdition != tc.edition {
+			t.Errorf("%s: allowed=%v edition=%q (note %q), want %v/%q", tc.name, caps.WritesAllowed, caps.LicenseEdition, caps.Note, tc.allowed, tc.edition)
+		}
+		if !caps.WritesAllowed && caps.Note == "" {
+			t.Errorf("%s: a refused target needs a note", tc.name)
+		}
+	}
+	// Expiration carried on LicenseManager.evaluation rather than the entry.
+	caps := decideCapabilities(true, []types.LicenseManagerLicenseInfo{{EditionKey: "eval", Name: "Evaluation Mode"}}, []types.KeyAnyValue{{Key: "expirationHours", Value: int32(0)}}, now)
+	if caps.WritesAllowed {
+		t.Error("evaluation properties on the manager must count")
+	}
+}
