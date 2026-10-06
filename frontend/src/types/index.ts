@@ -42,6 +42,11 @@ export interface Target {
   // From the last sync: VMs on this target Forgemill doesn't manage and nobody ignored.
   unmanaged_vms?: number;
   unmanaged_checked_at?: string | null;
+  // From the last connection test: active license and whether the hypervisor
+  // accepts writes at all (a free-licensed standalone ESXi host is inventory-only).
+  license_edition?: string;
+  deploy_supported?: boolean;
+  capability_note?: string;
   created_at: string;
   updated_at: string;
 }

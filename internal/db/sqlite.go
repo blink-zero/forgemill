@@ -195,10 +195,11 @@ func (db *DB) GetTarget(id int64) (*models.Target, error) {
 	err := db.conn.QueryRow(
 		`SELECT id, name, type, hostname, port, username, password_encrypted, validate_certs, is_default, status, last_connected_at, created_at, updated_at,
 		        COALESCE(storage_pool, ''), COALESCE(network_bridge, ''), COALESCE(datacenter, ''), COALESCE(datastore, ''), COALESCE(network, ''),
-		        COALESCE(unmanaged_vms, 0), unmanaged_checked_at
+		        COALESCE(unmanaged_vms, 0), unmanaged_checked_at,
+		        COALESCE(license_edition, ''), COALESCE(deploy_supported, 1), COALESCE(capability_note, '')
 		 FROM targets WHERE id = ?`, id,
 	).Scan(&t.ID, &t.Name, &t.Type, &t.Hostname, &t.Port, &t.Username, &t.PasswordEncrypt, &t.ValidateCerts, &t.IsDefault, &t.Status, &t.LastConnectedAt, &t.CreatedAt, &t.UpdatedAt,
-		&t.StoragePool, &t.NetworkBridge, &t.Datacenter, &t.Datastore, &t.Network, &t.UnmanagedVMs, &t.UnmanagedCheckedAt)
+		&t.StoragePool, &t.NetworkBridge, &t.Datacenter, &t.Datastore, &t.Network, &t.UnmanagedVMs, &t.UnmanagedCheckedAt, &t.LicenseEdition, &t.DeploySupported, &t.CapabilityNote)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +211,8 @@ func (db *DB) ListTargets() ([]models.Target, error) {
 	rows, err := db.conn.Query(
 		`SELECT id, name, type, hostname, port, username, validate_certs, is_default, status, last_connected_at, created_at, updated_at,
 		        COALESCE(storage_pool, ''), COALESCE(network_bridge, ''), COALESCE(datacenter, ''), COALESCE(datastore, ''), COALESCE(network, ''),
-		        COALESCE(unmanaged_vms, 0), unmanaged_checked_at
+		        COALESCE(unmanaged_vms, 0), unmanaged_checked_at,
+		        COALESCE(license_edition, ''), COALESCE(deploy_supported, 1), COALESCE(capability_note, '')
 		 FROM targets ORDER BY name`,
 	)
 	if err != nil {
@@ -221,7 +223,7 @@ func (db *DB) ListTargets() ([]models.Target, error) {
 	for rows.Next() {
 		var t models.Target
 		if err := rows.Scan(&t.ID, &t.Name, &t.Type, &t.Hostname, &t.Port, &t.Username, &t.ValidateCerts, &t.IsDefault, &t.Status, &t.LastConnectedAt, &t.CreatedAt, &t.UpdatedAt,
-			&t.StoragePool, &t.NetworkBridge, &t.Datacenter, &t.Datastore, &t.Network, &t.UnmanagedVMs, &t.UnmanagedCheckedAt); err != nil {
+			&t.StoragePool, &t.NetworkBridge, &t.Datacenter, &t.Datastore, &t.Network, &t.UnmanagedVMs, &t.UnmanagedCheckedAt, &t.LicenseEdition, &t.DeploySupported, &t.CapabilityNote); err != nil {
 			return nil, err
 		}
 		targets = append(targets, t)
@@ -317,6 +319,13 @@ func (db *DB) DeleteTarget(id int64) error {
 	}
 
 	return tx.Commit()
+}
+
+// UpdateTargetCapabilities records what the last connection learned about
+// the target's license and whether it accepts writes.
+func (db *DB) UpdateTargetCapabilities(id int64, edition string, deploySupported bool, note string) error {
+	_, err := db.conn.Exec(`UPDATE targets SET license_edition=?, deploy_supported=?, capability_note=?, updated_at=? WHERE id=?`, edition, deploySupported, note, time.Now(), id)
+	return err
 }
 
 func (db *DB) UpdateTargetStatus(id int64, status string) error {

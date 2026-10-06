@@ -350,3 +350,59 @@ type ExtrasValidator interface {
 	ValidateNICSpec(ctx context.Context, datacenter string, spec NICSpec) error
 	ValidateDiskSpec(ctx context.Context, datacenter string, spec DiskSpec) error
 }
+
+// HostCapabilities is what a target can do for Forgemill beyond reading its
+// inventory. Standalone ESXi hosts on the free "vSphere Hypervisor" license
+// make the vSphere API read-only for third-party clients: inventory, sync,
+// discover and adopt work, but every write (clone/copy, create, power,
+// reconfigure, snapshot, destroy) is rejected with RestrictedVersion.
+type HostCapabilities struct {
+	LicenseEdition string `json:"license_edition,omitempty"` // display name of the active license
+	WritesAllowed  bool   `json:"writes_allowed"`            // false = inventory-only
+	Note           string `json:"note,omitempty"`            // what the user should know when writes are off
+}
+
+// CapabilityReporter is implemented by providers that can tell up front
+// whether writes will be accepted; others are assumed fully capable.
+type CapabilityReporter interface {
+	HostCapabilities(ctx context.Context) (*HostCapabilities, error)
+}
+
+// ErrLicenseRestricted: the hypervisor refused a write because of its
+// license (vSphere RestrictedVersion). Handlers turn it into the message
+// below instead of a generic 500.
+var ErrLicenseRestricted = errors.New("hypervisor license prohibits this operation")
+
+// LicenseRestrictedMessage is shown when the hypervisor refuses a write with
+// the license fault and nothing more specific is known (a VM operation on a
+// host that wasn't re-tested, for instance). It names both causes rather
+// than guessing one; the target's own note is specific.
+const LicenseRestrictedMessage = "This ESXi host's license prohibits vSphere API write operations — it is on the free vSphere Hypervisor license or its evaluation has expired. Forgemill can read its inventory, sync, discover and adopt VMs, but cannot deploy, power, reconfigure, snapshot or destroy VMs on it. Assign a paid or VMUG license key to the host, or manage it through vCenter."
+
+// FreeLicenseMessage is the target note when the free SKU was identified.
+const FreeLicenseMessage = "This ESXi host is on the free vSphere Hypervisor license, which prohibits vSphere API write operations. Forgemill can read its inventory, sync, discover and adopt VMs, but cannot deploy, power, reconfigure, snapshot or destroy VMs on it. Assign a paid or VMUG license key to the host, or manage it through vCenter."
+
+// EvaluationExpiredMessage: the host's 60-day evaluation ran out. ESXi keeps
+// reporting "Evaluation Mode" but refuses every API write from then on.
+const EvaluationExpiredMessage = "This ESXi host's evaluation license has expired, so the vSphere API refuses write operations. Forgemill can read its inventory, sync, discover and adopt VMs, but cannot deploy, power, reconfigure, snapshot or destroy VMs on it. Assign a license key to the host (a paid or VMUG key restores everything; the free vSphere Hypervisor key keeps it inventory-only) or manage it through vCenter."
+
+// WriteProbeRefusedMessage: the host rejected Forgemill's test write with
+// the license fault although the license itself didn't explain why.
+func WriteProbeRefusedMessage(edition string) string {
+	if edition == "" {
+		edition = "unknown"
+	}
+	return "This ESXi host rejected a test write: its license (" + edition + ") prohibits vSphere API write operations. Forgemill can read its inventory, sync, discover and adopt VMs, but cannot deploy, power, reconfigure, snapshot or destroy VMs on it. Check the host's licensing (expired evaluation or free vSphere Hypervisor key), assign a paid or VMUG key, or manage it through vCenter."
+}
+
+// IsLicenseRestricted reports whether err is the license gate, by sentinel
+// or by the fault text vSphere has used for it for years.
+func IsLicenseRestricted(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrLicenseRestricted) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "license or esxi version prohibits")
+}

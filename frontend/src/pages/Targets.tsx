@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Plus, Trash2, RefreshCw, Wifi, X, ShieldCheck, Info, AlertTriangle, Box, Monitor, Rocket, Wrench, Terminal, Pencil, Loader2, MoreHorizontal, Import } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import ProviderIcon, { providerLabel } from "@/components/ProviderIcon";
+import { InventoryOnlyBadge, isInventoryOnly } from "@/components/InventoryOnlyBadge";
 import { getErrorMessage, timeAgo } from "@/lib/utils";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Star } from "lucide-react";
@@ -404,6 +405,7 @@ export default function Targets() {
                               {t.unmanaged_vms} unmanaged
                             </Link>
                           )}
+                          <InventoryOnlyBadge target={t} />
                         </div>
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground font-mono text-xs hidden sm:table-cell">{t.hostname}:{t.port}</td>
@@ -475,7 +477,11 @@ export default function Targets() {
                               {t.unmanaged_vms} unmanaged
                             </Link>
                           )}
+                          <InventoryOnlyBadge target={t} />
                         </div>
+                        {isInventoryOnly(t) && t.capability_note && (
+                          <p className="text-xs text-warning mt-0.5">{t.capability_note}</p>
+                        )}
                         <p className="text-sm text-muted-foreground truncate">
                           <span className="font-mono">{t.hostname}:{t.port}</span>
                           <span className="mx-1.5">·</span>
