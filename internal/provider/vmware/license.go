@@ -16,18 +16,24 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 )
 
-// HostCapabilities answers "will this host accept writes from us?" three
-// ways, each able to say no and none able to override a no:
+// HostCapabilities answers "will this host accept writes from us?".
 //
-//  1. the license is the free vSphere Hypervisor SKU (standalone hosts);
-//  2. the license is an evaluation whose expiration has passed — ESXi keeps
-//     reporting "Evaluation Mode" but refuses every write from then on;
-//  3. a real write probe on a standalone host: create and remove an empty
-//     directory on a datastore. RestrictedVersion there is the ground truth
-//     whatever the license strings say.
+// On a standalone ESXi host three checks each can say no and none can
+// override a no: the license is the free vSphere Hypervisor SKU; the
+// license is an evaluation whose expiration has passed (ESXi keeps
+// reporting "Evaluation Mode" but refuses every write from then on); a
+// real write probe — make and remove an empty directory on a datastore —
+// answers RestrictedVersion, which is the ground truth whatever the
+// license strings say.
 //
-// vCenter targets skip 1 and 3. Errors reading the license are returned so
-// the caller keeps the target's previous answer.
+// A vCenter target is never marked: its license list is the whole
+// inventory's, including vCenter's own built-in evaluation entry, which
+// reads as expired forever once real keys are in use, and the operations
+// Forgemill needs are licensed per host, not per API session. Only the
+// edition name is reported, for information.
+//
+// Errors reading the license are returned so the caller keeps the target's
+// previous answer.
 func (p *Provider) HostCapabilities(ctx context.Context) (*provider.HostCapabilities, error) {
 	client, err := p.getClient(ctx)
 	if err != nil {
@@ -37,24 +43,7 @@ func (p *Provider) HostCapabilities(ctx context.Context) (*provider.HostCapabili
 	if err := property.DefaultCollector(client.Client).RetrieveOne(ctx, *client.ServiceContent.LicenseManager, []string{"licenses", "evaluation"}, &lm); err != nil {
 		return nil, fmt.Errorf("read license: %w", err)
 	}
-	caps := &provider.HostCapabilities{WritesAllowed: true}
-	for _, info := range lm.Licenses {
-		if caps.LicenseEdition == "" || isFreeLicense(info) {
-			caps.LicenseEdition = info.Name
-		}
-		if p.esxiMode && isFreeLicense(info) {
-			caps.WritesAllowed = false
-			caps.Note = provider.LicenseRestrictedMessage
-		}
-		if caps.WritesAllowed && isEvalLicense(info) {
-			props := append(append([]types.KeyAnyValue{}, info.Properties...), lm.Evaluation.Properties...)
-			if expired, known := evalExpired(props, time.Now()); known && expired {
-				caps.LicenseEdition = info.Name + " (expired)"
-				caps.WritesAllowed = false
-				caps.Note = provider.EvaluationExpiredMessage
-			}
-		}
-	}
+	caps := decideCapabilities(p.esxiMode, lm.Licenses, lm.Evaluation.Properties, time.Now())
 	if p.esxiMode && caps.WritesAllowed {
 		if refused, err := p.probeWrite(ctx); err != nil {
 			slog.Warn("capability probe could not run; trusting the license", "host", p.hostname, "error", err)
@@ -64,6 +53,43 @@ func (p *Provider) HostCapabilities(ctx context.Context) (*provider.HostCapabili
 		}
 	}
 	return caps, nil
+}
+
+// decideCapabilities is the license half of HostCapabilities, separated so
+// it can be tested with license lists vcsim cannot produce.
+func decideCapabilities(esxiMode bool, licenses []types.LicenseManagerLicenseInfo, evalProps []types.KeyAnyValue, now time.Time) *provider.HostCapabilities {
+	caps := &provider.HostCapabilities{WritesAllowed: true}
+	if !esxiMode {
+		// Prefer a real key's name over the ever-present evaluation entry.
+		for _, info := range licenses {
+			if !isEvalLicense(info) {
+				caps.LicenseEdition = info.Name
+				break
+			}
+		}
+		if caps.LicenseEdition == "" && len(licenses) > 0 {
+			caps.LicenseEdition = licenses[0].Name
+		}
+		return caps
+	}
+	for _, info := range licenses {
+		if caps.LicenseEdition == "" || isFreeLicense(info) {
+			caps.LicenseEdition = info.Name
+		}
+		if isFreeLicense(info) {
+			caps.WritesAllowed = false
+			caps.Note = provider.LicenseRestrictedMessage
+		}
+		if caps.WritesAllowed && isEvalLicense(info) {
+			props := append(append([]types.KeyAnyValue{}, info.Properties...), evalProps...)
+			if expired, known := evalExpired(props, now); known && expired {
+				caps.LicenseEdition = info.Name + " (expired)"
+				caps.WritesAllowed = false
+				caps.Note = provider.EvaluationExpiredMessage
+			}
+		}
+	}
+	return caps
 }
 
 // isFreeLicense recognises the free vSphere Hypervisor SKU. VMware has named
