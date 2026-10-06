@@ -46,6 +46,8 @@ import type {
   AITestResult,
   ActionReview,
   ActionReviewInput,
+  ActionDraft,
+  ActionDraftInput,
 } from "@/types";
 
 const api = axios.create({
@@ -178,6 +180,8 @@ export const ai = {
   lintAction: (input: ActionReviewInput) => api.post<ActionReview>("/ai/actions/lint", input),
   // Lint + the model's review when AI assistance is on; a model failure still returns the lint result.
   reviewAction: (input: ActionReviewInput) => api.post<ActionReview>("/ai/actions/review", input),
+  // A complete, validated, reviewed action from a description (AI must be on).
+  draftAction: (input: ActionDraftInput) => api.post<ActionDraft>("/ai/actions/draft", input),
 };
 
 export const users = {

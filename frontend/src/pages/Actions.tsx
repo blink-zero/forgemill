@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { actions as actionsApi, ai as aiApi } from "@/api/client";
 import { ActionReviewPanel } from "@/pages/actions/ActionReviewPanel";
+import { ActionDraftPanel } from "@/pages/actions/ActionDraftPanel";
 import type { ActionVersion } from "@/api/client";
-import type { Action, ActionParameter, ActionExportEntry, ActionExportFile, ActionReview, AIStatus } from "@/types";
+import type { Action, ActionParameter, ActionExportEntry, ActionExportFile, ActionReview, ActionDraft, AIStatus } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -127,6 +128,24 @@ export default function ActionsPage() {
   const scriptRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => { aiApi.status().then((res) => setAIStatus(res.data)).catch(() => setAIStatus(null)); }, []);
   const aiOn = Boolean(aiStatus?.enabled && aiStatus?.configured);
+  const [showDraft, setShowDraft] = useState(false);
+
+  // "Use this draft" fills the form; nothing is saved until Create.
+  const useDraft = (d: ActionDraft) => {
+    const cat = (["packages", "scripts", "security", "monitoring", "custom"] as const).includes(d.category as never) ? (d.category as Action["category"]) : "custom";
+    setForm({
+      name: d.name,
+      description: d.description,
+      category: cat,
+      script: d.script,
+      parameters: d.parameters.map((p) => ({ name: p.name, label: p.label || p.name, type: p.type, required: Boolean(p.required), default: p.default || "", placeholder: p.placeholder || "", options: p.options ?? null, description: p.description || "" })),
+      tags: d.tags,
+    });
+    setReview(d.review ?? null);
+    setShowDraft(false);
+    validateScript(d.script);
+    toast("Draft loaded into the editor — review it, then Create");
+  };
 
   const runCheck = async () => {
     if (!form.script.trim()) return;
@@ -481,9 +500,19 @@ export default function ActionsPage() {
       {showForm && (
         <Card className="border-primary/30">
           <CardHeader>
-            <CardTitle>{editingId ? "Edit Action" : "Create Action"}</CardTitle>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <CardTitle>{editingId ? "Edit Action" : "Create Action"}</CardTitle>
+              {aiOn && !showDraft && (
+                <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={() => setShowDraft(true)} title={`Draft an action from a description with ${aiStatus?.model || "the configured model"}`}>
+                  <Sparkles className="h-3.5 w-3.5" /> Draft with AI
+                </Button>
+              )}
+            </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            {aiOn && showDraft && (
+              <ActionDraftPanel modelName={aiStatus?.model} existingScript={form.script} existingParameters={form.parameters} onUse={useDraft} onClose={() => setShowDraft(false)} />
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2 sm:col-span-2">
                 <Label>Name *</Label>
@@ -701,7 +730,7 @@ export default function ActionsPage() {
                 <Button onClick={handleSave} disabled={!form.name || !form.script || !!configError}>
                   {editingId ? "Update" : "Create"}
                 </Button>
-                <Button variant="outline" onClick={() => { setShowForm(false); setEditingId(null); setReview(null); }}>Cancel</Button>
+                <Button variant="outline" onClick={() => { setShowForm(false); setEditingId(null); setReview(null); setShowDraft(false); }}>Cancel</Button>
               </div>
             </div>
           </CardContent>

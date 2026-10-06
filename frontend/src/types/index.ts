@@ -704,3 +704,27 @@ export interface ActionReviewInput {
   parameters?: ActionParameter[];
   platform?: string;
 }
+
+export interface ActionDraftInput {
+  prompt: string;
+  platform?: string;
+  existing_script?: string;
+  existing_parameters?: ActionParameter[];
+}
+
+// A complete, validated action drafted by the model, with its own review.
+export interface ActionDraft {
+  name: string;
+  description: string;
+  category: Action["category"] | string;
+  script: string;
+  parameters: ActionParameter[];
+  tags: string[];
+  notes?: string[];
+  warnings?: string[];
+  review?: ActionReview;
+  model?: string;
+  redaction?: { counts: Record<string, number>; total: number };
+  duration_ms: number;
+  refused?: boolean;
+}
