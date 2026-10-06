@@ -43,11 +43,22 @@ function classify(osType: string, platform: string): { label: string; color: str
   if (t.includes("alpine")) {
     return { label: "Alpine", color: "bg-sky-500/15 text-sky-400" };
   }
-  if (t.includes("linux")) {
-    return { label: "Linux", color: "bg-emerald-500/15 text-emerald-400" };
+  if (t.includes("oracle")) {
+    return { label: "Oracle", color: "bg-red-500/15 text-red-400" };
+  }
+  if (t.includes("amazon")) {
+    return { label: "Amazon", color: "bg-amber-500/15 text-amber-400" };
+  }
+  if (t.includes("arch")) {
+    return { label: "Arch", color: "bg-cyan-500/15 text-cyan-400" };
   }
   if (t.includes("bsd")) {
     return { label: "BSD", color: "bg-pink-500/15 text-pink-400" };
+  }
+  // Family-only values: vSphere "otherLinux64Guest" / "other5xLinux64Guest",
+  // Proxmox "l26" / "l24", or a plain "linux".
+  if (t.includes("linux") || /^l2[46]$/.test(t)) {
+    return { label: "Linux", color: "bg-emerald-500/15 text-emerald-400" };
   }
   if (t) {
     // Unknown but present — show a short form of the os_type

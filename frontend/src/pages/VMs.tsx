@@ -462,7 +462,7 @@ export default function VMs() {
                             </span>
                           )}
                           {vm.origin === "adopted" && (
-                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-info/15 text-info" title="Discovered on the target and adopted into Forgemill">adopted</span>
+                            <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded border border-border bg-muted text-muted-foreground" title="Discovered on the target and adopted into Forgemill"><Import className="h-2.5 w-2.5" />adopted</span>
                           )}
                         </div>
                       </td>
