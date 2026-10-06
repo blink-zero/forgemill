@@ -23,7 +23,7 @@ func TestWriteErrorLogExplainsLicenseRestriction(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body["error"] != provider.LicenseRestrictedMessage || !strings.Contains(body["error"], "free vSphere Hypervisor") {
+	if body["error"] != provider.LicenseRestrictedMessage || !strings.Contains(body["error"], "free vSphere Hypervisor license or its evaluation has expired") {
 		t.Errorf("unexpected message: %q", body["error"])
 	}
 

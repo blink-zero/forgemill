@@ -78,7 +78,7 @@ func decideCapabilities(esxiMode bool, licenses []types.LicenseManagerLicenseInf
 		}
 		if isFreeLicense(info) {
 			caps.WritesAllowed = false
-			caps.Note = provider.LicenseRestrictedMessage
+			caps.Note = provider.FreeLicenseMessage
 		}
 		if caps.WritesAllowed && isEvalLicense(info) {
 			props := append(append([]types.KeyAnyValue{}, info.Properties...), evalProps...)
