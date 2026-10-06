@@ -12,7 +12,7 @@ import (
 // row exists — the hypervisor would reject the first write anyway.
 func TestDeployRefusedOnInventoryOnlyTarget(t *testing.T) {
 	s, _, tmplID, targetID := newDeployTestService(t)
-	if err := s.db.UpdateTargetCapabilities(targetID, "VMware vSphere 8 Hypervisor", false, "free license: inventory only"); err != nil {
+	if err := s.db.UpdateTargetCapabilities(targetID, "VMware vSphere 8 Hypervisor", false, "free license: inventory only", nil); err != nil {
 		t.Fatal(err)
 	}
 	req := &DeployRequest{TemplateID: tmplID, TargetID: targetID, VMName: "web-09", CPU: 2, MemoryMB: 2048, DiskGB: 20}
@@ -36,7 +36,7 @@ func TestDeployRefusedOnInventoryOnlyTarget(t *testing.T) {
 	}
 
 	// Back to a capable host: the same request passes preflight.
-	if err := s.db.UpdateTargetCapabilities(targetID, "Evaluation Mode", true, ""); err != nil {
+	if err := s.db.UpdateTargetCapabilities(targetID, "Evaluation Mode", true, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	pf, _ = s.Preflight(context.Background(), req)

@@ -47,6 +47,8 @@ export interface Target {
   license_edition?: string;
   deploy_supported?: boolean;
   capability_note?: string;
+  /** When the host's evaluation license ends; absent for keyed hosts. */
+  evaluation_expires_at?: string | null;
   created_at: string;
   updated_at: string;
 }

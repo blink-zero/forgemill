@@ -69,6 +69,16 @@ func decideCapabilities(esxiMode bool, licenses []types.LicenseManagerLicenseInf
 		}
 		if caps.LicenseEdition == "" && len(licenses) > 0 {
 			caps.LicenseEdition = licenses[0].Name
+			// Evaluation only: the vCenter itself runs on its 60 days.
+			for _, info := range licenses {
+				if isEvalLicense(info) {
+					props := append(append([]types.KeyAnyValue{}, info.Properties...), evalProps...)
+					if expiresAt, known := evalExpiry(props, now); known && expiresAt.After(now) {
+						t := expiresAt
+						caps.EvaluationExpiresAt = &t
+					}
+				}
+			}
 		}
 		return caps
 	}
@@ -82,10 +92,15 @@ func decideCapabilities(esxiMode bool, licenses []types.LicenseManagerLicenseInf
 		}
 		if caps.WritesAllowed && isEvalLicense(info) {
 			props := append(append([]types.KeyAnyValue{}, info.Properties...), evalProps...)
-			if expired, known := evalExpired(props, now); known && expired {
-				caps.LicenseEdition = info.Name + " (expired)"
-				caps.WritesAllowed = false
-				caps.Note = provider.EvaluationExpiredMessage
+			if expiresAt, known := evalExpiry(props, now); known {
+				if !expiresAt.After(now) {
+					caps.LicenseEdition = info.Name + " (expired)"
+					caps.WritesAllowed = false
+					caps.Note = provider.EvaluationExpiredMessage
+				} else {
+					t := expiresAt
+					caps.EvaluationExpiresAt = &t
+				}
 			}
 		}
 	}
@@ -112,37 +127,41 @@ func isEvalLicense(info types.LicenseManagerLicenseInfo) bool {
 	return strings.EqualFold(info.EditionKey, "eval") || strings.Contains(strings.ToLower(info.Name), "evaluation")
 }
 
-// evalExpired reads the evaluation's expiration from license properties
-// (expirationHours / expirationMinutes as numbers, expirationDate as a time
-// or RFC3339 string). known is false when no such property is present.
-func evalExpired(props []types.KeyAnyValue, now time.Time) (expired, known bool) {
+// evalExpiry reads when the evaluation ends from license properties
+// (expirationHours / expirationMinutes as numbers relative to now,
+// expirationDate as a time or RFC3339 string). known is false when no such
+// property is present.
+func evalExpiry(props []types.KeyAnyValue, now time.Time) (expiresAt time.Time, known bool) {
 	for _, kv := range props {
 		switch strings.ToLower(kv.Key) {
-		case "expirationhours", "expirationminutes":
+		case "expirationhours":
 			if n, ok := asNumber(kv.Value); ok {
-				known = true
-				if n <= 0 {
-					return true, true
-				}
+				return now.Add(time.Duration(n * float64(time.Hour))), true
+			}
+		case "expirationminutes":
+			if n, ok := asNumber(kv.Value); ok {
+				return now.Add(time.Duration(n * float64(time.Minute))), true
 			}
 		case "expirationdate":
 			switch v := kv.Value.(type) {
 			case time.Time:
-				known = true
-				if !v.IsZero() && v.Before(now) {
-					return true, true
+				if !v.IsZero() {
+					return v, true
 				}
 			case string:
 				if t, err := time.Parse(time.RFC3339, v); err == nil {
-					known = true
-					if t.Before(now) {
-						return true, true
-					}
+					return t, true
 				}
 			}
 		}
 	}
-	return false, known
+	return time.Time{}, false
+}
+
+// evalExpired is evalExpiry reduced to the question tests mostly ask.
+func evalExpired(props []types.KeyAnyValue, now time.Time) (expired, known bool) {
+	t, known := evalExpiry(props, now)
+	return known && !t.After(now), known
 }
 
 func asNumber(v any) (float64, bool) {
