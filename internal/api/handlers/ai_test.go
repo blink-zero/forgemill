@@ -48,3 +48,22 @@ func TestAILintEndpointWorksWithAIOff(t *testing.T) {
 		t.Errorf("status: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestAIDraftEndpointIs409WhenOff(t *testing.T) {
+	database, err := db.Open(filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	h := NewAIHandler(service.NewAIAssistService(database, nil, nil))
+	rec := httptest.NewRecorder()
+	h.DraftAction(rec, httptest.NewRequest(http.MethodPost, "/ai/actions/draft", strings.NewReader(`{"prompt":"install nginx and enable it"}`)))
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "turned off") {
+		t.Errorf("draft with AI off: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	h.DraftAction(rec, httptest.NewRequest(http.MethodPost, "/ai/actions/draft", strings.NewReader(`{"prompt":"x"}`)))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("tiny prompt: %d", rec.Code)
+	}
+}

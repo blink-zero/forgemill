@@ -101,3 +101,20 @@ func (h *AIHandler) ReviewAction(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, review)
 }
+
+// DraftAction: POST /api/ai/actions/draft — a complete, validated, reviewed
+// action from a description. Needs AI assistance on (409 otherwise).
+func (h *AIHandler) DraftAction(w http.ResponseWriter, r *http.Request) {
+	var in service.ActionDraftInput
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, ai.MaxInputBytes+64*1024)).Decode(&in); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	actor, actorID := h.actor(r)
+	draft, err := h.svc.DraftAction(r.Context(), in, actor, actorID)
+	if err != nil {
+		writeAIError(w, "draft failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, draft)
+}
