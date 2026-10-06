@@ -5,7 +5,7 @@ import type { DashboardData } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Server, Box, Rocket, Monitor, Zap, Plus, ArrowRight, Terminal, Clock } from "lucide-react";
+import { Server, Box, Rocket, Monitor, Zap, Plus, ArrowRight, Terminal, Clock, Import } from "lucide-react";
 import ProviderIcon, { providerLabel } from "@/components/ProviderIcon";
 import { SkeletonCard, Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/ui/page-header";
@@ -127,6 +127,9 @@ export default function Dashboard() {
   activityItems.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const isEmpty = data.stats.total_targets === 0;
+  // VMs on your targets that Forgemill doesn't manage (from the last sync).
+  const unmanaged = (data.targets || []).reduce((n, t) => n + (t.unmanaged_vms ?? 0), 0);
+  const firstUnmanagedTarget = (data.targets || []).find((t) => (t.unmanaged_vms ?? 0) > 0);
 
   return (
     <div className="space-y-6">
@@ -161,6 +164,22 @@ export default function Dashboard() {
           </Link>
         ))}
       </div>
+
+      {unmanaged > 0 && firstUnmanagedTarget && (
+        <Link to={`/targets/${firstUnmanagedTarget.id}/discover`}>
+          <Card className="group border-warning/30 bg-warning/5 hover:border-warning/60 cursor-pointer transition-colors">
+            <CardContent className="py-3 flex items-center gap-3">
+              <div className="h-8 w-8 rounded-md border bg-warning/10 border-warning/20 flex items-center justify-center shrink-0">
+                <Import className="h-4 w-4 text-warning" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{unmanaged} VM{unmanaged === 1 ? "" : "s"} on your targets {unmanaged === 1 ? "isn't" : "aren't"} managed by Forgemill</p>
+                <p className="text-xs text-muted-foreground">{(data.targets || []).filter((t) => (t.unmanaged_vms ?? 0) > 0).map((t) => `${t.name}: ${t.unmanaged_vms}`).join(" · ")} — discover and adopt them to bring them under management.</p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+      )}
 
       {/* Getting Started - only show when no targets */}
       {isEmpty && (

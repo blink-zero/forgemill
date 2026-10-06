@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InfoTip } from "@/components/ui/tooltip";
 import { ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Rocket, Settings2, Box, Loader2, Hammer, RotateCcw, Search, AlertTriangle, AlertCircle, Plus, X } from "lucide-react";
+import ProviderIcon from "@/components/ProviderIcon";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { getErrorMessage } from "@/lib/utils";
@@ -307,7 +308,10 @@ export default function Deploy() {
               >
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">{tpl.name}</CardTitle>
-                  <p className="text-xs text-muted-foreground">{tpl.target_name}</p>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    {tpl.target_type && <ProviderIcon type={tpl.target_type} size={14} className="shrink-0" />}
+                    {tpl.target_name}
+                  </p>
                 </CardHeader>
                 <CardContent>
                   <div className="flex gap-3 text-xs text-muted-foreground">

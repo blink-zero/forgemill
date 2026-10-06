@@ -10,7 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon, Copy, Send, Pencil, Check, UserCheck, UserX, LogOut as LogOutIcon, MoreHorizontal, Search, Wifi, RefreshCw, Activity } from "lucide-react";
+import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon, Copy, Send, Pencil, Check, UserCheck, UserX, LogOut as LogOutIcon, MoreHorizontal, Search, Wifi, RefreshCw, Activity, Import } from "lucide-react";
+import ProviderIcon, { providerLabel } from "@/components/ProviderIcon";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { ForgemillLogo } from "@/components/ForgemillLogo";
 import { Select } from "@/components/ui/select";
@@ -104,6 +105,8 @@ export default function SettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, tab]);
   const [targetCheckMins, setTargetCheckMins] = useState<number>(0);
+  const [adoptionRole, setAdoptionRole] = useState<"admin" | "user">("admin");
+  const [adoptionRoleSaving, setAdoptionRoleSaving] = useState(false);
   const [targetCheckSaving, setTargetCheckSaving] = useState(false);
 
   const refreshUsers = () => {
@@ -177,6 +180,8 @@ export default function SettingsPage() {
       settingsApi.get().then((res) => {
         const v = (res.data as Record<string, string>)["target_check_interval_minutes"];
         if (v !== undefined) setTargetCheckMins(Number(v));
+        const r = (res.data as Record<string, string>)["vm_adoption_role"];
+        setAdoptionRole(r === "user" ? "user" : "admin");
       }).catch(() => { /* non-critical */ });
     }
   }, [isAdmin, tab]);
@@ -1001,6 +1006,43 @@ export default function SettingsPage() {
           </Card>
 
           {isAdmin && (
+            <>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Import className="h-5 w-5" />VM Adoption</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Discover lists the VMs on a target that Forgemill doesn't manage. Adopting them (and ignoring the ones that will never be Forgemill's business) is an admin action by default; open it to operators here. Takes effect immediately.
+                </p>
+                <div className="flex items-end gap-3">
+                  <div className="space-y-2 flex-1 max-w-xs">
+                    <Label>Who can adopt VMs</Label>
+                    <Select value={adoptionRole} onChange={(e) => setAdoptionRole(e.target.value === "user" ? "user" : "admin")}>
+                      <option value="admin">Admins only</option>
+                      <option value="user">Operators and admins</option>
+                    </Select>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      setAdoptionRoleSaving(true);
+                      try {
+                        await settingsApi.update({ vm_adoption_role: adoptionRole });
+                        toast(adoptionRole === "user" ? "Operators and admins can now adopt VMs" : "VM adoption is limited to admins");
+                      } catch (e: unknown) {
+                        toast(getErrorMessage(e, "Failed to save setting"), "error");
+                      } finally {
+                        setAdoptionRoleSaving(false);
+                      }
+                    }}
+                    disabled={adoptionRoleSaving}
+                  >
+                    Save
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2"><Wifi className="h-5 w-5" />Target Health Checks</CardTitle>
@@ -1044,6 +1086,7 @@ export default function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
+            </>
           )}
 
           <DangerZone title="Data management" description="Removes records permanently. Hypervisors are not touched.">
@@ -1275,7 +1318,7 @@ export default function SettingsPage() {
                         <tbody>
                           {diag.targets.map((t) => (
                             <tr key={t.id} className="border-b last:border-0 align-top">
-                              <td className="py-2 pr-3 whitespace-nowrap"><span className="font-medium">{t.name}</span> <span className="text-muted-foreground text-xs">{t.type}</span></td>
+                              <td className="py-2 pr-3 whitespace-nowrap"><span className="inline-flex items-center gap-1.5"><ProviderIcon type={t.type} size={14} className="shrink-0" /><span className="font-medium">{t.name}</span> <span className="text-muted-foreground text-xs">{providerLabel(t.type)}</span></span></td>
                               <td className="py-2 pr-3"><Badge variant={t.status === "connected" ? "success" : t.status === "error" ? "destructive" : "secondary"} dot>{t.status}</Badge></td>
                               <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">{t.last_connected_at ? formatDateTime(t.last_connected_at) : "—"}</td>
                               <td className="py-2 pr-3 whitespace-nowrap">{t.last_sync ? <>{t.last_sync.synced} synced, {t.last_sync.orphaned} orphaned <span className="text-muted-foreground text-xs">· {formatDateTime(t.last_sync.at)}</span></> : <span className="text-muted-foreground">not since start</span>}</td>

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -25,9 +26,17 @@ import (
 type fakeSSHD struct {
 	addr      string
 	firstMode string
-	mu        sync.Mutex
-	execs     []string
-	closed    chan struct{}
+	// sudo models the guest's sudoers for the test user: "" / "nopasswd"
+	// (sudo -n works), "password" (sudo wants sudoPassword), "denied" (not in
+	// sudoers), "requiretty". Probe commands are answered accordingly and
+	// are recorded in probes, not execs.
+	sudo         string
+	sudoPassword string
+	mu           sync.Mutex
+	execs        []string
+	probes       []string
+	stdins       []string // stdin received by exec'd commands (password + script)
+	closed       chan struct{}
 }
 
 func startFakeSSHD(t *testing.T, firstMode string) *fakeSSHD {
@@ -40,7 +49,10 @@ func startFakeSSHD(t *testing.T, firstMode string) *fakeSSHD {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := &ssh.ServerConfig{PasswordCallback: func(ssh.ConnMetadata, []byte) (*ssh.Permissions, error) { return nil, nil }}
+	cfg := &ssh.ServerConfig{
+		PasswordCallback:  func(ssh.ConnMetadata, []byte) (*ssh.Permissions, error) { return nil, nil },
+		PublicKeyCallback: func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error) { return nil, nil },
+	}
 	cfg.AddHostKey(signer)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -86,14 +98,33 @@ func (f *fakeSSHD) serve(c net.Conn, cfg *ssh.ServerConfig) {
 					continue
 				}
 				cmd := string(r.Payload[4:])
+				r.Reply(true, nil)
+				if strings.HasPrefix(cmd, "sudo -n true") || strings.HasPrefix(cmd, sudoWithPassword+" -k true") {
+					f.mu.Lock()
+					f.probes = append(f.probes, cmd)
+					f.mu.Unlock()
+					f.answerProbe(ch, cmd)
+					return
+				}
 				f.mu.Lock()
 				f.execs = append(f.execs, cmd)
 				n := len(f.execs)
 				f.mu.Unlock()
-				r.Reply(true, nil)
+				if strings.HasPrefix(cmd, sudoWithPassword) {
+					// password-fed sudo: first stdin line is the password
+					if !f.readPassword(ch) {
+						return
+					}
+				}
 				if n == 1 && f.firstMode == "hang" {
 					<-f.closed // never exits on its own
 					return
+				}
+				if strings.HasPrefix(cmd, sudoWithPassword) {
+					rest, _ := io.ReadAll(ch)
+					f.mu.Lock()
+					f.stdins = append(f.stdins, string(rest))
+					f.mu.Unlock()
 				}
 				fmt.Fprintln(ch, "hello")
 				ch.SendRequest("exit-status", false, []byte{0, 0, 0, 0})
@@ -101,6 +132,79 @@ func (f *fakeSSHD) serve(c net.Conn, cfg *ssh.ServerConfig) {
 			}
 		}()
 	}
+}
+
+func exitWith(ch ssh.Channel, code byte, stderr string) {
+	if stderr != "" {
+		fmt.Fprint(ch.Stderr(), stderr)
+	}
+	ch.SendRequest("exit-status", false, []byte{0, 0, 0, code})
+}
+
+// answerProbe plays the guest's sudo for the probe commands.
+func (f *fakeSSHD) sudoMode() (string, string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.sudo, f.sudoPassword
+}
+
+// setSudo changes the modelled sudoers between calls (under the lock, so the
+// race detector is happy with the serving goroutines).
+func (f *fakeSSHD) setSudo(mode, password string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sudo, f.sudoPassword = mode, password
+}
+
+func (f *fakeSSHD) answerProbe(ch ssh.Channel, cmd string) {
+	mode, _ := f.sudoMode()
+	switch mode {
+	case "", "nopasswd":
+		exitWith(ch, 0, "")
+	case "denied":
+		exitWith(ch, 1, "u is not in the sudoers file.  This incident will be reported.\n")
+	case "requiretty":
+		exitWith(ch, 1, "sudo: sorry, you must have a tty to run sudo\n")
+	case "password":
+		if strings.HasPrefix(cmd, "sudo -n") {
+			exitWith(ch, 1, "sudo: a password is required\n")
+			return
+		}
+		if f.readPassword(ch) {
+			exitWith(ch, 0, "")
+		}
+	}
+}
+
+// readPassword consumes one stdin line like `sudo -S` does and fails the
+// command the way sudo does when it is wrong.
+func (f *fakeSSHD) readPassword(ch ssh.Channel) bool {
+	var line []byte
+	b := make([]byte, 1)
+	for {
+		n, err := ch.Read(b)
+		if n == 1 {
+			if b[0] == '\n' {
+				break
+			}
+			line = append(line, b[0])
+		}
+		if err != nil {
+			break
+		}
+	}
+	_, want := f.sudoMode()
+	if string(line) != want {
+		exitWith(ch, 1, "Sorry, try again.\nsudo: 1 incorrect password attempt\n")
+		return false
+	}
+	return true
+}
+
+func (f *fakeSSHD) probeCommands() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.probes...)
 }
 
 func (f *fakeSSHD) commands() []string {
@@ -124,7 +228,7 @@ func TestSSHExecuteRunsScriptUnderExecutionMarkerAndStreamsOutput(t *testing.T) 
 	srv := startFakeSSHD(t, "ok")
 	host, port := hostPort(t, srv.addr)
 	var lines []string
-	code, err := sshExecute(context.Background(), host, port, "u", "p", "echo hi", "", func(l string) { lines = append(lines, l) }, nil, 0, 42)
+	code, err := sshExecute(context.Background(), host, port, "u", sshAuth{Password: "p"}, "echo hi", "", func(l string) { lines = append(lines, l) }, nil, 0, 42)
 	if err != nil || code != 0 {
 		t.Fatalf("exit=%d err=%v", code, err)
 	}
@@ -134,6 +238,9 @@ func TestSSHExecuteRunsScriptUnderExecutionMarkerAndStreamsOutput(t *testing.T) 
 	cmds := srv.commands()
 	if len(cmds) != 1 || !strings.HasPrefix(cmds[0], "sudo bash -c 'exec -a forgemill-exec-42 bash' <<'FORGEMILL_SCRIPT'") {
 		t.Errorf("job must run under its execution marker, got %q", cmds)
+	}
+	if probes := srv.probeCommands(); len(probes) != 1 || probes[0] != "sudo -n true" {
+		t.Errorf("sudo must be probed once (-n) before the job, got %q", probes)
 	}
 	if !strings.Contains(cmds[0], "set -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\necho hi\nFORGEMILL_SCRIPT") {
 		t.Errorf("script preamble/body changed: %q", cmds[0])
@@ -147,7 +254,7 @@ func TestSSHExecuteCancelKillsRemoteJobAndReturnsPromptly(t *testing.T) {
 	go func() { time.Sleep(300 * time.Millisecond); cancel() }()
 
 	start := time.Now()
-	_, err := sshExecute(ctx, host, port, "u", "p", "sleep 300", "", func(string) {}, nil, 0, 7)
+	_, err := sshExecute(ctx, host, port, "u", sshAuth{Password: "p"}, "sleep 300", "", func(string) {}, nil, 0, 7)
 	elapsed := time.Since(start)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled so the execution is marked cancelled, got %v", err)

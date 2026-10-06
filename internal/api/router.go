@@ -130,6 +130,16 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 	execH := handlers.NewExecutionHandler(cfg.ExecutorService, cfg.AuditService)
 	notifH := handlers.NewNotificationHandler(cfg.DB)
 	diagH := handlers.NewDiagnosticsHandler(cfg.DB, cfg.VMService)
+	discoveryH := handlers.NewDiscoveryHandler(cfg.VMService, cfg.AuditService)
+	// Who may adopt/ignore discovered VMs is a setting (admin by default);
+	// read per request so a change in Settings applies immediately.
+	adoptionRole := func() string {
+		settings, err := cfg.DB.GetAllSettings()
+		if err != nil {
+			return "admin"
+		}
+		return settings[handlers.SettingVMAdoptionRole]
+	}
 
 	r.Route("/api", func(r chi.Router) {
 		// Fix 8: Apply global rate limit to all API routes
@@ -199,6 +209,19 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 			r.Get("/vms/{id}/snapshots", vmH.ListSnapshots)
 			r.Get("/vms/{id}/nics", vmH.ListNICs)
 			r.Get("/vms/{id}/events", vmH.ListEvents)
+			// Discover is a read-only look at a target; adopt/ignore are gated below.
+			r.Get("/targets/{id}/discover", discoveryH.Discover)
+			r.Get("/targets/{id}/ignored", discoveryH.ListIgnored)
+			r.Group(func(r chi.Router) {
+				r.Use(cfg.Auth.RequireRoleFrom(adoptionRole, "admin"))
+				r.Post("/targets/{id}/adopt", discoveryH.Adopt)
+				r.Post("/targets/{id}/ignore", discoveryH.Ignore)
+				r.Delete("/targets/{id}/ignore", discoveryH.Unignore)
+				// Setting a VM's SSH login is part of taking it under management.
+				r.Put("/vms/{id}/credentials", vmH.SetCredentials)
+				r.Post("/vms/{id}/credentials/test", vmH.TestCredentials)
+				r.Delete("/vms/{id}/credentials", vmH.ClearCredentials)
+			})
 			r.Get("/vms/{id}/executions", execH.ListVMExecutions)
 			r.Get("/executions/{id}", execH.GetExecution)
 			r.Get("/blueprints", blueprintH.List)

@@ -1,16 +1,13 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { vms as vmApi } from "@/api/client";
-import type { ManagedVM } from "@/types";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { vms as vmApi, targets as targetApi } from "@/api/client";
+import type { ManagedVM, Target } from "@/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Search, Monitor, Cpu, MemoryStick, HardDrive, Power, RefreshCw,
-  Play, Square, Rocket, MoreHorizontal, ExternalLink, Terminal,
-  Camera, RotateCw, X, Box, Clock, CalendarDays,
-} from "lucide-react";
+import { Search, Monitor, Cpu, MemoryStick, HardDrive, Power, RefreshCw, Play, Square, Rocket, MoreHorizontal, ExternalLink, Terminal, Camera, RotateCw, X, Box, Clock, CalendarDays, Import } from "lucide-react";
+import ProviderIcon from "@/components/ProviderIcon";
 import { cn, getErrorMessage, timeAgo, copyText } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
 import { Pagination } from "@/components/ui/pagination";
@@ -40,6 +37,14 @@ export default function VMs() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [targetFilter, setTargetFilter] = useState<string>("all");
+  // Origin filter is URL-bound (?origin=adopted) so Discover can land here after an adopt.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const originFilter = ["deployed", "adopted", "registered"].includes(searchParams.get("origin") || "") ? (searchParams.get("origin") as string) : "all";
+  const setOriginFilter = (v: string) => { const next = new URLSearchParams(searchParams); if (v === "all") next.delete("origin"); else next.set("origin", v); setSearchParams(next, { replace: true }); };
+  // Targets for the Discover entry point (one target → straight there).
+  const [targetRows, setTargetRows] = useState<Target[]>([]);
+  useEffect(() => { targetApi.list().then((res) => setTargetRows(res.data || [])).catch(() => { /* entry point degrades to the Targets page */ }); }, []);
+  const targetTypeByName = useMemo(() => Object.fromEntries(targetRows.map((t) => [t.name, t.type])), [targetRows]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = usePageSize("vms", 25);
   const [syncing, setSyncing] = useState(false);
@@ -102,12 +107,13 @@ export default function VMs() {
         (v.template_name || "").toLowerCase().includes(q);
       const matchesStatus = statusFilter === "all" || v.power_state === statusFilter;
       const matchesTarget = targetFilter === "all" || v.target_name === targetFilter;
+      const matchesOrigin = originFilter === "all" || (v.origin || "deployed") === originFilter;
       const matchesQueryState = !parsedQuery.state || v.power_state === parsedQuery.state;
       const matchesUptime = !parsedQuery.uptime || matchesUptimeQuery(v, parsedQuery.uptime, now);
       const matchesAge = !parsedQuery.age || matchesAgeQuery(v, parsedQuery.age, now);
-      return matchesSearch && matchesStatus && matchesTarget && matchesQueryState && matchesUptime && matchesAge;
+      return matchesSearch && matchesStatus && matchesTarget && matchesQueryState && matchesUptime && matchesAge && matchesOrigin;
     });
-  }, [vmList, parsedQuery, statusFilter, targetFilter, now]);
+  }, [vmList, parsedQuery, statusFilter, targetFilter, originFilter, now]);
 
   const viewMode = usePreference("view_mode", "cards");
   const { sorted, sortField, sortDir, toggleSort } = useTableSort(filtered, "vm_name");
@@ -116,11 +122,12 @@ export default function VMs() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter, targetFilter, sortField, sortDir, pageSize]);
+  }, [search, statusFilter, targetFilter, originFilter, sortField, sortDir, pageSize]);
 
   const activeFilters =
-    (search ? 1 : 0) + (statusFilter !== "all" ? 1 : 0) + (targetFilter !== "all" ? 1 : 0);
+    (search ? 1 : 0) + (statusFilter !== "all" ? 1 : 0) + (targetFilter !== "all" ? 1 : 0) + (originFilter !== "all" ? 1 : 0);
   const clearFilters = () => {
+    setOriginFilter("all");
     setSearch("");
     setStatusFilter("all");
     setTargetFilter("all");
@@ -313,6 +320,29 @@ export default function VMs() {
               />
             </div>
             <ViewToggle />
+            {targetRows.length === 1 ? (
+              <Link to={`/targets/${targetRows[0].id}/discover`}>
+                <Button variant="outline" size="sm" className="shrink-0" title="Find VMs on your target that Forgemill doesn't manage yet">
+                  <Import className="h-4 w-4 mr-1" />
+                  Discover
+                </Button>
+              </Link>
+            ) : targetRows.length > 1 ? (
+              <DropdownMenu
+                trigger={
+                  <Button variant="outline" size="sm" className="shrink-0" title="Find VMs on a target that Forgemill doesn't manage yet">
+                    <Import className="h-4 w-4 mr-1" />
+                    Discover
+                  </Button>
+                }
+              >
+                {targetRows.map((t) => (
+                  <DropdownMenuItem key={t.id} onClick={() => navigate(`/targets/${t.id}/discover`)}>
+                    {t.name}{(t.unmanaged_vms ?? 0) > 0 ? ` · ${t.unmanaged_vms} unmanaged` : ""}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenu>
+            ) : null}
             <Link to="/deploy">
               <Button size="sm" className="shrink-0">
                 <Rocket className="h-4 w-4 mr-1" />
@@ -350,6 +380,17 @@ export default function VMs() {
           {targets.map((t) => (
             <option key={t} value={t}>{t}</option>
           ))}
+        </Select>
+        <Select
+          value={originFilter}
+          onChange={(e) => setOriginFilter(e.target.value)}
+          className="w-auto"
+          aria-label="Filter by origin"
+        >
+          <option value="all">All origins</option>
+          <option value="deployed">Deployed by Forgemill</option>
+          <option value="adopted">Adopted</option>
+          <option value="registered">Registered by ref</option>
         </Select>
 
         {activeFilters > 0 && (
@@ -417,6 +458,9 @@ export default function VMs() {
                               {vm.template_name}
                             </span>
                           )}
+                          {vm.origin === "adopted" && (
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-info/15 text-info" title="Discovered on the target and adopted into Forgemill">adopted</span>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground hidden sm:table-cell">
@@ -425,7 +469,12 @@ export default function VMs() {
                       <td className="px-4 py-2.5 text-muted-foreground hidden md:table-cell whitespace-nowrap">
                         {vm.cpu || "?"}C · {vm.memory_mb ? `${Math.round(vm.memory_mb / 1024)}G` : "?"} · {vm.disk_gb || "?"}G
                       </td>
-                      <td className="px-4 py-2.5 text-muted-foreground hidden lg:table-cell">{vm.target_name}</td>
+                      <td className="px-4 py-2.5 text-muted-foreground hidden lg:table-cell">
+                        <span className="inline-flex items-center gap-1.5">
+                          {targetTypeByName[vm.target_name] && <ProviderIcon type={targetTypeByName[vm.target_name]} size={14} className="shrink-0" />}
+                          {vm.target_name}
+                        </span>
+                      </td>
                       <td className="px-4 py-2.5">
                         <Badge variant={powerVariant(vm.power_state)}>
                           <Power className="h-3 w-3 mr-1" />
@@ -483,6 +532,7 @@ export default function VMs() {
                           <OSBadge osType={vm.os_type} platform={vm.platform} size="xs" />
                         </div>
                         <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+                          {targetTypeByName[vm.target_name] && <ProviderIcon type={targetTypeByName[vm.target_name]} size={12} className="shrink-0" />}
                           <span>{vm.target_name}</span>
                           <span className="font-mono opacity-60">· #{vm.id}</span>
                         </div>

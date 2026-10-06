@@ -65,6 +65,10 @@ var migrations = []struct {
 	{39, migrationV39},
 	{40, migrationV40},
 	{41, migrationV41},
+	{42, migrationV42},
+	{43, migrationV43},
+	{44, migrationV44},
+	{45, migrationV45},
 }
 
 const migrationV1 = `
@@ -744,8 +748,10 @@ func runMigrations(db *sql.DB, dbPath string) error {
 					tags = a.tags
 				}
 				if _, err := db.Exec(
-					`INSERT INTO actions (name, description, category, script, script_type, platform, builtin, parameters, tags, created_at, updated_at) VALUES (?, ?, ?, ?, 'bash', 'linux', 1, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-					a.name, a.description, a.category, a.script, params, tags,
+					`INSERT INTO actions (name, description, category, script, script_type, platform, builtin, parameters, tags, created_at, updated_at)
+					 SELECT ?, ?, ?, ?, 'bash', 'linux', 1, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+					 WHERE NOT EXISTS (SELECT 1 FROM actions WHERE builtin = 1 AND name = ?)`,
+					a.name, a.description, a.category, a.script, params, tags, a.name,
 				); err != nil {
 					slog.Warn("failed to insert V38 builtin action", "name", a.name, "error", err)
 				}
@@ -1409,6 +1415,49 @@ INSERT INTO schema_version (version) VALUES (38);
 // actually vouch for; it starts accumulating cleanly from this migration.
 // V40 adds no schema; the two built-in actions are inserted post-migration
 // (see runMigrations). A no-op statement keeps the version bookkeeping uniform.
+// V43: discover & adopt — where a managed VM came from, per-target unmanaged
+// counts from the sync, and the per-target ignore list for discovery.
+// V44: per-VM SSH credentials. Adopted and registered VMs have no deployment
+// to inherit credentials from, so actions need a place to get them; a row
+// here also overrides the deployment credentials of a deployed VM (e.g. after
+// a password rotation). The secret is AES-256 encrypted like everything else.
+// V45: optional sudo password on a VM credential. A key login has no
+// password to hand to sudo; a password login may use a different one.
+const migrationV45 = `
+ALTER TABLE vm_credentials ADD COLUMN sudo_password_enc TEXT NOT NULL DEFAULT '';
+INSERT INTO schema_version (version) VALUES (45);
+`
+
+const migrationV44 = `
+CREATE TABLE IF NOT EXISTS vm_credentials (
+    vm_id INTEGER PRIMARY KEY REFERENCES managed_vms(id) ON DELETE CASCADE,
+    username TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'password' CHECK(kind IN ('password', 'private_key')),
+    secret_enc TEXT NOT NULL,
+    set_by INTEGER,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO schema_version (version) VALUES (44);
+`
+
+const migrationV43 = `
+ALTER TABLE managed_vms ADD COLUMN origin TEXT NOT NULL DEFAULT 'deployed';
+ALTER TABLE managed_vms ADD COLUMN adopted_at DATETIME;
+ALTER TABLE managed_vms ADD COLUMN adopted_by INTEGER;
+UPDATE managed_vms SET origin = 'registered' WHERE deployment_id IS NULL;
+ALTER TABLE targets ADD COLUMN unmanaged_vms INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE targets ADD COLUMN unmanaged_checked_at DATETIME;
+CREATE TABLE IF NOT EXISTS target_ignored_vms (
+    target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+    vm_ref TEXT NOT NULL,
+    vm_name TEXT NOT NULL DEFAULT '',
+    ignored_by INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (target_id, vm_ref)
+);
+INSERT INTO schema_version (version) VALUES (43);
+`
+
 // V41: per-VM event log — what the hypervisor did or refused during
 // operations on a VM (warnings that were previously only in the server log).
 const migrationV41 = `
@@ -1422,10 +1471,37 @@ CREATE TABLE IF NOT EXISTS vm_events (
 );
 CREATE INDEX IF NOT EXISTS idx_vm_events_vm ON vm_events(vm_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_vm_events_created ON vm_events(created_at);
+INSERT INTO schema_version (version) VALUES (41);
+`
+
+// V42: repair for v0.19.0/v0.19.1 — V40 and V41 never recorded their
+// schema_version, so both re-ran on every start and V40 inserted another
+// copy of its two built-in actions each time. Collapse the duplicates onto
+// the oldest row (repointing deployment, execution and version-history
+// references first) so action lists, blueprints and MCP tools see one of each.
+const migrationV42 = `
+CREATE TEMP TABLE dup_actions AS
+    SELECT a.id AS dup_id, (SELECT MIN(b.id) FROM actions b WHERE b.builtin = 1 AND b.name = a.name) AS keep_id
+    FROM actions a
+    WHERE a.builtin = 1
+      AND a.id <> (SELECT MIN(b.id) FROM actions b WHERE b.builtin = 1 AND b.name = a.name);
+UPDATE action_executions SET action_id = (SELECT keep_id FROM dup_actions WHERE dup_id = action_executions.action_id)
+    WHERE action_id IN (SELECT dup_id FROM dup_actions);
+DELETE FROM deployment_actions
+    WHERE action_id IN (SELECT dup_id FROM dup_actions)
+      AND EXISTS (SELECT 1 FROM deployment_actions d2, dup_actions x
+                  WHERE x.dup_id = deployment_actions.action_id AND d2.deployment_id = deployment_actions.deployment_id AND d2.action_id = x.keep_id);
+UPDATE deployment_actions SET action_id = (SELECT keep_id FROM dup_actions WHERE dup_id = deployment_actions.action_id)
+    WHERE action_id IN (SELECT dup_id FROM dup_actions);
+DELETE FROM action_versions WHERE action_id IN (SELECT dup_id FROM dup_actions);
+DELETE FROM actions WHERE id IN (SELECT dup_id FROM dup_actions);
+DROP TABLE dup_actions;
+INSERT INTO schema_version (version) VALUES (42);
 `
 
 const migrationV40 = `
 UPDATE actions SET updated_at = updated_at WHERE 0;
+INSERT INTO schema_version (version) VALUES (40);
 `
 
 const migrationV39 = `

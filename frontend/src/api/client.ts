@@ -36,6 +36,12 @@ import type {
   VMDisk,
   Diagnostics,
   VMEvent,
+  DiscoverResult,
+  AdoptResult,
+  IgnoredVM,
+  VMCredentials,
+  SetVMCredentialsRequest,
+  CredentialCheck,
 } from "@/types";
 
 const api = axios.create({
@@ -116,6 +122,16 @@ export const targets = {
     api.post<{ success: boolean; message: string }>(`/targets/${id}/test`),
   sync: (id: number) =>
     api.post<{ templates_found: number }>(`/targets/${id}/sync`),
+  // Discover & adopt: live list of VMs on the target Forgemill doesn't manage.
+  discover: (id: number, includeIgnored = false) =>
+    api.get<DiscoverResult>(`/targets/${id}/discover`, { params: includeIgnored ? { include_ignored: "true" } : {} }),
+  adopt: (id: number, vmRefs: string[]) =>
+    api.post<AdoptResult>(`/targets/${id}/adopt`, { vm_refs: vmRefs }),
+  ignore: (id: number, vmRefs: string[], names?: Record<string, string>) =>
+    api.post(`/targets/${id}/ignore`, { vm_refs: vmRefs, names }),
+  unignore: (id: number, vmRefs: string[]) =>
+    api.delete(`/targets/${id}/ignore`, { data: { vm_refs: vmRefs } }),
+  listIgnored: (id: number) => api.get<IgnoredVM[]>(`/targets/${id}/ignored`),
   resources: (id: number) => api.get<Resources>(`/targets/${id}/resources`),
 };
 
@@ -207,7 +223,10 @@ export const vms = {
   addNIC: (id: number, data: { network: string; adapter_type?: string; connected?: boolean; vlan_tag?: number }) =>
     api.post<{ status: string; nic: VMNIC }>(`/vms/${id}/nics`, data),
   console: (id: number) => api.get<{ url: string }>(`/vms/${id}/console`),
-  credentials: (id: number) => api.get<{ username: string; password: string }>(`/vms/${id}/credentials`),
+  credentials: (id: number) => api.get<VMCredentials>(`/vms/${id}/credentials`),
+  setCredentials: (id: number, body: SetVMCredentialsRequest) => api.put<{ saved: boolean; check: CredentialCheck }>(`/vms/${id}/credentials`, body),
+  testCredentials: (id: number, body: SetVMCredentialsRequest) => api.post<CredentialCheck>(`/vms/${id}/credentials/test`, body),
+  clearCredentials: (id: number) => api.delete(`/vms/${id}/credentials`),
   resetHostKey: (id: number) => api.post(`/vms/${id}/reset-host-key`),
 };
 

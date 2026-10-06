@@ -18,7 +18,7 @@ const (
 	sshDefaultTimeout = 10 * time.Minute
 	sshMaxTimeout     = 30 * time.Minute
 	sshIdleTimeout    = 5 * time.Minute
-	maxScriptSize     = 64 * 1024  // 64KB
+	maxScriptSize     = 64 * 1024   // 64KB
 	maxOutputSize     = 1024 * 1024 // 1MB
 )
 
@@ -50,13 +50,36 @@ func validateScript(script string) error {
 	return nil
 }
 
+// sshAuth is how to log in: a password or a PEM private key (exactly one),
+// plus what to hand sudo if it asks for a password ("" = nothing to offer;
+// the user then needs passwordless sudo).
+type sshAuth struct {
+	Password     string
+	PrivateKey   string
+	SudoPassword string
+}
+
+func (a sshAuth) methods() ([]ssh.AuthMethod, error) {
+	if a.PrivateKey != "" {
+		signer, err := ssh.ParsePrivateKey([]byte(a.PrivateKey))
+		if err != nil {
+			return nil, fmt.Errorf("ssh private key: %w", err)
+		}
+		return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
+	}
+	return []ssh.AuthMethod{ssh.Password(a.Password)}, nil
+}
+
 // sshExecute connects to a host via SSH, executes a script, and streams output
 // line-by-line via outputFn. Returns the exit code and any error.
 //
 // If hkStore is non-nil, TOFU host key verification is applied:
 //   - First connection (no stored fingerprint): accept and store the key
 //   - Subsequent connections: verify the key matches the stored fingerprint
-func sshExecute(ctx context.Context, host string, port int, username, password, script, paramEnvBlock string, outputFn func(line string), hkStore HostKeyStore, vmID, execID int64) (int, error) {
+//
+// sshDial opens the SSH connection sshExecute and the credential check use,
+// applying TOFU host-key verification when a store is available.
+func sshDial(host string, port int, username string, auth sshAuth, hkStore HostKeyStore, vmID int64) (*ssh.Client, error) {
 	if port == 0 {
 		port = 22
 	}
@@ -88,11 +111,13 @@ func sshExecute(ctx context.Context, host string, port int, username, password, 
 		}
 	}
 
+	methods, err := auth.methods()
+	if err != nil {
+		return nil, err
+	}
 	config := &ssh.ClientConfig{
-		User: username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(password),
-		},
+		User:            username,
+		Auth:            methods,
 		HostKeyCallback: hostKeyCallback,
 		Timeout:         sshConnectTimeout,
 	}
@@ -102,9 +127,32 @@ func sshExecute(ctx context.Context, host string, port int, username, password, 
 
 	client, err := ssh.Dial("tcp", addr, config)
 	if err != nil {
-		return -1, fmt.Errorf("ssh connect: %w", err)
+		return nil, fmt.Errorf("ssh connect: %w", err)
+	}
+	return client, nil
+}
+
+// sshExecute connects to a host via SSH, executes a script, and streams output
+// line-by-line via outputFn. Returns the exit code and any error.
+//
+// The script runs under sudo. If sudo wants a password and auth carries one,
+// it is fed over the session's stdin (`sudo -S`, the way Ansible's become
+// works) — never on the command line. If sudo wants a password and there is
+// none to give, or the user may not sudo at all, the result is a
+// *SudoError that says so in plain words instead of the raw sudo output.
+func sshExecute(ctx context.Context, host string, port int, username string, auth sshAuth, script, paramEnvBlock string, outputFn func(line string), hkStore HostKeyStore, vmID, execID int64) (int, error) {
+	client, err := sshDial(host, port, username, auth, hkStore, vmID)
+	if err != nil {
+		return -1, err
 	}
 	defer client.Close()
+
+	// Can this user sudo, and does it need the password we may hold?
+	probe := probeSudo(client, auth.SudoPassword)
+	if !probe.OK() {
+		return -1, probe.Err()
+	}
+	useSudoPassword := probe.State == SudoViaPassword
 
 	session, err := client.NewSession()
 	if err != nil {
@@ -135,10 +183,27 @@ func sshExecute(ctx context.Context, host string, port int, username, password, 
 	// cancel can find the job's process group from a second session and kill
 	// it — OpenSSH ignores signal requests on sessions without a PTY, so the
 	// in-band SIGTERM alone never reached the guest.
-	wrappedScript := "sudo " + remoteShell(execID) + " <<'FORGEMILL_SCRIPT'\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\n" + paramEnvBlock + script + "\nFORGEMILL_SCRIPT"
-
-	if err := session.Start(wrappedScript); err != nil {
-		return -1, fmt.Errorf("ssh start: %w", err)
+	body := "set -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\n" + paramEnvBlock + script + "\n"
+	if useSudoPassword {
+		// sudo -S reads exactly one line (the password) from stdin, then bash
+		// reads the script from the rest of it. The password therefore never
+		// appears in the command line or the remote process list.
+		stdin, err := session.StdinPipe()
+		if err != nil {
+			return -1, fmt.Errorf("stdin pipe: %w", err)
+		}
+		if err := session.Start(sudoWithPassword + " " + remoteShell(execID)); err != nil {
+			return -1, fmt.Errorf("ssh start: %w", err)
+		}
+		go func() {
+			defer stdin.Close()
+			_, _ = io.WriteString(stdin, auth.SudoPassword+"\n"+body)
+		}()
+	} else {
+		wrappedScript := "sudo " + remoteShell(execID) + " <<'FORGEMILL_SCRIPT'\n" + body + "FORGEMILL_SCRIPT"
+		if err := session.Start(wrappedScript); err != nil {
+			return -1, fmt.Errorf("ssh start: %w", err)
+		}
 	}
 
 	// Stream output in a goroutine, merging stdout and stderr
@@ -196,7 +261,7 @@ func sshExecute(ctx context.Context, host string, port int, username, password, 
 		// our session down so the output reader hits EOF — the execution
 		// record must flip to cancelled even if the guest ignored everything.
 		if execID > 0 {
-			remoteKill(client, execMarker(execID))
+			remoteKill(client, execMarker(execID), auth.SudoPassword)
 		}
 		_ = session.Signal(ssh.SIGTERM)
 		select {
@@ -222,7 +287,6 @@ func sshExecute(ctx context.Context, host string, port int, username, password, 
 		return 0, nil
 	}
 }
-
 
 // execMarker is the argv[0] the remote job runs under, unique per execution.
 func execMarker(execID int64) string { return fmt.Sprintf("forgemill-exec-%d", execID) }
@@ -251,21 +315,29 @@ func killJobScript(marker string) string {
 // remoteKillCommand wraps killJobScript for the guest: run as root (the job
 // itself runs under sudo) and silenced — the caller cares about the outcome
 // only through the original session.
-func remoteKillCommand(marker string) string {
-	return fmt.Sprintf(`sudo sh -c '%s' >/dev/null 2>&1; true`, killJobScript(marker))
+func remoteKillCommand(marker string, withPassword bool) string {
+	sudo := "sudo"
+	if withPassword {
+		sudo = sudoWithPassword
+	}
+	return fmt.Sprintf(`%s sh -c '%s' >/dev/null 2>&1; true`, sudo, killJobScript(marker))
 }
 
 // remoteKill runs remoteKillCommand on a fresh session of the same client,
-// bounded so a hung guest cannot hold the cancel path hostage.
-func remoteKill(client *ssh.Client, marker string) {
+// bounded so a hung guest cannot hold the cancel path hostage. sudoPassword
+// is fed on stdin when the user's sudo asks for one.
+func remoteKill(client *ssh.Client, marker string, sudoPassword string) {
 	s, err := client.NewSession()
 	if err != nil {
 		slog.Warn("cancel: could not open session to kill remote job", "error", err)
 		return
 	}
 	defer s.Close()
+	if sudoPassword != "" {
+		s.Stdin = strings.NewReader(sudoPassword + "\n")
+	}
 	done := make(chan error, 1)
-	go func() { done <- s.Run(remoteKillCommand(marker)) }()
+	go func() { done <- s.Run(remoteKillCommand(marker, sudoPassword != "")) }()
 	select {
 	case err := <-done:
 		if err != nil {

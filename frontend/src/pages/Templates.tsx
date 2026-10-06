@@ -586,7 +586,7 @@ export default function Templates() {
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-3 min-w-0">
-                    {targetObj && <ProviderIcon type={targetObj.type} size={28} />}
+                    {targetObj && <ProviderIcon type={targetObj.type} size={24} className="mt-0.5" />}
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-medium truncate">{t.name}</h3>
@@ -1051,7 +1051,7 @@ export default function Templates() {
           <div className="bg-card border rounded-lg shadow-xl max-w-lg w-full mx-4 p-6 space-y-4 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="text-lg font-semibold">{detailModal.name}</h3>
+                <h3 className="text-lg font-semibold flex items-center gap-2"><ProviderIcon type={detailModal.platform} size={18} className="shrink-0" />{detailModal.name}</h3>
                 <div className="flex items-center gap-2 mt-1">
                   <Badge variant="outline" className="text-xs">{detailModal.os_type}</Badge>
                   <Badge variant="secondary" className="text-xs">{isProxmox ? "Proxmox" : isVMware ? "VMware" : detailModal.platform}</Badge>

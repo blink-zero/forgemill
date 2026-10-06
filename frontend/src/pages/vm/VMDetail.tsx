@@ -23,6 +23,7 @@ import {
   Play, Square, RotateCcw, Pause, Trash2, Camera, Undo2, ExternalLink, Cpu, MemoryStick,
   HardDrive, RefreshCw, KeyRound, Copy, X, Loader2, AlertTriangle, Clock, History, Network,
 } from "lucide-react";
+import ProviderIcon from "@/components/ProviderIcon";
 import { getErrorMessage, copyText } from "@/lib/utils";
 import { powerVariant, powerLabel } from "@/lib/status";
 
@@ -427,8 +428,11 @@ export default function VMDetail() {
         <Badge variant={powerVariant(vm.power_state)} dot pulse={vm.power_state === "poweredOn" || vm.power_state === "running"}>
           {powerLabel(vm.power_state)}
         </Badge>
-        <span className="hidden md:inline text-13 text-muted-foreground truncate">
-          {vm.target_name}{vm.template_name ? ` · from ${vm.template_name}` : ""}
+        {/* flex-1 with a zero basis: this label absorbs the slack and truncates
+            instead of pushing the action buttons onto a second line. */}
+        <span className="hidden md:flex flex-1 basis-0 min-w-0 items-center gap-1.5 text-13 text-muted-foreground">
+          {targetType && <ProviderIcon type={targetType} size={14} className="shrink-0" />}
+          <span className="truncate">{vm.target_name}{vm.template_name ? ` · from ${vm.template_name}` : vm.origin === "adopted" ? " · adopted" : vm.origin === "registered" ? " · registered by ref" : ""}</span>
         </span>
         {/* Primary actions live in the header: power, console, sync. */}
         <div className="ml-auto flex items-center gap-1.5 flex-wrap">
@@ -517,7 +521,11 @@ export default function VMDetail() {
               <CardContent className="space-y-1">
                 {[
                   { label: "Target", value: vm.target_name },
-                  { label: "Template", value: vm.template_name || "N/A" },
+                  vm.origin === "adopted"
+                    ? { label: "Origin", value: `Adopted${vm.adopted_at ? ` ${formatDateTime(vm.adopted_at)}` : ""} — not deployed by Forgemill` }
+                    : vm.origin === "registered"
+                      ? { label: "Origin", value: "Registered by reference — not deployed by Forgemill" }
+                      : { label: "Template", value: vm.template_name || "N/A" },
                   { label: "IP Address", value: vm.ip_address || "N/A", mono: true, copyable: !!vm.ip_address },
                   { label: "OS Type", value: vm.os_type || "N/A" },
                 ].map((row) => (

@@ -194,10 +194,11 @@ func (db *DB) GetTarget(id int64) (*models.Target, error) {
 	t := &models.Target{}
 	err := db.conn.QueryRow(
 		`SELECT id, name, type, hostname, port, username, password_encrypted, validate_certs, is_default, status, last_connected_at, created_at, updated_at,
-		        COALESCE(storage_pool, ''), COALESCE(network_bridge, ''), COALESCE(datacenter, ''), COALESCE(datastore, ''), COALESCE(network, '')
+		        COALESCE(storage_pool, ''), COALESCE(network_bridge, ''), COALESCE(datacenter, ''), COALESCE(datastore, ''), COALESCE(network, ''),
+		        COALESCE(unmanaged_vms, 0), unmanaged_checked_at
 		 FROM targets WHERE id = ?`, id,
 	).Scan(&t.ID, &t.Name, &t.Type, &t.Hostname, &t.Port, &t.Username, &t.PasswordEncrypt, &t.ValidateCerts, &t.IsDefault, &t.Status, &t.LastConnectedAt, &t.CreatedAt, &t.UpdatedAt,
-		&t.StoragePool, &t.NetworkBridge, &t.Datacenter, &t.Datastore, &t.Network)
+		&t.StoragePool, &t.NetworkBridge, &t.Datacenter, &t.Datastore, &t.Network, &t.UnmanagedVMs, &t.UnmanagedCheckedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +209,8 @@ func (db *DB) ListTargets() ([]models.Target, error) {
 	// V3-M13: Exclude password_encrypted from list query
 	rows, err := db.conn.Query(
 		`SELECT id, name, type, hostname, port, username, validate_certs, is_default, status, last_connected_at, created_at, updated_at,
-		        COALESCE(storage_pool, ''), COALESCE(network_bridge, ''), COALESCE(datacenter, ''), COALESCE(datastore, ''), COALESCE(network, '')
+		        COALESCE(storage_pool, ''), COALESCE(network_bridge, ''), COALESCE(datacenter, ''), COALESCE(datastore, ''), COALESCE(network, ''),
+		        COALESCE(unmanaged_vms, 0), unmanaged_checked_at
 		 FROM targets ORDER BY name`,
 	)
 	if err != nil {
@@ -219,7 +221,7 @@ func (db *DB) ListTargets() ([]models.Target, error) {
 	for rows.Next() {
 		var t models.Target
 		if err := rows.Scan(&t.ID, &t.Name, &t.Type, &t.Hostname, &t.Port, &t.Username, &t.ValidateCerts, &t.IsDefault, &t.Status, &t.LastConnectedAt, &t.CreatedAt, &t.UpdatedAt,
-			&t.StoragePool, &t.NetworkBridge, &t.Datacenter, &t.Datastore, &t.Network); err != nil {
+			&t.StoragePool, &t.NetworkBridge, &t.Datacenter, &t.Datastore, &t.Network, &t.UnmanagedVMs, &t.UnmanagedCheckedAt); err != nil {
 			return nil, err
 		}
 		targets = append(targets, t)
@@ -544,7 +546,8 @@ func scanDeployment(r rowScanner) (models.Deployment, error) {
 // managedVMColumns / managedVMFrom / scanManagedVM are the managed_vms
 // counterparts of the deployment helpers above.
 const managedVMColumns = `v.id, v.deployment_id, v.target_id, v.vm_name, v.vm_ref, v.power_state, v.ip_address, v.cpu, v.memory_mb, v.disk_gb, v.os_type, COALESCE(v.platform, 'linux'), v.last_synced_at, v.created_at, COALESCE(t.name, ''),
-		        COALESCE(d.template_name, tmpl.name, ''), v.state_changed_at, v.last_powered_on_at, v.last_powered_off_at, v.total_runtime_seconds`
+		        COALESCE(d.template_name, tmpl.name, ''), v.state_changed_at, v.last_powered_on_at, v.last_powered_off_at, v.total_runtime_seconds,
+		        COALESCE(v.origin, 'deployed'), v.adopted_at, v.adopted_by`
 
 const managedVMFrom = `FROM managed_vms v
 		 LEFT JOIN targets t ON v.target_id = t.id
@@ -554,7 +557,8 @@ const managedVMFrom = `FROM managed_vms v
 func scanManagedVM(r rowScanner) (models.ManagedVM, error) {
 	var vm models.ManagedVM
 	err := r.Scan(&vm.ID, &vm.DeploymentID, &vm.TargetID, &vm.VMName, &vm.VMRef, &vm.PowerState, &vm.IPAddress, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSType, &vm.Platform, &vm.LastSyncedAt, &vm.CreatedAt, &vm.TargetName, &vm.TemplateName,
-		&vm.StateChangedAt, &vm.LastPoweredOnAt, &vm.LastPoweredOffAt, &vm.TotalRuntimeSeconds)
+		&vm.StateChangedAt, &vm.LastPoweredOnAt, &vm.LastPoweredOffAt, &vm.TotalRuntimeSeconds,
+		&vm.Origin, &vm.AdoptedAt, &vm.AdoptedBy)
 	return vm, err
 }
 
@@ -1045,10 +1049,10 @@ func (db *DB) DeleteWebhook(id int64) error {
 
 func (db *DB) CreateManagedVM(vm *models.ManagedVM) error {
 	res, err := db.conn.Exec(
-		`INSERT INTO managed_vms (deployment_id, target_id, vm_name, vm_ref, power_state, ip_address, cpu, memory_mb, disk_gb, os_type, last_synced_at, state_changed_at, last_powered_on_at, last_powered_off_at, total_runtime_seconds)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO managed_vms (deployment_id, target_id, vm_name, vm_ref, power_state, ip_address, cpu, memory_mb, disk_gb, os_type, last_synced_at, state_changed_at, last_powered_on_at, last_powered_off_at, total_runtime_seconds, origin, adopted_at, adopted_by)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		vm.DeploymentID, vm.TargetID, vm.VMName, vm.VMRef, vm.PowerState, vm.IPAddress, vm.CPU, vm.MemoryMB, vm.DiskGB, vm.OSType, vm.LastSyncedAt,
-		vm.StateChangedAt, vm.LastPoweredOnAt, vm.LastPoweredOffAt, vm.TotalRuntimeSeconds,
+		vm.StateChangedAt, vm.LastPoweredOnAt, vm.LastPoweredOffAt, vm.TotalRuntimeSeconds, vmOrigin(vm), vm.AdoptedAt, vm.AdoptedBy,
 	)
 	if err != nil {
 		if isUniqueConstraintError(err) {
@@ -1068,8 +1072,8 @@ func (db *DB) CreateManagedVM(vm *models.ManagedVM) error {
 // the (vm_ref, target_id) pair already exists (e.g. Proxmox reuses a VMID).
 func (db *DB) UpsertManagedVM(vm *models.ManagedVM) error {
 	_, err := db.conn.Exec(
-		`INSERT INTO managed_vms (deployment_id, target_id, vm_name, vm_ref, power_state, ip_address, cpu, memory_mb, disk_gb, os_type, last_synced_at, state_changed_at, last_powered_on_at, last_powered_off_at, total_runtime_seconds)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO managed_vms (deployment_id, target_id, vm_name, vm_ref, power_state, ip_address, cpu, memory_mb, disk_gb, os_type, last_synced_at, state_changed_at, last_powered_on_at, last_powered_off_at, total_runtime_seconds, origin)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(vm_ref, target_id) DO UPDATE SET
 		   deployment_id = excluded.deployment_id,
 		   vm_name = excluded.vm_name,
@@ -1085,7 +1089,7 @@ func (db *DB) UpsertManagedVM(vm *models.ManagedVM) error {
 		   last_powered_off_at = excluded.last_powered_off_at,
 		   total_runtime_seconds = excluded.total_runtime_seconds`,
 		vm.DeploymentID, vm.TargetID, vm.VMName, vm.VMRef, vm.PowerState, vm.IPAddress, vm.CPU, vm.MemoryMB, vm.DiskGB, vm.OSType, vm.LastSyncedAt,
-		vm.StateChangedAt, vm.LastPoweredOnAt, vm.LastPoweredOffAt, vm.TotalRuntimeSeconds,
+		vm.StateChangedAt, vm.LastPoweredOnAt, vm.LastPoweredOffAt, vm.TotalRuntimeSeconds, vmOrigin(vm),
 	)
 	if err != nil {
 		return err
