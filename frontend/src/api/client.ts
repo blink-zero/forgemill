@@ -44,6 +44,8 @@ import type {
   CredentialCheck,
   AIStatus,
   AITestResult,
+  ActionReview,
+  ActionReviewInput,
 } from "@/types";
 
 const api = axios.create({
@@ -172,6 +174,10 @@ export const settings = {
 export const ai = {
   status: () => api.get<AIStatus>("/ai/status"),
   test: () => api.post<AITestResult>("/ai/test"),
+  // Deterministic checks only (works with AI off).
+  lintAction: (input: ActionReviewInput) => api.post<ActionReview>("/ai/actions/lint", input),
+  // Lint + the model's review when AI assistance is on; a model failure still returns the lint result.
+  reviewAction: (input: ActionReviewInput) => api.post<ActionReview>("/ai/actions/review", input),
 };
 
 export const users = {

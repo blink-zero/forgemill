@@ -671,3 +671,36 @@ export interface AITestResult {
   reply?: string;
   error?: string;
 }
+
+// One thing worth knowing about an action script (from the linter or the model).
+export interface ActionFinding {
+  severity: "critical" | "high" | "medium" | "low" | "info" | string;
+  source: "lint" | "model" | string;
+  rule?: string;
+  line?: number;
+  title: string;
+  detail?: string;
+  suggestion?: string;
+}
+
+export interface ActionReview {
+  summary?: string;
+  risk: "low" | "medium" | "high" | "critical" | string;
+  idempotent?: boolean;
+  distro_support: { debian: boolean; rhel: boolean; notes?: string };
+  findings: ActionFinding[];
+  suggested_parameters?: ActionParameter[];
+  lint_only: boolean;
+  ai_error?: string;
+  model?: string;
+  redaction?: { counts: Record<string, number>; total: number };
+  duration_ms?: number;
+}
+
+export interface ActionReviewInput {
+  name?: string;
+  description?: string;
+  script: string;
+  parameters?: ActionParameter[];
+  platform?: string;
+}
