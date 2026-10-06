@@ -116,7 +116,7 @@ func (s *AIAssistService) ReviewAction(ctx context.Context, in ActionReviewInput
 	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
 	var parsed modelReview
-	resp, err := completeJSON(ctx, p, ai.Request{System: reviewSystemPrompt, User: user, MaxTokens: 3000, Temperature: 0.1, JSON: true}, &parsed)
+	resp, err := completeJSON(ctx, p, ai.Request{System: reviewSystemPrompt, User: user, MaxTokens: 6000, Temperature: 0.1, JSON: true}, &parsed)
 	review.DurationMs = time.Since(start).Milliseconds()
 	s.auditAI(actor, actorID, "ai.action.review", cfg, resp, report, err, review.DurationMs, len(in.Script))
 	if err != nil {

@@ -170,3 +170,18 @@ func TestConfigValidate(t *testing.T) {
 		t.Error("defaults missing")
 	}
 }
+
+// A reasoning model that exhausts max_tokens before emitting text gets an
+// error that says so, not "empty answer".
+func TestAnthropicExplainsExhaustedBudget(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"model":"claude-x","content":[{"type":"thinking","thinking":"..."}],"stop_reason":"max_tokens","usage":{"input_tokens":12,"output_tokens":20}}`))
+	}))
+	defer srv.Close()
+	p, _ := New(Config{Provider: ProviderAnthropic, BaseURL: srv.URL, Model: "claude-x", APIKey: "k", AllowPrivateEndpoint: true})
+	_, err := p.Complete(context.Background(), Request{User: "ping", MaxTokens: 20})
+	var pe *ProviderError
+	if !errors.As(err, &pe) || !strings.Contains(pe.Message, "output budget") || !strings.Contains(pe.Message, "20 tokens") {
+		t.Errorf("want budget explanation, got %v", err)
+	}
+}

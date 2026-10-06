@@ -23,8 +23,10 @@ func NewAIHandler(svc *service.AIAssistService) *AIHandler { return &AIHandler{s
 func (h *AIHandler) Status(w http.ResponseWriter, r *http.Request) {
 	st := h.svc.Status()
 	if u := middleware.UserFromContext(r.Context()); u == nil || u.Role != "admin" {
-		// Non-admins get the switch, not the configuration.
-		st = service.AIStatus{Enabled: st.Enabled, Configured: st.Configured, RedactHostnames: st.RedactHostnames}
+		// Non-admins get the switch, not the configuration — exactly these
+		// three fields, nothing about keys or endpoints.
+		writeJSON(w, http.StatusOK, map[string]any{"enabled": st.Enabled, "configured": st.Configured, "redact_hostnames": st.RedactHostnames})
+		return
 	}
 	writeJSON(w, http.StatusOK, st)
 }

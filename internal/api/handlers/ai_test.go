@@ -44,8 +44,8 @@ func TestAILintEndpointWorksWithAIOff(t *testing.T) {
 	// Status for a non-admin carries only the switch.
 	rec = httptest.NewRecorder()
 	h.Status(rec, httptest.NewRequest(http.MethodGet, "/ai/status", nil))
-	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "problem") {
-		t.Errorf("status: %d %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "problem") || strings.Contains(rec.Body.String(), "key_set") || strings.Contains(rec.Body.String(), "provider") {
+		t.Errorf("non-admin status must carry only the switch: %d %s", rec.Code, rec.Body.String())
 	}
 }
 
