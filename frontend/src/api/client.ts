@@ -44,6 +44,7 @@ import type {
   CredentialCheck,
   AIStatus,
   AITestResult,
+  AIModelInfo,
   ActionReview,
   ActionReviewInput,
   ActionDraft,
@@ -176,6 +177,8 @@ export const settings = {
 export const ai = {
   status: () => api.get<AIStatus>("/ai/status"),
   test: () => api.post<AITestResult>("/ai/test"),
+  // Models the configured provider offers (uses the saved provider/key).
+  models: () => api.get<{ models: AIModelInfo[] }>("/ai/models"),
   // Deterministic checks only (works with AI off).
   lintAction: (input: ActionReviewInput) => api.post<ActionReview>("/ai/actions/lint", input),
   // Lint + the model's review when AI assistance is on; a model failure still returns the lint result.

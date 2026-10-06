@@ -216,3 +216,35 @@ func ValidateAISetting(key, value string) error {
 	}
 	return nil
 }
+
+// ListModels asks the configured provider which models it offers, so the
+// Settings page can show a picker instead of a free-text field. Needs the
+// provider and (where required) a key, not Enabled.
+func (s *AIAssistService) ListModels(ctx context.Context) ([]ai.ModelInfo, error) {
+	cfg, err := s.Config()
+	if err != nil {
+		return nil, err
+	}
+	// Model is not needed to list models; validate the rest.
+	probe := cfg
+	if probe.Model == "" {
+		probe.Model = "-"
+	}
+	if err := probe.Validate(); err != nil {
+		return nil, err
+	}
+	if err := ai.CheckEndpoint(cfg); err != nil {
+		return nil, err
+	}
+	p, err := s.newProvider(probe)
+	if err != nil {
+		return nil, err
+	}
+	lister, ok := p.(ai.ModelLister)
+	if !ok {
+		return nil, fmt.Errorf("%w: this provider cannot list models", ai.ErrNotConfigured)
+	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return lister.ListModels(ctx)
+}

@@ -728,3 +728,5 @@ export interface ActionDraft {
   duration_ms: number;
   refused?: boolean;
 }
+
+export interface AIModelInfo { id: string; name?: string }

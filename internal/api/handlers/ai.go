@@ -118,3 +118,13 @@ func (h *AIHandler) DraftAction(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, draft)
 }
+
+// ListModels: GET /api/ai/models — what the configured provider offers.
+func (h *AIHandler) ListModels(w http.ResponseWriter, r *http.Request) {
+	models, err := h.svc.ListModels(r.Context())
+	if err != nil {
+		writeAIError(w, "list models failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+}
