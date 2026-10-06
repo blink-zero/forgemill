@@ -153,3 +153,28 @@ func TestDecideCapabilities(t *testing.T) {
 		t.Error("evaluation properties on the manager must count")
 	}
 }
+
+func TestDecideCapabilitiesReportsEvaluationCountdown(t *testing.T) {
+	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	eval := types.LicenseManagerLicenseInfo{EditionKey: "eval", Name: "Evaluation Mode", Properties: []types.KeyAnyValue{{Key: "expirationHours", Value: int32(240)}}}
+	caps := decideCapabilities(true, []types.LicenseManagerLicenseInfo{eval}, nil, now)
+	if !caps.WritesAllowed || caps.EvaluationExpiresAt == nil || !caps.EvaluationExpiresAt.Equal(now.Add(240*time.Hour)) {
+		t.Fatalf("esxi fresh eval: %+v", caps)
+	}
+	// vCenter on evaluation only: countdown reported; with a real key: not.
+	caps = decideCapabilities(false, []types.LicenseManagerLicenseInfo{eval}, nil, now)
+	if caps.EvaluationExpiresAt == nil {
+		t.Errorf("vcenter eval-only should report the countdown: %+v", caps)
+	}
+	keyed := types.LicenseManagerLicenseInfo{EditionKey: "vc.standard", Name: "VMware vCenter Server 8 Standard"}
+	caps = decideCapabilities(false, []types.LicenseManagerLicenseInfo{eval, keyed}, nil, now)
+	if caps.EvaluationExpiresAt != nil {
+		t.Errorf("keyed vcenter must not report a countdown: %+v", caps)
+	}
+	// Expired: no countdown, inventory-only.
+	expired := types.LicenseManagerLicenseInfo{EditionKey: "eval", Name: "Evaluation Mode", Properties: []types.KeyAnyValue{{Key: "expirationHours", Value: int32(0)}}}
+	caps = decideCapabilities(true, []types.LicenseManagerLicenseInfo{expired}, nil, now)
+	if caps.WritesAllowed || caps.EvaluationExpiresAt != nil {
+		t.Errorf("expired eval: %+v", caps)
+	}
+}

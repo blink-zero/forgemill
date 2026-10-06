@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Sentinel errors providers wrap so callers can map them to a specific
@@ -364,6 +365,10 @@ type HostCapabilities struct {
 	LicenseEdition string `json:"license_edition,omitempty"` // display name of the active license
 	WritesAllowed  bool   `json:"writes_allowed"`            // false = inventory-only
 	Note           string `json:"note,omitempty"`            // what the user should know when writes are off
+	// EvaluationExpiresAt is set while the host runs on an evaluation
+	// license that still has time left — after that moment it becomes
+	// inventory-only. Nil for keyed hosts and for expired evaluations.
+	EvaluationExpiresAt *time.Time `json:"evaluation_expires_at,omitempty"`
 }
 
 // CapabilityReporter is implemented by providers that can tell up front

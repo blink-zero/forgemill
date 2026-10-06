@@ -70,6 +70,7 @@ var migrations = []struct {
 	{44, migrationV44},
 	{45, migrationV45},
 	{46, migrationV46},
+	{47, migrationV47},
 }
 
 const migrationV1 = `
@@ -1427,6 +1428,14 @@ INSERT INTO schema_version (version) VALUES (38);
 // V46: what a target can do beyond reading inventory. Free-licensed
 // standalone ESXi hosts reject every vSphere API write; record that on the
 // target so the UI can say so and deploys are refused before a row exists.
+// V47: evaluation countdown. When a host runs on an evaluation license,
+// when it ends and which warning (14/7/1/0 days) has already been sent.
+const migrationV47 = `
+ALTER TABLE targets ADD COLUMN evaluation_expires_at DATETIME;
+ALTER TABLE targets ADD COLUMN evaluation_warned_stage INTEGER NOT NULL DEFAULT -1;
+INSERT INTO schema_version (version) VALUES (47);
+`
+
 const migrationV46 = `
 ALTER TABLE targets ADD COLUMN license_edition TEXT NOT NULL DEFAULT '';
 ALTER TABLE targets ADD COLUMN deploy_supported INTEGER NOT NULL DEFAULT 1;

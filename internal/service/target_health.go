@@ -61,12 +61,15 @@ func (c *TargetHealthChecker) run() {
 	defer tick.Stop()
 
 	var lastRun time.Time
+	c.targets.SweepEvaluations(time.Now())
 
 	for {
 		select {
 		case <-c.stop:
 			return
 		case <-tick.C:
+			// Reminders are computed from stored expiries — no network.
+			c.targets.SweepEvaluations(time.Now())
 			interval := c.readIntervalMinutes()
 			if interval <= 0 {
 				lastRun = time.Time{} // reset so re-enabling kicks off promptly

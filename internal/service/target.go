@@ -13,9 +13,16 @@ import (
 )
 
 type TargetService struct {
-	db  *db.DB
-	enc *crypto.Encryptor
+	db       *db.DB
+	enc      *crypto.Encryptor
+	notifier *NotificationService
+	webhooks *WebhookService
 }
+
+// SetNotificationService / SetWebhookService wire the sinks the evaluation
+// reminders go to. Optional.
+func (s *TargetService) SetNotificationService(n *NotificationService) { s.notifier = n }
+func (s *TargetService) SetWebhookService(w *WebhookService)           { s.webhooks = w }
 
 func NewTargetService(db *db.DB, enc *crypto.Encryptor) *TargetService {
 	return &TargetService{db: db, enc: enc}
@@ -92,7 +99,7 @@ func (s *TargetService) refreshCapabilities(ctx context.Context, id int64, p pro
 		slog.Warn("could not read target capabilities", "target_id", id, "error", err)
 		return
 	}
-	if err := s.db.UpdateTargetCapabilities(id, caps.LicenseEdition, caps.WritesAllowed, caps.Note); err != nil {
+	if err := s.db.UpdateTargetCapabilities(id, caps.LicenseEdition, caps.WritesAllowed, caps.Note, caps.EvaluationExpiresAt); err != nil {
 		slog.Warn("could not store target capabilities", "target_id", id, "error", err)
 		return
 	}

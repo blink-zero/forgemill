@@ -51,6 +51,8 @@ c.execute("""INSERT INTO targets (id,name,type,hostname,port,username,password_e
           (PW_BLOB, ts(minutes=3), ts(days=95), ts(minutes=3)))
 # Unmanaged VMs seen on the last sync (drives the Targets badge, VMs → Discover picker and the Dashboard tile).
 c.execute("UPDATE targets SET unmanaged_vms = 3, unmanaged_checked_at = ? WHERE id = 1", (ts(minutes=3),))
+# pve-01 is fine; vcenter-lab runs on an evaluation with nine days left (badge + Dashboard tile).
+c.execute("UPDATE targets SET license_edition = 'Evaluation Mode', evaluation_expires_at = ? WHERE id = 1", ((now + timedelta(days=9)).strftime("%Y-%m-%d %H:%M:%S"),))
 # A free-licensed standalone ESXi host: reachable, inventory-only.
 c.execute("""INSERT INTO targets (id,name,type,hostname,port,username,password_encrypted,validate_certs,is_default,status,last_connected_at,created_at,updated_at,datacenter,datastore,network,license_edition,deploy_supported,capability_note)
              VALUES (3,'esxi-free-lab','esxi','esxi-free.lab.internal',443,'root',?,0,0,'connected',?,?,?,'ha-datacenter','datastore1','VM Network','VMware vSphere 8 Hypervisor',0,
