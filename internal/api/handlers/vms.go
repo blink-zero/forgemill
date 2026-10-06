@@ -407,8 +407,13 @@ func (h *VMHandler) SetCredentials(w http.ResponseWriter, r *http.Request) {
 	if actor != nil {
 		actorID, actorName = &actor.ID, actor.Username
 	}
-	if err := h.svc.SetCredentials(r.Context(), id, req, actorID, actorName); err != nil {
+	check, err := h.svc.SetCredentials(r.Context(), id, req, actorID, actorName)
+	if err != nil {
+		var failed *service.ErrCredentialCheckFailed
 		switch {
+		case errors.As(err, &failed):
+			// Refused on evidence: the credentials were tried and don't work for actions.
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]interface{}{"error": failed.Check.Message, "check": failed.Check})
 		case errors.Is(err, service.ErrVMNotFound):
 			writeError(w, "VM not found", http.StatusNotFound)
 		case errors.Is(err, service.ErrInvalidCredentials):
@@ -423,9 +428,39 @@ func (h *VMHandler) SetCredentials(w http.ResponseWriter, r *http.Request) {
 		if req.PrivateKey != "" {
 			kind = "private_key"
 		}
-		h.audit.Log(actor.Username, &actor.ID, "vm.credentials.set", "vm", fmt.Sprintf("%d", id), service.IPFromRequest(r), map[string]interface{}{"username": req.Username, "kind": kind})
+		h.audit.Log(actor.Username, &actor.ID, "vm.credentials.set", "vm", fmt.Sprintf("%d", id), service.IPFromRequest(r), map[string]interface{}{
+			"username": req.Username, "kind": kind, "sudo_password": req.SudoPassword != "", "forced": req.Force, "check": check.Sudo, "check_skipped": check.Skipped,
+		})
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]interface{}{"saved": true, "check": check})
+}
+
+// TestCredentials tries credentials on the VM without storing them
+// (POST /vms/{id}/credentials/test).
+func (h *VMHandler) TestCredentials(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	var req service.SetCredentialsRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	check, err := h.svc.TestCredentials(r.Context(), id, req)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrVMNotFound):
+			writeError(w, "VM not found", http.StatusNotFound)
+		case errors.Is(err, service.ErrInvalidCredentials):
+			writeError(w, err.Error(), http.StatusBadRequest)
+		default:
+			writeErrorLog(w, "failed to test credentials", http.StatusInternalServerError, err)
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, check)
 }
 
 // ClearCredentials removes the explicit SSH login (DELETE /vms/{id}/credentials).

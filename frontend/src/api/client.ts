@@ -41,6 +41,7 @@ import type {
   IgnoredVM,
   VMCredentials,
   SetVMCredentialsRequest,
+  CredentialCheck,
 } from "@/types";
 
 const api = axios.create({
@@ -223,7 +224,8 @@ export const vms = {
     api.post<{ status: string; nic: VMNIC }>(`/vms/${id}/nics`, data),
   console: (id: number) => api.get<{ url: string }>(`/vms/${id}/console`),
   credentials: (id: number) => api.get<VMCredentials>(`/vms/${id}/credentials`),
-  setCredentials: (id: number, body: SetVMCredentialsRequest) => api.put(`/vms/${id}/credentials`, body),
+  setCredentials: (id: number, body: SetVMCredentialsRequest) => api.put<{ saved: boolean; check: CredentialCheck }>(`/vms/${id}/credentials`, body),
+  testCredentials: (id: number, body: SetVMCredentialsRequest) => api.post<CredentialCheck>(`/vms/${id}/credentials/test`, body),
   clearCredentials: (id: number) => api.delete(`/vms/${id}/credentials`),
   resetHostKey: (id: number) => api.post(`/vms/${id}/reset-host-key`),
 };

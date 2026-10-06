@@ -57,7 +57,7 @@ func TestCredentialsResolutionPrefersExplicitOverDeployment(t *testing.T) {
 	}
 
 	// An explicit password login overrides it.
-	if err := svc.SetCredentials(ctx, vmID, SetCredentialsRequest{Username: " root ", Password: "rotated"}, &user.ID, "alice"); err != nil {
+	if _, err := svc.SetCredentials(ctx, vmID, SetCredentialsRequest{Username: " root ", Password: "rotated"}, &user.ID, "alice"); err != nil {
 		t.Fatal(err)
 	}
 	c, err = svc.GetCredentials(ctx, vmID)
@@ -67,12 +67,12 @@ func TestCredentialsResolutionPrefersExplicitOverDeployment(t *testing.T) {
 	// The executor sees the same resolution.
 	vm, _ := database.GetManagedVM(vmID)
 	r, err := resolveVMCredentials(database, svc.encryptor, vm)
-	if err != nil || r.Password != "rotated" || r.PrivateKey != "" {
-		t.Fatalf("resolve: %+v err %v", r, err)
+	if err != nil || r.Password != "rotated" || r.PrivateKey != "" || r.SudoPassword != "rotated" || r.HasSudoPassword {
+		t.Fatalf("resolve: %+v err %v (a password login hands its own password to sudo)", r, err)
 	}
 
 	// A private key is stored but never echoed.
-	if err := svc.SetCredentials(ctx, vmID, SetCredentialsRequest{Username: "ops", PrivateKey: testPrivateKeyPEM(t)}, &user.ID, "alice"); err != nil {
+	if _, err := svc.SetCredentials(ctx, vmID, SetCredentialsRequest{Username: "ops", PrivateKey: testPrivateKeyPEM(t)}, &user.ID, "alice"); err != nil {
 		t.Fatal(err)
 	}
 	c, err = svc.GetCredentials(ctx, vmID)
@@ -80,8 +80,21 @@ func TestCredentialsResolutionPrefersExplicitOverDeployment(t *testing.T) {
 		t.Fatalf("key creds: %+v err %v", c, err)
 	}
 	r, _ = resolveVMCredentials(database, svc.encryptor, vm)
-	if r.PrivateKey == "" || r.Password != "" {
-		t.Fatalf("resolve key: %+v", r)
+	if r.PrivateKey == "" || r.Password != "" || r.SudoPassword != "" {
+		t.Fatalf("resolve key: %+v (a key login has nothing to give sudo unless a sudo password is set)", r)
+	}
+	// A key login with an explicit sudo password hands that to sudo, and the
+	// API only ever says that one exists.
+	if _, err := svc.SetCredentials(ctx, vmID, SetCredentialsRequest{Username: "ops", PrivateKey: testPrivateKeyPEM(t), SudoPassword: "s3cret"}, &user.ID, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	r, _ = resolveVMCredentials(database, svc.encryptor, vm)
+	if r.SudoPassword != "s3cret" || !r.HasSudoPassword {
+		t.Fatalf("resolve key+sudo: %+v", r)
+	}
+	c, _ = svc.GetCredentials(ctx, vmID)
+	if !c.HasSudoPassword || c.Password != "" {
+		t.Fatalf("api must only flag the sudo password, got %+v", c)
 	}
 
 	// Clearing falls back to the deployment.
@@ -114,13 +127,14 @@ func TestSetCredentialsValidation(t *testing.T) {
 		"garbage key":   {Username: "root", PrivateKey: "not a key"},
 		"spaced user":   {Username: "ro ot", Password: "x"},
 		"long password": {Username: "root", Password: strings.Repeat("p", 2000)},
+		"long sudo pw":  {Username: "root", Password: "x", SudoPassword: strings.Repeat("p", 2000)},
 	}
 	for name, req := range cases {
-		if err := svc.SetCredentials(ctx, vmID, req, nil, "api"); !errors.Is(err, ErrInvalidCredentials) {
+		if _, err := svc.SetCredentials(ctx, vmID, req, nil, "api"); !errors.Is(err, ErrInvalidCredentials) {
 			t.Errorf("%s: want ErrInvalidCredentials, got %v", name, err)
 		}
 	}
-	if err := svc.SetCredentials(ctx, 9999, SetCredentialsRequest{Username: "root", Password: "x"}, nil, "api"); !errors.Is(err, ErrVMNotFound) {
+	if _, err := svc.SetCredentials(ctx, 9999, SetCredentialsRequest{Username: "root", Password: "x"}, nil, "api"); !errors.Is(err, ErrVMNotFound) {
 		t.Errorf("missing VM: want ErrVMNotFound, got %v", err)
 	}
 	if _, err := svc.GetCredentials(ctx, vmID); !errors.Is(err, ErrNoCredentials) {
