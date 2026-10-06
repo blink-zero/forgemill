@@ -5,7 +5,7 @@ import type { DashboardData } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Server, Box, Rocket, Monitor, Zap, Plus, ArrowRight, Terminal, Clock, Import } from "lucide-react";
+import { Server, Box, Rocket, Monitor, Zap, Plus, ArrowRight, Terminal, Clock, Import, BookOpen } from "lucide-react";
 import ProviderIcon, { providerLabel } from "@/components/ProviderIcon";
 import { InventoryOnlyBadge } from "@/components/InventoryOnlyBadge";
 import { SkeletonCard, Skeleton } from "@/components/ui/skeleton";
@@ -176,6 +176,24 @@ export default function Dashboard() {
               <div className="min-w-0">
                 <p className="text-sm font-medium">{unmanaged} VM{unmanaged === 1 ? "" : "s"} on your targets {unmanaged === 1 ? "isn't" : "aren't"} managed by Forgemill</p>
                 <p className="text-xs text-muted-foreground">{(data.targets || []).filter((t) => (t.unmanaged_vms ?? 0) > 0).map((t) => `${t.name}: ${t.unmanaged_vms}`).join(" · ")} — discover and adopt them to bring them under management.</p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+      )}
+
+      {(data.targets || []).some((t) => t.deploy_supported === false) && (
+        <Link to="/targets">
+          <Card className="group border-warning/30 bg-warning/5 hover:border-warning/60 cursor-pointer transition-colors">
+            <CardContent className="py-3 flex items-center gap-3">
+              <div className="h-8 w-8 rounded-md border bg-warning/10 border-warning/20 flex items-center justify-center shrink-0">
+                <BookOpen className="h-4 w-4 text-warning" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium">
+                  {(() => { const n = (data.targets || []).filter((t) => t.deploy_supported === false).length; return `${n} target${n === 1 ? " is" : "s are"} inventory-only`; })()}
+                </p>
+                <p className="text-xs text-muted-foreground">{(data.targets || []).filter((t) => t.deploy_supported === false).map((t) => `${t.name}${t.license_edition ? ` (${t.license_edition})` : ""}`).join(" · ")} — the license prohibits hypervisor writes: deploy, power, reconfigure, snapshot and destroy are unavailable there; inventory, discover, adopt and SSH actions still work.</p>
               </div>
             </CardContent>
           </Card>
