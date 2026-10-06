@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
+
+	"github.com/forgemill/forgemill/internal/provider"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -30,6 +32,13 @@ func writeError(w http.ResponseWriter, message string, status int) {
 // The error is also kept in a small in-memory ring so the diagnostics
 // endpoint can show operators the last few server-side failures.
 func writeErrorLog(w http.ResponseWriter, clientMsg string, status int, err error) {
+	if provider.IsLicenseRestricted(err) {
+		// Not a server fault: the hypervisor's license refused the write.
+		// Say so plainly, once, for every operation that can hit it.
+		slog.Warn(clientMsg+": hypervisor license prohibits API writes", "error", err)
+		writeError(w, provider.LicenseRestrictedMessage, http.StatusConflict)
+		return
+	}
 	slog.Error(clientMsg, "error", err)
 	recordServerError(status, clientMsg, err)
 	writeError(w, clientMsg, status)

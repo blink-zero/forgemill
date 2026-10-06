@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Server, Box, Rocket, Monitor, Zap, Plus, ArrowRight, Terminal, Clock, Import } from "lucide-react";
 import ProviderIcon, { providerLabel } from "@/components/ProviderIcon";
+import { InventoryOnlyBadge } from "@/components/InventoryOnlyBadge";
 import { SkeletonCard, Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/ui/page-header";
 import { deploymentStatusVariant } from "@/lib/status";
@@ -293,9 +294,12 @@ export default function Dashboard() {
                         <p className="text-xs text-muted-foreground">{t.hostname} · {providerLabel(t.type)}</p>
                       </div>
                     </div>
-                    <Badge variant={t.status === "connected" ? "success" : t.status === "error" ? "destructive" : "secondary"}>
-                      {t.status}
-                    </Badge>
+                    <div className="flex items-center gap-1.5">
+                      <InventoryOnlyBadge target={t} />
+                      <Badge variant={t.status === "connected" ? "success" : t.status === "error" ? "destructive" : "secondary"}>
+                        {t.status}
+                      </Badge>
+                    </div>
                   </div>
                 ))}
               </div>

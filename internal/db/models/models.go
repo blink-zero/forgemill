@@ -38,6 +38,13 @@ type Target struct {
 	// Discover. UnmanagedCheckedAt says when that was computed.
 	UnmanagedVMs       int        `json:"unmanaged_vms"`
 	UnmanagedCheckedAt *time.Time `json:"unmanaged_checked_at"`
+	// From the last connection test / template sync: the active license and
+	// whether the hypervisor accepts writes from Forgemill at all. A
+	// free-licensed standalone ESXi host is inventory-only; CapabilityNote
+	// is the explanation shown to the user.
+	LicenseEdition  string `json:"license_edition,omitempty"`
+	DeploySupported bool   `json:"deploy_supported"`
+	CapabilityNote  string `json:"capability_note,omitempty"`
 	// Proxmox-specific fields
 	StoragePool   string `json:"storage_pool,omitempty"`
 	NetworkBridge string `json:"network_bridge,omitempty"`

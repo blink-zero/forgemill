@@ -75,7 +75,7 @@ If you already run full-blown cloud platforms or need multi-tenancy, Forgemill i
 | Hypervisor | Transport | Notes |
 |------------|-----------|-------|
 | **VMware vCenter** | govmomi (vSphere API) | Full VM lifecycle, folders, clusters, resource pools, native templates |
-| **VMware ESXi (standalone)** | govmomi (direct host) | VM lifecycle, snapshots, resize. No folders / native templates without vCenter |
+| **VMware ESXi (standalone)** | govmomi (direct host) | VM lifecycle, snapshots, resize. No folders / native templates without vCenter. A host on the **free vSphere Hypervisor license** is inventory-only (the license makes the vSphere API read-only for third-party clients): Forgemill marks it as such after the connection test, discover/adopt/sync still work, and deploys are refused in preflight with the reason |
 | **Proxmox VE** | Proxmox REST API | KVM/QEMU VMs, snapshots, cloning, templates, resize, add NIC, optional 802.1Q VLAN tag on deploy and on added NICs. Ticket or API-token auth |
 
 Hypervisor capabilities are declared per provider and the UI adapts to them — e.g. folder placement and disk provisioning only appear for vSphere, VLAN tagging only for Proxmox, and the adapter models offered when adding a NIC come from the provider itself.

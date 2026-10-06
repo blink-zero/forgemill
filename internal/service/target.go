@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/forgemill/forgemill/internal/crypto"
@@ -74,7 +75,30 @@ func (s *TargetService) TestConnection(ctx context.Context, id int64) error {
 		return err
 	}
 	s.db.UpdateTargetStatus(id, "connected")
+	s.refreshCapabilities(ctx, id, p)
 	return nil
+}
+
+// refreshCapabilities asks a provider that can report it whether the host
+// accepts writes (free-licensed ESXi does not) and records the answer on the
+// target. Best effort: a host that cannot be asked keeps its last answer.
+func (s *TargetService) refreshCapabilities(ctx context.Context, id int64, p provider.Provider) {
+	reporter, ok := p.(provider.CapabilityReporter)
+	if !ok {
+		return
+	}
+	caps, err := reporter.HostCapabilities(ctx)
+	if err != nil {
+		slog.Warn("could not read target capabilities", "target_id", id, "error", err)
+		return
+	}
+	if err := s.db.UpdateTargetCapabilities(id, caps.LicenseEdition, caps.WritesAllowed, caps.Note); err != nil {
+		slog.Warn("could not store target capabilities", "target_id", id, "error", err)
+		return
+	}
+	if !caps.WritesAllowed {
+		slog.Warn("target is inventory-only: hypervisor license prohibits API writes", "target_id", id, "license", caps.LicenseEdition)
+	}
 }
 
 func (s *TargetService) SyncTemplates(ctx context.Context, id int64) (int, error) {
@@ -136,6 +160,7 @@ func (s *TargetService) SyncTemplates(ctx context.Context, id int64) (int, error
 	}
 
 	s.db.UpdateTargetStatus(id, "connected")
+	s.refreshCapabilities(ctx, id, p)
 	return len(templates), nil
 }
 

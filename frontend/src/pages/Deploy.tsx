@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { templates as templateApi, targets as targetApi, deploy as deployApi } from "@/api/client";
 import type { PreflightResult } from "@/api/client";
-import type { Template, Resources } from "@/types";
+import type { Template, Resources, Target } from "@/types";
+import { InventoryOnlyBadge, isInventoryOnly } from "@/components/InventoryOnlyBadge";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,6 +61,12 @@ export default function Deploy() {
   };
 
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
+  // Targets by id, so a template on an inventory-only host is marked before
+  // anyone fills in a form that preflight would refuse anyway.
+  const [targetsById, setTargetsById] = useState<Record<number, Target>>({});
+  useEffect(() => {
+    targetApi.list().then((res) => setTargetsById(Object.fromEntries((res.data || []).map((t) => [t.id, t])))).catch(() => { /* preflight still refuses */ });
+  }, []);
   const [templateSearch, setTemplateSearch] = useState("");
   const [config, setConfig] = useState({
     vm_name: "", datacenter: "", cluster: "", datastore: "", folder: "", network: "",
@@ -303,14 +310,16 @@ export default function Deploy() {
             filteredTemplates.map((tpl) => (
               <Card
                 key={tpl.id}
-                className={`cursor-pointer transition-colors hover:border-primary/50 ${selectedTemplate?.id === tpl.id ? "border-primary" : ""}`}
-                onClick={() => selectTemplate(tpl)}
+                className={`transition-colors ${isInventoryOnly(targetsById[tpl.target_id]) ? "opacity-60 cursor-not-allowed" : `cursor-pointer hover:border-primary/50 ${selectedTemplate?.id === tpl.id ? "border-primary" : ""}`}`}
+                onClick={() => { if (!isInventoryOnly(targetsById[tpl.target_id])) selectTemplate(tpl); }}
+                title={isInventoryOnly(targetsById[tpl.target_id]) ? targetsById[tpl.target_id]?.capability_note : undefined}
               >
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">{tpl.name}</CardTitle>
-                  <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <p className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
                     {tpl.target_type && <ProviderIcon type={tpl.target_type} size={14} className="shrink-0" />}
                     {tpl.target_name}
+                    {targetsById[tpl.target_id] && <InventoryOnlyBadge target={targetsById[tpl.target_id]} />}
                   </p>
                 </CardHeader>
                 <CardContent>
