@@ -99,6 +99,8 @@ func main() {
 	webhookSvc := service.NewWebhookService(database, cfg.AllowPrivateWebhooks)
 	webhookSvc.SetDecryptor(enc) // V3-M14: Wire decryptor for HMAC signing with encrypted secrets
 	notificationSvc := service.NewNotificationService(database)
+	targetSvc.SetNotificationService(notificationSvc)
+	targetSvc.SetWebhookService(webhookSvc)
 	notificationSvc.StartRetentionCleanup(context.Background())
 	deploySvc := service.NewDeployService(database, targetSvc, hub, webhookSvc, enc)
 	deploySvc.SetNotificationService(notificationSvc)

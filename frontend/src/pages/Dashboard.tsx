@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { dashboard } from "@/api/client";
-import type { DashboardData } from "@/types";
+import type { DashboardData, Target } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Server, Box, Rocket, Monitor, Zap, Plus, ArrowRight, Terminal, Clock, Import, BookOpen } from "lucide-react";
+import { Server, Box, Rocket, Monitor, Zap, Plus, ArrowRight, Terminal, Clock, Import, BookOpen, Hourglass } from "lucide-react";
 import ProviderIcon, { providerLabel } from "@/components/ProviderIcon";
-import { InventoryOnlyBadge } from "@/components/InventoryOnlyBadge";
+import { InventoryOnlyBadge, EvaluationBadge, evaluationDaysLeft } from "@/components/InventoryOnlyBadge";
 import { SkeletonCard, Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/ui/page-header";
 import { deploymentStatusVariant } from "@/lib/status";
@@ -182,6 +182,27 @@ export default function Dashboard() {
         </Link>
       )}
 
+      {(() => {
+        const soon = (data.targets || []).map((t) => ({ t, days: evaluationDaysLeft(t) })).filter((x) => x.days !== null && x.days <= 14) as { t: Target; days: number }[];
+        if (soon.length === 0) return null;
+        const worst = Math.min(...soon.map((x) => x.days));
+        return (
+          <Link to="/targets">
+            <Card className={`group cursor-pointer transition-colors ${worst <= 1 ? "border-destructive/30 bg-destructive/5 hover:border-destructive/60" : "border-warning/30 bg-warning/5 hover:border-warning/60"}`}>
+              <CardContent className="py-3 flex items-center gap-3">
+                <div className={`h-8 w-8 rounded-md border flex items-center justify-center shrink-0 ${worst <= 1 ? "bg-destructive/10 border-destructive/20" : "bg-warning/10 border-warning/20"}`}>
+                  <Hourglass className={`h-4 w-4 ${worst <= 1 ? "text-destructive" : "text-warning"}`} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{soon.length === 1 ? `Evaluation license on ${soon[0].t.name} ${soon[0].days === 0 ? "ends today" : `ends in ${soon[0].days} day${soon[0].days === 1 ? "" : "s"}`}` : `${soon.length} targets have evaluation licenses ending within two weeks`}</p>
+                  <p className="text-xs text-muted-foreground">{soon.map((x) => `${x.t.name}: ${x.days === 0 ? "today" : `${x.days}d`}`).join(" · ")} — assign a paid or VMUG key before then; afterwards the host is inventory-only.</p>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+        );
+      })()}
+
       {(data.targets || []).some((t) => t.deploy_supported === false) && (
         <Link to="/targets">
           <Card className="group border-warning/30 bg-warning/5 hover:border-warning/60 cursor-pointer transition-colors">
@@ -314,6 +335,7 @@ export default function Dashboard() {
                     </div>
                     <div className="flex items-center gap-1.5">
                       <InventoryOnlyBadge target={t} />
+                      <EvaluationBadge target={t} />
                       <Badge variant={t.status === "connected" ? "success" : t.status === "error" ? "destructive" : "secondary"}>
                         {t.status}
                       </Badge>

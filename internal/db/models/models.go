@@ -45,6 +45,11 @@ type Target struct {
 	LicenseEdition  string `json:"license_edition,omitempty"`
 	DeploySupported bool   `json:"deploy_supported"`
 	CapabilityNote  string `json:"capability_note,omitempty"`
+	// EvaluationExpiresAt: when the host's evaluation license ends (nil for
+	// keyed hosts). EvaluationWarnedStage is the last reminder sent: 14, 7,
+	// 1 or 0 days left; -1 = none yet.
+	EvaluationExpiresAt   *time.Time `json:"evaluation_expires_at,omitempty"`
+	EvaluationWarnedStage int        `json:"-"`
 	// Proxmox-specific fields
 	StoragePool   string `json:"storage_pool,omitempty"`
 	NetworkBridge string `json:"network_bridge,omitempty"`
