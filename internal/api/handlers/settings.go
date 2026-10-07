@@ -21,10 +21,28 @@ import (
 type SettingsHandler struct {
 	db    *db.DB
 	audit *service.AuditService
+	enc   service.Encryptor // for write-only secret settings (AI API key)
 }
 
 func NewSettingsHandler(db *db.DB, audit *service.AuditService) *SettingsHandler {
 	return &SettingsHandler{db: db, audit: audit}
+}
+
+// SetEncryptor enables secret settings. Without it, ai_api_key is refused.
+func (h *SettingsHandler) SetEncryptor(enc service.Encryptor) { h.enc = enc }
+
+// presentSettings hides storage-only secrets and adds the derived flags the
+// UI needs (whether a key exists, never the key).
+func presentSettings(settings map[string]string) map[string]string {
+	out := make(map[string]string, len(settings)+1)
+	for k, v := range settings {
+		if k == service.SettingAIAPIKeyEnc || k == service.SettingAIAPIKey {
+			continue
+		}
+		out[k] = v
+	}
+	out["ai_api_key_set"] = strconv.FormatBool(settings[service.SettingAIAPIKeyEnc] != "")
+	return out
 }
 
 func (h *SettingsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
@@ -33,7 +51,7 @@ func (h *SettingsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 		writeErrorLog(w, "failed to get settings", http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, settings)
+	writeJSON(w, http.StatusOK, presentSettings(settings))
 }
 
 // B-3: Allowlist of valid setting keys to prevent arbitrary key storage.
@@ -47,6 +65,16 @@ var allowedSettingKeys = map[string]bool{
 	// Who may adopt/ignore discovered VMs and set per-VM credentials:
 	// "admin" (default) or "user" (operators and admins).
 	"vm_adoption_role": true,
+	// AI assistance (see internal/service/ai_assist.go). ai_api_key is
+	// accepted on write and stored encrypted as ai_api_key_enc; neither is
+	// ever returned.
+	service.SettingAIEnabled:              true,
+	service.SettingAIProvider:             true,
+	service.SettingAIBaseURL:              true,
+	service.SettingAIModel:                true,
+	service.SettingAIAPIKey:               true,
+	service.SettingAIRedactHostnames:      true,
+	service.SettingAIAllowPrivateEndpoint: true,
 }
 
 // settingAllowedValues restricts enumerated settings to their valid values.
@@ -77,6 +105,16 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 			writeError(w, fmt.Sprintf("invalid value for %s: %q", key, value), http.StatusBadRequest)
 			return
 		}
+		if strings.HasPrefix(key, "ai_") {
+			if err := service.ValidateAISetting(key, value); err != nil {
+				writeError(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if key == service.SettingAIAPIKey && value != "" && h.enc == nil {
+				writeError(w, "secret settings are not available on this server", http.StatusInternalServerError)
+				return
+			}
+		}
 	}
 	// F-61: Use a transaction for atomicity — all settings saved or none
 	tx, err := h.db.Begin()
@@ -86,6 +124,19 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 	}
 	defer tx.Rollback()
 	for key, value := range req {
+		if key == service.SettingAIAPIKey {
+			// Write-only secret: store encrypted under the storage key;
+			// an empty value clears it.
+			key = service.SettingAIAPIKeyEnc
+			if value != "" {
+				encrypted, err := h.enc.Encrypt(value)
+				if err != nil {
+					writeErrorLog(w, "failed to encrypt setting", http.StatusInternalServerError, err)
+					return
+				}
+				value = encrypted
+			}
+		}
 		if _, err := tx.Exec(
 			`INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
 			 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
@@ -118,7 +169,7 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 		writeErrorLog(w, "failed to read settings", http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, settings)
+	writeJSON(w, http.StatusOK, presentSettings(settings))
 }
 
 func (h *SettingsHandler) ListUsers(w http.ResponseWriter, r *http.Request) {

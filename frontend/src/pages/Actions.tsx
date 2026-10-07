@@ -1,13 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
-import { actions as actionsApi } from "@/api/client";
+import { actions as actionsApi, ai as aiApi } from "@/api/client";
+import { ActionReviewPanel } from "@/pages/actions/ActionReviewPanel";
+import { ActionDraftPanel } from "@/pages/actions/ActionDraftPanel";
 import type { ActionVersion } from "@/api/client";
-import type { Action, ActionParameter, ActionExportEntry, ActionExportFile } from "@/types";
+import type { Action, ActionParameter, ActionExportEntry, ActionExportFile, ActionReview, ActionDraft, AIStatus } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Edit2, Package, Terminal, Shield, Activity, Puzzle, Search, X, Code2, ChevronDown, ChevronUp, Copy, Check, Loader2, ArrowUp, ArrowDown, Settings2, History, RotateCcw, Download, Upload } from "lucide-react";
+import { Plus, Trash2, Edit2, Package, Terminal, Shield, Activity, Puzzle, Search, X, Code2, ChevronDown, ChevronUp, Copy, Check, Loader2, ArrowUp, ArrowDown, Settings2, History, RotateCcw, Download, Upload, ShieldCheck, Sparkles } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Pagination } from "@/components/ui/pagination";
 import { useAuth } from "@/hooks/useAuth";
@@ -117,6 +119,66 @@ export default function ActionsPage() {
   };
 
   useEffect(() => { fetchActions(); }, []);
+
+  // Script check: deterministic lint always; the model's review when AI
+  // assistance is on (status tells us which to expect).
+  const [aiStatus, setAIStatus] = useState<AIStatus | null>(null);
+  const [review, setReview] = useState<ActionReview | null>(null);
+  const [checking, setChecking] = useState(false);
+  const scriptRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => { aiApi.status().then((res) => setAIStatus(res.data)).catch(() => setAIStatus(null)); }, []);
+  const aiOn = Boolean(aiStatus?.enabled && aiStatus?.configured);
+  const [showDraft, setShowDraft] = useState(false);
+
+  // "Use this draft" fills the form; nothing is saved until Create.
+  const useDraft = (d: ActionDraft) => {
+    const cat = (["packages", "scripts", "security", "monitoring", "custom"] as const).includes(d.category as never) ? (d.category as Action["category"]) : "custom";
+    setForm({
+      name: d.name,
+      description: d.description,
+      category: cat,
+      script: d.script,
+      parameters: d.parameters.map((p) => ({ name: p.name, label: p.label || p.name, type: p.type, required: Boolean(p.required), default: p.default || "", placeholder: p.placeholder || "", options: p.options ?? null, description: p.description || "" })),
+      tags: d.tags,
+    });
+    setReview(d.review ?? null);
+    setShowDraft(false);
+    validateScript(d.script);
+    toast("Draft loaded into the editor — review it, then Create");
+  };
+
+  const runCheck = async () => {
+    if (!form.script.trim()) return;
+    setChecking(true);
+    try {
+      const input = { name: form.name, description: form.description, script: form.script, parameters: form.parameters, platform: "linux" };
+      const res = aiOn ? await aiApi.reviewAction(input) : await aiApi.lintAction(input);
+      setReview(res.data);
+    } catch (e: unknown) {
+      toast(getErrorMessage(e, "Check failed"), "error");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const jumpToLine = (line: number) => {
+    const ta = scriptRef.current;
+    if (!ta) return;
+    const lines = form.script.split("\n");
+    const start = lines.slice(0, line - 1).reduce((n, l) => n + l.length + 1, 0);
+    const end = start + (lines[line - 1]?.length ?? 0);
+    ta.focus();
+    ta.setSelectionRange(start, end);
+    ta.scrollTop = Math.max(0, (line - 3) * 20); // approximate line height
+  };
+
+  const addSuggestedParameters = (params: ActionParameter[]) => {
+    const have = new Set(form.parameters.map((p) => p.name));
+    const add = params.filter((p) => !have.has(p.name)).map((p) => ({ name: p.name, label: p.label || p.name, type: p.type, required: Boolean(p.required), default: p.default || "", placeholder: p.placeholder || "", options: p.options ?? null, description: p.description || "" }));
+    if (add.length === 0) return;
+    setForm({ ...form, parameters: [...form.parameters, ...add] });
+    toast(`${add.length} parameter${add.length === 1 ? "" : "s"} added`);
+  };
 
   const validateScript = (val: string): boolean => {
     if (!val.trim()) {
@@ -438,9 +500,19 @@ export default function ActionsPage() {
       {showForm && (
         <Card className="border-primary/30">
           <CardHeader>
-            <CardTitle>{editingId ? "Edit Action" : "Create Action"}</CardTitle>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <CardTitle>{editingId ? "Edit Action" : "Create Action"}</CardTitle>
+              {aiOn && !showDraft && (
+                <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={() => setShowDraft(true)} title={`Draft an action from a description with ${aiStatus?.model || "the configured model"}`}>
+                  <Sparkles className="h-3.5 w-3.5" /> Draft with AI
+                </Button>
+              )}
+            </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            {aiOn && showDraft && (
+              <ActionDraftPanel modelName={aiStatus?.model} existingScript={form.script} existingParameters={form.parameters} onUse={useDraft} onClose={() => setShowDraft(false)} />
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2 sm:col-span-2">
                 <Label>Name *</Label>
@@ -475,14 +547,22 @@ export default function ActionsPage() {
               <div className="space-y-2 sm:col-span-2">
                 <Label>Script *</Label>
                 <textarea
+                  ref={scriptRef}
                   value={form.script}
-                  onChange={(e) => { setForm({ ...form, script: e.target.value }); if (e.target.value) validateScript(e.target.value); }}
+                  onChange={(e) => { setForm({ ...form, script: e.target.value }); if (e.target.value) validateScript(e.target.value); if (review) setReview(null); }}
                   placeholder={"#!/bin/bash\nset -euo pipefail\n\napt-get update -y\napt-get install -y nginx\nsystemctl enable --now nginx"}
                   rows={10}
                   className="w-full rounded-md border border-input bg-gray-950 text-success px-3 py-2 text-sm shadow-xs placeholder:text-gray-600 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring font-mono resize-y"
                 />
                 {configError && <p className="text-xs text-destructive">{configError}</p>}
-                <p className="text-xs text-muted-foreground">Bash script that runs with sudo privileges on the target VM. Max 64KB.</p>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <p className="text-xs text-muted-foreground">Bash script that runs with sudo privileges on the target VM. Max 64KB.</p>
+                  <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={runCheck} disabled={checking || !form.script.trim()} title={aiOn ? `Automatic checks plus a review by ${aiStatus?.model || "the configured model"}` : "Automatic checks: destructive commands, missing set -e, interactive package installs, secrets in the script, undeclared parameters, distro assumptions. Turn on AI assistance in Settings → AI for a model review too."}>
+                    {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : aiOn ? <Sparkles className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                    {checking ? "Checking…" : aiOn ? "Check with AI" : "Check script"}
+                  </Button>
+                </div>
+                {review && <ActionReviewPanel review={review} onJumpToLine={jumpToLine} onAddParameters={addSuggestedParameters} onClose={() => setReview(null)} />}
               </div>
 
               {/* Parameters Section */}
@@ -650,7 +730,7 @@ export default function ActionsPage() {
                 <Button onClick={handleSave} disabled={!form.name || !form.script || !!configError}>
                   {editingId ? "Update" : "Create"}
                 </Button>
-                <Button variant="outline" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancel</Button>
+                <Button variant="outline" onClick={() => { setShowForm(false); setEditingId(null); setReview(null); setShowDraft(false); }}>Cancel</Button>
               </div>
             </div>
           </CardContent>

@@ -156,6 +156,44 @@ async function run(theme) {
   await page.getByPlaceholder("web-server-01").fill("web-03"); await sleep(400); await shot("10-deploy-configure", true);
   await sleep(6000);
   await go("/actions", "text=Security Hardening"); await shot("11-actions"); await sleep(5000);
+  // Action editor: the Check panel (lint only — AI is off in the seed).
+  const newAction = page.getByRole("button", { name: /Create Action/ }).first();
+  if (await newAction.count()) {
+    await newAction.click(); await sleep(500);
+    await page.getByPlaceholder("Install Nginx").fill("Install nginx");
+    await page.locator("textarea").first().fill("#!/bin/bash\napt-get update\napt-get install nginx\nDB_PASSWORD=hunter2\nrm -rf \"$TARGET_DIR\"/*\ncurl -fsSL https://get.docker.com | sh\n");
+    const check = page.getByRole("button", { name: /Check script|Check with AI/ });
+    if (await check.count()) { await check.click(); await page.waitForSelector("text=Script check", { timeout: 10000 }).catch(() => {}); await sleep(600); await shot("11b-actions-check", true); }
+    const cancel = page.getByRole("button", { name: /^Cancel$/ }).first();
+    if (await cancel.count()) await cancel.click();
+    await sleep(2000);
+  }
+  // Same editor with AI assistance mocked on: the Draft panel and a drafted action with its review.
+  await page.route("**/api/ai/status", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ enabled: true, configured: true, provider: "anthropic", model: "claude-sonnet-5", key_set: true, redact_hostnames: false }) }));
+  await page.route("**/api/ai/actions/draft", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    name: "Mount NFS share", description: "Mounts an NFS export at a mount point and persists it in /etc/fstab. Debian and RHEL families.", category: "scripts",
+    script: "#!/bin/bash\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\n: \"${NFS_SERVER:?NFS_SERVER is required}\"\n: \"${NFS_EXPORT:?NFS_EXPORT is required}\"\n: \"${MOUNT_POINT:?MOUNT_POINT is required}\"\n\n. /etc/os-release\ncase \"${ID_LIKE:-$ID}\" in\n  *debian*) command -v mount.nfs >/dev/null || apt-get install -y nfs-common ;;\n  *rhel*|*fedora*) command -v mount.nfs >/dev/null || dnf install -y nfs-utils ;;\nesac\n\nmkdir -p \"$MOUNT_POINT\"\nif ! grep -qs \" $MOUNT_POINT \" /etc/fstab; then\n  echo \"$NFS_SERVER:$NFS_EXPORT $MOUNT_POINT nfs defaults,_netdev 0 0\" >> /etc/fstab\nfi\nmountpoint -q \"$MOUNT_POINT\" || mount \"$MOUNT_POINT\"\n",
+    parameters: [{ name: "NFS_SERVER", label: "NFS server", type: "string", required: true, default: "", placeholder: "nas.lab.internal", options: null, description: "Hostname or IP of the NFS server" }, { name: "NFS_EXPORT", label: "Export path", type: "string", required: true, default: "", placeholder: "/volume1/data", options: null, description: "" }, { name: "MOUNT_POINT", label: "Mount point", type: "string", required: true, default: "/data", placeholder: "", options: null, description: "" }],
+    tags: ["nfs", "storage"], notes: ["Installs nfs-common (Debian/Ubuntu) or nfs-utils (RHEL family) only if the NFS client is missing."], warnings: ["Edits /etc/fstab; a wrong export path makes the next boot wait on the mount (_netdev limits the damage)."],
+    review: { summary: "Mounts an NFS export idempotently and persists it; safe to re-run.", risk: "low", idempotent: true, distro_support: { debian: true, rhel: true }, findings: [{ severity: "info", source: "model", line: 16, title: "fstab line is appended, never updated", detail: "Changing the export later leaves the old line in place.", suggestion: "Match on the mount point and replace the line with sed if it exists." }], lint_only: false, model: "claude-sonnet-5", redaction: { counts: {}, total: 0 }, duration_ms: 4100 },
+    model: "claude-sonnet-5", redaction: { counts: {}, total: 0 }, duration_ms: 6200 }) }));
+  await go("/actions", "text=Security Hardening");
+  const newAction2 = page.getByRole("button", { name: /Create Action/ }).first();
+  if (await newAction2.count()) {
+    await newAction2.click(); await sleep(500);
+    const draftBtn = page.getByRole("button", { name: /Draft with AI/ });
+    if (await draftBtn.count()) {
+      await draftBtn.click(); await sleep(400);
+      await page.getByPlaceholder(/Mount an NFS export/).fill("Mount an NFS export at a mount point given as a parameter and persist it in fstab. Install the NFS client if missing. Debian and RHEL families.");
+      await page.getByRole("button", { name: /Generate draft/ }).click();
+      await page.waitForSelector("text=Use this draft", { timeout: 10000 }).catch(() => {});
+      await sleep(500); await shot("11c-actions-draft", true);
+    }
+    const cancel2 = page.getByRole("button", { name: /^Cancel$/ }).first();
+    if (await cancel2.count()) await cancel2.click();
+    await sleep(2000);
+  }
+  await page.unroute("**/api/ai/status"); await page.unroute("**/api/ai/actions/draft");
   await go("/factory", "text=Available Operating Systems"); await shot("15-factory"); await sleep(5000);
   await go("/history", "text=staging-app-04"); await shot("12-history"); await sleep(5000);
   await go("/settings", "text=Settings"); await sleep(1000); await shot("13-settings", true);
@@ -166,6 +204,8 @@ async function run(theme) {
   await go("/settings?tab=diagnostics", "text=Recent server errors"); await shot("13c-settings-diagnostics", true);
   await sleep(4000);
   if (await goSoft("/settings?tab=preferences", "text=VM Adoption")) await shot("13d-settings-preferences", true);
+  await sleep(4000);
+  if (await goSoft("/settings?tab=ai", "text=AI assistance")) await shot("13e-settings-ai", true);
   const more = page.locator("button[aria-label*='ctions'], button:has(svg.lucide-ellipsis), button:has(svg.lucide-more-horizontal)").first();
   if (await more.count()) { await more.click(); await sleep(500); const del = page.getByRole("menuitem", { name: /Delete user/ }); if (await del.count()) { await del.click(); await sleep(900); await shot("14-confirm-typed"); await page.keyboard.press("Escape"); } }
 

@@ -42,6 +42,13 @@ import type {
   VMCredentials,
   SetVMCredentialsRequest,
   CredentialCheck,
+  AIStatus,
+  AITestResult,
+  AIModelInfo,
+  ActionReview,
+  ActionReviewInput,
+  ActionDraft,
+  ActionDraftInput,
 } from "@/types";
 
 const api = axios.create({
@@ -160,9 +167,24 @@ export const history = {
 };
 
 export const settings = {
-  get: () => api.get("/settings"),
-  update: (data: Record<string, unknown>) => api.put("/settings", data),
+  get: () => api.get<Record<string, string>>("/settings"),
+  update: (data: Record<string, unknown>) => api.put<Record<string, string>>("/settings", data),
   clearDeploymentHistory: () => api.delete<{ deleted: number }>("/deployment-history"),
+};
+
+// AI assistance (optional, admin-configured). Status tells the editor whether
+// to show AI controls; test is Settings → AI → Test.
+export const ai = {
+  status: () => api.get<AIStatus>("/ai/status"),
+  test: () => api.post<AITestResult>("/ai/test"),
+  // Models the configured provider offers (uses the saved provider/key).
+  models: () => api.get<{ models: AIModelInfo[] }>("/ai/models"),
+  // Deterministic checks only (works with AI off).
+  lintAction: (input: ActionReviewInput) => api.post<ActionReview>("/ai/actions/lint", input),
+  // Lint + the model's review when AI assistance is on; a model failure still returns the lint result.
+  reviewAction: (input: ActionReviewInput) => api.post<ActionReview>("/ai/actions/review", input),
+  // A complete, validated, reviewed action from a description (AI must be on).
+  draftAction: (input: ActionDraftInput) => api.post<ActionDraft>("/ai/actions/draft", input),
 };
 
 export const users = {

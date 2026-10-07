@@ -650,3 +650,83 @@ export interface CredentialCheck {
   detail?: string;
   checked_via?: string;
 }
+
+// AI assistance status. Non-admins only receive enabled/configured.
+export interface AIStatus {
+  enabled: boolean;
+  configured: boolean;
+  provider?: "anthropic" | "openai" | string;
+  model?: string;
+  base_url?: string;
+  key_set?: boolean;
+  redact_hostnames: boolean;
+  problem?: string;
+}
+
+export interface AITestResult {
+  ok: boolean;
+  provider?: string;
+  model?: string;
+  latency_ms?: number;
+  reply?: string;
+  error?: string;
+}
+
+// One thing worth knowing about an action script (from the linter or the model).
+export interface ActionFinding {
+  severity: "critical" | "high" | "medium" | "low" | "info" | string;
+  source: "lint" | "model" | string;
+  rule?: string;
+  line?: number;
+  title: string;
+  detail?: string;
+  suggestion?: string;
+}
+
+export interface ActionReview {
+  summary?: string;
+  risk: "low" | "medium" | "high" | "critical" | string;
+  idempotent?: boolean;
+  distro_support: { debian: boolean; rhel: boolean; notes?: string };
+  findings: ActionFinding[];
+  suggested_parameters?: ActionParameter[];
+  lint_only: boolean;
+  ai_error?: string;
+  model?: string;
+  redaction?: { counts: Record<string, number>; total: number };
+  duration_ms?: number;
+}
+
+export interface ActionReviewInput {
+  name?: string;
+  description?: string;
+  script: string;
+  parameters?: ActionParameter[];
+  platform?: string;
+}
+
+export interface ActionDraftInput {
+  prompt: string;
+  platform?: string;
+  existing_script?: string;
+  existing_parameters?: ActionParameter[];
+}
+
+// A complete, validated action drafted by the model, with its own review.
+export interface ActionDraft {
+  name: string;
+  description: string;
+  category: Action["category"] | string;
+  script: string;
+  parameters: ActionParameter[];
+  tags: string[];
+  notes?: string[];
+  warnings?: string[];
+  review?: ActionReview;
+  model?: string;
+  redaction?: { counts: Record<string, number>; total: number };
+  duration_ms: number;
+  refused?: boolean;
+}
+
+export interface AIModelInfo { id: string; name?: string }

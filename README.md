@@ -291,6 +291,15 @@ This prevents secrets from appearing in `docker inspect` output or process listi
 
 ---
 
+### AI assistance (optional, off by default)
+
+Settings → **AI** lets an admin connect a model — Anthropic, or any OpenAI-compatible endpoint (OpenAI, OpenRouter, vLLM, LM Studio, **Ollama** on your own network) — with your own key, stored encrypted and never shown again. With it on, the action editor gains two buttons:
+
+- **Check with AI** — the deterministic linter (always available as *Check script*: destructive commands, missing `set -e`, `curl | sh`, interactive package installs, secrets in the script, undeclared parameters, distro assumptions) plus the model's review of the redacted script: a summary, findings with line numbers and the concrete fix, idempotency and distro judgement, and parameter suggestions you can add with one click.
+- **Draft with AI** — describe what the action should do and get a complete action in Forgemill's conventions (`set -euo pipefail`, parameters as variables, idempotent, distro-aware), validated like a user submission and already checked. *Use this draft* fills the form; you still read it and click Create.
+
+Ground rules, enforced in code: every call is a button you click; the model only reads and drafts — it never runs anything; passwords, tokens, private keys and URL credentials (optionally IPs and hostnames) are redacted before anything is sent and the count is shown; every call is audit-logged (provider, model, sizes — never content); private endpoints are refused unless you allow them. Design: `docs/design/ai-assist.md`.
+
 ## Built-in actions
 
 Twelve actions ship with Forgemill. All are parameterised where useful and run over SSH with streaming output. Built-in actions cannot be modified directly — create a copy to customise.
