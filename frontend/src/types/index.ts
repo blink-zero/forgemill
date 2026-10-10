@@ -160,6 +160,13 @@ export interface DashboardData {
     running_deploys: number;
     managed_templates: number;
     scheduled_builds_today: number;
+    vms_running: number;
+    vms_stopped: number;
+    active_actions: number;
+    draft_actions: number;
+    targets_connected: number;
+    targets_error: number;
+    failed_deployments_24h: number;
   };
   recent_deployments: Deployment[];
   recent_executions: ActionExecution[];
@@ -467,6 +474,8 @@ export interface ActionExecution {
   vm_id: number;
   action_id: number | null;
   action_name: string;
+  /** Joined in list responses (dashboard feed); absent elsewhere. */
+  vm_name?: string;
   script: string;
   status: "pending" | "running" | "completed" | "failed" | "cancelled";
   exit_code: number | null;

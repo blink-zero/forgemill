@@ -2164,11 +2164,19 @@ type Stats struct {
 	RunningDeploys       int `json:"running_deploys"`
 	ManagedTemplates     int `json:"managed_templates"`
 	ScheduledBuildsToday int `json:"scheduled_builds_today"`
+	// Operational breakdowns for the dashboard tiles.
+	VMsRunning           int `json:"vms_running"`
+	VMsStopped           int `json:"vms_stopped"`
+	ActiveActions        int `json:"active_actions"`
+	DraftActions         int `json:"draft_actions"`
+	TargetsConnected     int `json:"targets_connected"`
+	TargetsError         int `json:"targets_error"`
+	FailedDeployments24h int `json:"failed_deployments_24h"`
 }
 
 func (db *DB) GetStats() (*Stats, error) {
-	// One statement with nine scalar subqueries instead of nine round-trips;
-	// each subquery is the exact COUNT the dashboard showed before.
+	// One statement with scalar subqueries instead of one round-trip each;
+	// each subquery is a plain COUNT the dashboard shows as is.
 	s := &Stats{}
 	err := db.conn.QueryRow(`SELECT
 		(SELECT COUNT(*) FROM targets),
@@ -2179,9 +2187,17 @@ func (db *DB) GetStats() (*Stats, error) {
 		(SELECT COUNT(*) FROM managed_vms),
 		(SELECT COUNT(*) FROM actions),
 		(SELECT COUNT(*) FROM templates WHERE managed_by_forgemill = TRUE AND lifecycle_status = 'active'),
-		(SELECT COUNT(*) FROM template_schedules WHERE enabled = TRUE AND DATE(next_check_at) = DATE('now'))`,
+		(SELECT COUNT(*) FROM template_schedules WHERE enabled = TRUE AND DATE(next_check_at) = DATE('now')),
+		(SELECT COUNT(*) FROM managed_vms WHERE power_state IN ('poweredOn', 'running')),
+		(SELECT COUNT(*) FROM managed_vms WHERE power_state IN ('poweredOff', 'stopped')),
+		(SELECT COUNT(*) FROM actions WHERE status = 'active'),
+		(SELECT COUNT(*) FROM actions WHERE status = 'draft'),
+		(SELECT COUNT(*) FROM targets WHERE status = 'connected'),
+		(SELECT COUNT(*) FROM targets WHERE status = 'error'),
+		(SELECT COUNT(*) FROM deployments WHERE status = 'failed' AND COALESCE(completed_at, created_at) >= DATETIME('now', '-1 day'))`,
 	).Scan(&s.TotalTargets, &s.TotalTemplates, &s.TotalDeployments, &s.DeploymentsToday, &s.RunningDeploys,
-		&s.TotalVMs, &s.TotalActions, &s.ManagedTemplates, &s.ScheduledBuildsToday)
+		&s.TotalVMs, &s.TotalActions, &s.ManagedTemplates, &s.ScheduledBuildsToday,
+		&s.VMsRunning, &s.VMsStopped, &s.ActiveActions, &s.DraftActions, &s.TargetsConnected, &s.TargetsError, &s.FailedDeployments24h)
 	if err != nil {
 		return nil, fmt.Errorf("dashboard stats: %w", err)
 	}

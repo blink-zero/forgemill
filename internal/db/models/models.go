@@ -419,6 +419,7 @@ type ActionExecution struct {
 	VMID            int64             `json:"vm_id"`
 	ActionID        *int64            `json:"action_id"`
 	ActionName      string            `json:"action_name"`
+	VMName          string            `json:"vm_name,omitempty"` // joined for lists; not a column
 	Script          string            `json:"script"`
 	Status          string            `json:"status"`
 	ExitCode        *int              `json:"exit_code"`

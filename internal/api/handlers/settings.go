@@ -277,6 +277,11 @@ func (h *SettingsHandler) GetDashboardStats(w http.ResponseWriter, r *http.Reque
 	if recent == nil {
 		recent = []models.Deployment{}
 	}
+	// The feed shows name, template, target and status; the config is not
+	// needed and can be sizeable.
+	for i := range recent {
+		recent[i].ConfigJSON = ""
+	}
 	if targets == nil {
 		targets = []models.Target{}
 	}
