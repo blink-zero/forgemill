@@ -71,6 +71,7 @@ var migrations = []struct {
 	{45, migrationV45},
 	{46, migrationV46},
 	{47, migrationV47},
+	{48, migrationV48},
 }
 
 const migrationV1 = `
@@ -1430,6 +1431,20 @@ INSERT INTO schema_version (version) VALUES (38);
 // target so the UI can say so and deploys are refused before a row exists.
 // V47: evaluation countdown. When a host runs on an evaluation license,
 // when it ends and which warning (14/7/1/0 days) has already been sent.
+// V48: action drafts. A draft is an action that has not been published:
+// listed separately, never runnable. AI drafts are saved as drafts with
+// their review and the model's notes attached.
+const migrationV48 = `
+ALTER TABLE actions ADD COLUMN status TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE actions ADD COLUMN source TEXT NOT NULL DEFAULT 'user';
+ALTER TABLE actions ADD COLUMN created_by INTEGER;
+ALTER TABLE actions ADD COLUMN review_json TEXT;
+ALTER TABLE actions ADD COLUMN reviewed_at DATETIME;
+ALTER TABLE actions ADD COLUMN draft_meta_json TEXT;
+CREATE INDEX IF NOT EXISTS idx_actions_status ON actions(status);
+INSERT INTO schema_version (version) VALUES (48);
+`
+
 const migrationV47 = `
 ALTER TABLE targets ADD COLUMN evaluation_expires_at DATETIME;
 ALTER TABLE targets ADD COLUMN evaluation_warned_stage INTEGER NOT NULL DEFAULT -1;

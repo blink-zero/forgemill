@@ -1,8 +1,8 @@
 package service
 
 import (
-	"errors"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -18,7 +18,7 @@ import (
 const (
 	maxConcurrentPerVM = 3
 	maxConcurrentTotal = 10
-	defaultTimeoutSecs = 600  // 10 minutes
+	defaultTimeoutSecs = 600 // 10 minutes
 	minTimeoutSecs     = 10
 	maxTimeoutSecs     = 1800 // 30 minutes
 )
@@ -124,6 +124,19 @@ func (s *ExecutorService) Execute(ctx context.Context, vmID int64, req ExecuteRe
 		return nil, fmt.Errorf("VM has no IP address — is it powered on?")
 	}
 
+	// Resolve the catalogue action first: a draft is refused before any
+	// credentials are touched, so the reason is never masked.
+	var action *models.Action // the catalogue action being run, nil for ad-hoc scripts
+	if req.ActionID != nil {
+		action, err = s.db.GetAction(*req.ActionID)
+		if err != nil {
+			return nil, fmt.Errorf("action not found: %w", err)
+		}
+		if action.Status == models.ActionStatusDraft {
+			return nil, fmt.Errorf("%w: %q is a draft — review and publish it before running it", ErrActionDraft, action.Name)
+		}
+	}
+
 	// Resolve credentials: an explicitly set per-VM login wins, otherwise the
 	// deployment's initial credentials.
 	creds, err := resolveVMCredentials(s.db, s.encryptor, vm)
@@ -141,15 +154,9 @@ func (s *ExecutorService) Execute(ctx context.Context, vmID int64, req ExecuteRe
 	var actionName string
 	var actionID *int64
 	var paramEnvBlock string
-	var action *models.Action // the catalogue action being run, nil for ad-hoc scripts
 
-	if req.ActionID != nil {
-		var err error
-		action, err = s.db.GetAction(*req.ActionID)
-		if err != nil {
-			return nil, fmt.Errorf("action not found: %w", err)
-		}
-		if err = validateScript(action.Script); err != nil {
+	if action != nil {
+		if err := validateScript(action.Script); err != nil {
 			return nil, fmt.Errorf("invalid action script: %w", err)
 		}
 		script = action.Script
@@ -222,8 +229,12 @@ func (s *ExecutorService) Execute(ctx context.Context, vmID int64, req ExecuteRe
 // dbHostKeyStore adapts *db.DB to the HostKeyStore interface for TOFU verification.
 type dbHostKeyStore struct{ db *db.DB }
 
-func (s *dbHostKeyStore) GetHostKeyFP(vmID int64) (string, error) { return s.db.GetManagedVMHostKeyFP(vmID) }
-func (s *dbHostKeyStore) SetHostKeyFP(vmID int64, fp string) error { return s.db.UpdateManagedVMHostKeyFP(vmID, fp) }
+func (s *dbHostKeyStore) GetHostKeyFP(vmID int64) (string, error) {
+	return s.db.GetManagedVMHostKeyFP(vmID)
+}
+func (s *dbHostKeyStore) SetHostKeyFP(vmID int64, fp string) error {
+	return s.db.UpdateManagedVMHostKeyFP(vmID, fp)
+}
 
 // runExecution performs the actual SSH execution in a goroutine.
 func (s *ExecutorService) runExecution(ctx context.Context, cancel context.CancelFunc, execID, vmID int64, host, username string, auth sshAuth, script, paramEnvBlock string) {
@@ -410,10 +421,13 @@ func validateAndBuildParams(params []models.ActionParameter, values map[string]s
 }
 
 // shellEscape wraps a value in single quotes, escaping any embedded single
-// quotes with the '\'' idiom to prevent shell injection.
+// quotes with the '\” idiom to prevent shell injection.
 func shellEscape(val string) string {
 	return "'" + strings.ReplaceAll(val, "'", `'\''`) + "'"
 }
 
 // unused import guard
 var _ = strconv.Itoa
+
+// ErrActionDraft: a draft action was asked to run. Drafts are never runnable.
+var ErrActionDraft = errors.New("draft actions cannot run")

@@ -42,42 +42,84 @@ func marshalTags(tags []string) sql.NullString {
 	return sql.NullString{String: string(data), Valid: true}
 }
 
-func (db *DB) ListActions() ([]models.Action, error) {
-	rows, err := db.conn.Query(`SELECT id, name, description, category, script, script_type, platform, builtin, parameters, tags, version, created_at, updated_at FROM actions ORDER BY category, name`)
-	if err != nil {
-		return nil, fmt.Errorf("list actions: %w", err)
-	}
-	defer rows.Close()
+// actionColumns is the one column list every action read uses.
+const actionColumns = `id, name, description, category, script, script_type, platform, builtin, parameters, tags, version, created_at, updated_at,
+	COALESCE(status, 'active'), COALESCE(source, 'user'), created_by, review_json, COALESCE(reviewed_at, ''), draft_meta_json`
 
-	var actions []models.Action
-	for rows.Next() {
-		var a models.Action
-		var builtin int
-		var paramsRaw, tagsRaw sql.NullString
-		if err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.Category, &a.Script, &a.ScriptType, &a.Platform, &builtin, &paramsRaw, &tagsRaw, &a.Version, &a.CreatedAt, &a.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan action: %w", err)
-		}
-		a.Builtin = builtin == 1
-		a.Parameters = scanActionParameters(paramsRaw)
-		a.Tags = scanTags(tagsRaw)
-		actions = append(actions, a)
-	}
-	return actions, nil
-}
-
-func (db *DB) GetAction(id int64) (*models.Action, error) {
+func scanAction(r rowScanner) (models.Action, error) {
 	var a models.Action
 	var builtin int
-	var paramsRaw, tagsRaw sql.NullString
-	err := db.conn.QueryRow(`SELECT id, name, description, category, script, script_type, platform, builtin, parameters, tags, version, created_at, updated_at FROM actions WHERE id = ?`, id).
-		Scan(&a.ID, &a.Name, &a.Description, &a.Category, &a.Script, &a.ScriptType, &a.Platform, &builtin, &paramsRaw, &tagsRaw, &a.Version, &a.CreatedAt, &a.UpdatedAt)
-	if err != nil {
-		return nil, fmt.Errorf("get action: %w", err)
+	var paramsRaw, tagsRaw, reviewRaw, metaRaw sql.NullString
+	if err := r.Scan(&a.ID, &a.Name, &a.Description, &a.Category, &a.Script, &a.ScriptType, &a.Platform, &builtin, &paramsRaw, &tagsRaw, &a.Version, &a.CreatedAt, &a.UpdatedAt,
+		&a.Status, &a.Source, &a.CreatedBy, &reviewRaw, &a.ReviewedAt, &metaRaw); err != nil {
+		return a, err
 	}
 	a.Builtin = builtin == 1
 	a.Parameters = scanActionParameters(paramsRaw)
 	a.Tags = scanTags(tagsRaw)
+	if reviewRaw.Valid && reviewRaw.String != "" {
+		a.Review = json.RawMessage(reviewRaw.String)
+	}
+	if metaRaw.Valid && metaRaw.String != "" {
+		a.DraftMeta = json.RawMessage(metaRaw.String)
+	}
+	return a, nil
+}
+
+// ListActions returns runnable (active) actions only — what the deploy
+// picker, the VM Actions tab, export and the MCP should see.
+func (db *DB) ListActions() ([]models.Action, error) {
+	return db.listActions(`WHERE COALESCE(status, 'active') = 'active'`)
+}
+
+// ListActionsWithDrafts returns every action, drafts included (the Actions
+// page, where drafts are shown under their own filter).
+func (db *DB) ListActionsWithDrafts() ([]models.Action, error) {
+	return db.listActions(``)
+}
+
+func (db *DB) listActions(where string) ([]models.Action, error) {
+	rows, err := db.conn.Query(`SELECT ` + actionColumns + ` FROM actions ` + where + ` ORDER BY category, name`)
+	if err != nil {
+		return nil, fmt.Errorf("list actions: %w", err)
+	}
+	defer rows.Close()
+	var actions []models.Action
+	for rows.Next() {
+		a, err := scanAction(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan action: %w", err)
+		}
+		actions = append(actions, a)
+	}
+	return actions, rows.Err()
+}
+
+func (db *DB) GetAction(id int64) (*models.Action, error) {
+	a, err := scanAction(db.conn.QueryRow(`SELECT `+actionColumns+` FROM actions WHERE id = ?`, id))
+	if err != nil {
+		return nil, fmt.Errorf("get action: %w", err)
+	}
 	return &a, nil
+}
+
+// SetActionReview stores the last check of an action.
+func (db *DB) SetActionReview(id int64, review json.RawMessage) error {
+	_, err := db.conn.Exec(`UPDATE actions SET review_json = ?, reviewed_at = ? WHERE id = ?`, string(review), time.Now().UTC().Format(time.DateTime), id)
+	return err
+}
+
+// PublishAction turns a draft into a runnable action. Versioning starts
+// here: the published content is version 1.
+func (db *DB) PublishAction(id int64) error {
+	res, err := db.conn.Exec(`UPDATE actions SET status = 'active', version = 1, updated_at = ? WHERE id = ? AND status = 'draft'`, time.Now().UTC().Format(time.DateTime), id)
+	if err != nil {
+		return fmt.Errorf("publish action: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("action %d is not a draft", id)
+	}
+	return nil
 }
 
 func marshalParameters(params []models.ActionParameter) sql.NullString {
@@ -99,11 +141,19 @@ func (db *DB) CreateAction(a *models.Action) error {
 	if a.Platform == "" {
 		a.Platform = "linux"
 	}
+	if a.Status == "" {
+		a.Status = models.ActionStatusActive
+	}
+	if a.Source == "" {
+		a.Source = models.ActionSourceUser
+	}
 	paramsJSON := marshalParameters(a.Parameters)
 	tagsJSON := marshalTags(a.Tags)
 	result, err := db.conn.Exec(
-		`INSERT INTO actions (name, description, category, script, script_type, platform, builtin, parameters, tags, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, 1, ?, ?)`,
+		`INSERT INTO actions (name, description, category, script, script_type, platform, builtin, parameters, tags, version, created_at, updated_at, status, source, created_by, review_json, reviewed_at, draft_meta_json)
+		 VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.Name, a.Description, a.Category, a.Script, a.ScriptType, a.Platform, paramsJSON, tagsJSON, now, now,
+		a.Status, a.Source, a.CreatedBy, nullString(string(a.Review)), nullString(a.ReviewedAt), nullString(string(a.DraftMeta)),
 	)
 	if err != nil {
 		return fmt.Errorf("create action: %w", err)
@@ -133,19 +183,24 @@ func (db *DB) UpdateAction(a *models.Action, changedBy *int64) error {
 
 	var current models.Action
 	var paramsRaw, tagsRaw sql.NullString
-	err = tx.QueryRow(`SELECT name, description, category, script, script_type, platform, parameters, tags, version FROM actions WHERE id = ? AND builtin = 0`, a.ID).
-		Scan(&current.Name, &current.Description, &current.Category, &current.Script, &current.ScriptType, &current.Platform, &paramsRaw, &tagsRaw, &current.Version)
+	err = tx.QueryRow(`SELECT name, description, category, script, script_type, platform, parameters, tags, version, COALESCE(status, 'active') FROM actions WHERE id = ? AND builtin = 0`, a.ID).
+		Scan(&current.Name, &current.Description, &current.Category, &current.Script, &current.ScriptType, &current.Platform, &paramsRaw, &tagsRaw, &current.Version, &current.Status)
 	if err != nil {
 		return fmt.Errorf("load current action: %w", err)
 	}
 	current.Parameters = scanActionParameters(paramsRaw)
 	current.Tags = scanTags(tagsRaw)
 
-	if _, err := tx.Exec(
-		`INSERT INTO action_versions (action_id, version, name, description, category, script, script_type, platform, parameters, tags, changed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.ID, current.Version, current.Name, current.Description, current.Category, current.Script, current.ScriptType, current.Platform, marshalParameters(current.Parameters), marshalTags(current.Tags), changedBy,
-	); err != nil {
-		return fmt.Errorf("snapshot superseded action version: %w", err)
+	// Drafts are overwritten in place: versioning starts at publish.
+	newVersion := current.Version
+	if current.Status != models.ActionStatusDraft {
+		if _, err := tx.Exec(
+			`INSERT INTO action_versions (action_id, version, name, description, category, script, script_type, platform, parameters, tags, changed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			a.ID, current.Version, current.Name, current.Description, current.Category, current.Script, current.ScriptType, current.Platform, marshalParameters(current.Parameters), marshalTags(current.Tags), changedBy,
+		); err != nil {
+			return fmt.Errorf("snapshot superseded action version: %w", err)
+		}
+		newVersion = current.Version + 1
 	}
 
 	now := time.Now().UTC().Format(time.DateTime)
@@ -155,15 +210,20 @@ func (db *DB) UpdateAction(a *models.Action, changedBy *int64) error {
 	if a.Platform == "" {
 		a.Platform = "linux"
 	}
-	newVersion := current.Version + 1
 	paramsJSON := marshalParameters(a.Parameters)
 	tagsJSON := marshalTags(a.Tags)
+	// A content change invalidates the stored check unless the caller
+	// brings a fresh one (an AI regenerate does); draft notes follow the
+	// same rule.
 	if _, err := tx.Exec(
-		`UPDATE actions SET name = ?, description = ?, category = ?, script = ?, script_type = ?, platform = ?, parameters = ?, tags = ?, version = ?, updated_at = ? WHERE id = ? AND builtin = 0`,
-		a.Name, a.Description, a.Category, a.Script, a.ScriptType, a.Platform, paramsJSON, tagsJSON, newVersion, now, a.ID,
+		`UPDATE actions SET name = ?, description = ?, category = ?, script = ?, script_type = ?, platform = ?, parameters = ?, tags = ?, version = ?, updated_at = ?,
+		 review_json = ?, reviewed_at = ?, draft_meta_json = ? WHERE id = ? AND builtin = 0`,
+		a.Name, a.Description, a.Category, a.Script, a.ScriptType, a.Platform, paramsJSON, tagsJSON, newVersion, now,
+		nullString(string(a.Review)), nullString(a.ReviewedAt), nullString(string(a.DraftMeta)), a.ID,
 	); err != nil {
 		return fmt.Errorf("update action: %w", err)
 	}
+	a.Status = current.Status
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit update action: %w", err)
@@ -340,4 +400,11 @@ func (db *DB) GetDeploymentActions(deploymentID int64) ([]models.Action, error) 
 		actions = append(actions, a)
 	}
 	return actions, nil
+}
+
+func nullString(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: s, Valid: true}
 }

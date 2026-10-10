@@ -84,7 +84,15 @@ func NewActionHandler(db *db.DB, audit *service.AuditService) *ActionHandler {
 }
 
 func (h *ActionHandler) List(w http.ResponseWriter, r *http.Request) {
-	actions, err := h.db.ListActions()
+	// Drafts are hidden unless asked for: everything that picks an action to
+	// run (deploy, VM Actions tab, export, MCP) must only ever see active ones.
+	var actions []models.Action
+	var err error
+	if r.URL.Query().Get("include_drafts") == "true" {
+		actions, err = h.db.ListActionsWithDrafts()
+	} else {
+		actions, err = h.db.ListActions()
+	}
 	if err != nil {
 		writeErrorLog(w, "failed to list actions", http.StatusInternalServerError, err)
 		return
@@ -102,6 +110,8 @@ type createActionRequest struct {
 	Script      string                   `json:"script"`
 	Parameters  []models.ActionParameter `json:"parameters,omitempty"`
 	Tags        []string                 `json:"tags,omitempty"`
+	// Status "draft" saves without publishing (not runnable until published).
+	Status string `json:"status,omitempty"`
 }
 
 func (h *ActionHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -142,6 +152,11 @@ func (h *ActionHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Status != "" && req.Status != models.ActionStatusDraft {
+		writeError(w, "status may only be \"draft\" on create", http.StatusBadRequest)
+		return
+	}
+	actor := middleware.UserFromContext(r.Context())
 	action := &models.Action{
 		Name:        req.Name,
 		Description: req.Description,
@@ -149,6 +164,11 @@ func (h *ActionHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Script:      req.Script,
 		Parameters:  req.Parameters,
 		Tags:        tags,
+		Status:      req.Status,
+		Source:      models.ActionSourceUser,
+	}
+	if actor != nil {
+		action.CreatedBy = &actor.ID
 	}
 	if err := h.db.CreateAction(action); err != nil {
 		writeErrorLog(w, "failed to create action", http.StatusInternalServerError, err)
@@ -157,10 +177,61 @@ func (h *ActionHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	user := middleware.UserFromContext(r.Context())
 	h.audit.Log(user.Username, &user.ID, "action.create", "action", fmt.Sprintf("%d", action.ID), service.IPFromRequest(r), map[string]interface{}{
-		"action_name": action.Name, "category": action.Category,
+		"action_name": action.Name, "category": action.Category, "status": action.Status,
 	})
 
 	writeJSON(w, http.StatusCreated, action)
+}
+
+// Publish turns a draft into a runnable action after the same validation a
+// create gets: POST /actions/{id}/publish.
+func (h *ActionHandler) Publish(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	a, err := h.db.GetAction(id)
+	if err != nil {
+		writeError(w, "action not found", http.StatusNotFound)
+		return
+	}
+	if a.Status != models.ActionStatusDraft {
+		writeError(w, "action is not a draft", http.StatusConflict)
+		return
+	}
+	if a.Name == "" || a.Script == "" {
+		writeError(w, "a draft needs a name and a script before it can be published", http.StatusBadRequest)
+		return
+	}
+	if err := service.ValidateActionScript(a.Script); err != nil {
+		writeError(w, "invalid script: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !validActionCategories[a.Category] {
+		writeError(w, "invalid category", http.StatusBadRequest)
+		return
+	}
+	if len(a.Parameters) > 0 {
+		if err := validateParameters(a.Parameters); err != nil {
+			writeError(w, "invalid parameters: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	if err := h.db.PublishAction(id); err != nil {
+		writeErrorLog(w, "failed to publish action", http.StatusInternalServerError, err)
+		return
+	}
+	user := middleware.UserFromContext(r.Context())
+	if user != nil {
+		h.audit.Log(user.Username, &user.ID, "action.publish", "action", fmt.Sprintf("%d", id), service.IPFromRequest(r), map[string]interface{}{"action_name": a.Name, "source": a.Source})
+	}
+	published, err := h.db.GetAction(id)
+	if err != nil {
+		writeErrorLog(w, "failed to read action", http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, published)
 }
 
 func (h *ActionHandler) Update(w http.ResponseWriter, r *http.Request) {

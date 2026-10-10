@@ -273,6 +273,9 @@ func (s *DeployService) Preflight(ctx context.Context, req *DeployRequest) (*Pre
 	if _, err := s.db.GetTemplate(req.TemplateID); err != nil {
 		addBlocker("template %d not found", req.TemplateID)
 	}
+	if err := s.validateActionIDs(req.ActionIDs); err != nil {
+		addBlocker("%s", strings.TrimPrefix(err.Error(), ErrInvalidDeployRequest.Error()+": "))
+	}
 	if target, err := s.targets.Get(req.TargetID); err == nil {
 		if !target.DeploySupported {
 			// Known from the last connection test: nothing below would succeed.
@@ -343,6 +346,9 @@ func (s *DeployService) Start(req *DeployRequest, userID int64) (*DeployResponse
 	tpl, err := s.db.GetTemplate(req.TemplateID)
 	if err != nil {
 		return nil, fmt.Errorf("template not found: %w", err)
+	}
+	if err := s.validateActionIDs(req.ActionIDs); err != nil {
+		return nil, err
 	}
 	if target, err := s.targets.Get(req.TargetID); err == nil {
 		if !target.DeploySupported {
@@ -584,6 +590,21 @@ func (s *DeployService) runDeploy(ctx context.Context, deploymentID, targetID in
 // Hypervisor errors (govmomi, Proxmox API) are generally safe to expose — they
 // contain technical details like "datastore not found" or "disk space" but not
 // credentials. This strips any URL-like patterns and truncates for display.
+// validateActionIDs refuses unknown and draft post-deploy actions. A draft
+// is never runnable — not even smuggled in through a blueprint.
+func (s *DeployService) validateActionIDs(ids []int64) error {
+	for _, id := range ids {
+		a, err := s.db.GetAction(id)
+		if err != nil {
+			return fmt.Errorf("%w: action %d not found", ErrInvalidDeployRequest, id)
+		}
+		if a.Status == models.ActionStatusDraft {
+			return fmt.Errorf("%w: action %q is a draft — publish it before using it in a deployment", ErrInvalidDeployRequest, a.Name)
+		}
+	}
+	return nil
+}
+
 // targetCapabilityNote is the stored explanation for an inventory-only
 // target, with a fallback for rows written before the note existed.
 func targetCapabilityNote(t *models.Target) string {

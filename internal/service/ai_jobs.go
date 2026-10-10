@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -40,8 +41,9 @@ type AIJob struct {
 	// returned for Error, so the UI can tell 409 (AI off) from 502.
 	ErrorStatus int `json:"error_status,omitempty"`
 
-	ownerID *int64
-	err     error
+	ownerID  *int64
+	actionID *int64 // review jobs: the action the review is stored on
+	err      error
 }
 
 // ErrAIJobNotFound: unknown or expired job id (or not the caller's job).
@@ -177,13 +179,21 @@ func (s *AIAssistService) StartReviewJob(in ActionReviewInput, actor string, act
 	if err := validateReviewInput(&in); err != nil {
 		return nil, err
 	}
-	return s.jobs.start("review", actorID, func(stage func(string)) (*ActionReview, *ActionDraft, error) {
+	job, err := s.jobs.start("review", actorID, func(stage func(string)) (*ActionReview, *ActionDraft, error) {
 		stage("reviewing")
 		ctx, cancel := context.WithTimeout(context.Background(), aiRequestBudget)
 		defer cancel()
 		r, err := s.ReviewAction(ctx, in, actor, actorID)
 		return r, nil, err
 	})
+	if err == nil && in.ActionID != nil {
+		s.jobs.mu.Lock()
+		if j, ok := s.jobs.jobs[job.ID]; ok {
+			j.actionID = in.ActionID
+		}
+		s.jobs.mu.Unlock()
+	}
+	return job, err
 }
 
 func (s *AIAssistService) StartDraftJob(in ActionDraftInput, actor string, actorID *int64) (*AIJob, error) {
@@ -227,14 +237,22 @@ func (s *AIAssistService) notifyJobFinished(j *AIJob) {
 	if j.Kind == "draft" {
 		what = "AI draft"
 	}
+	link := "/actions"
+	if j.Kind == "draft" && j.Draft != nil && j.Draft.ActionID > 0 {
+		link = fmt.Sprintf("/actions?open=%d", j.Draft.ActionID)
+	} else if j.Kind == "review" && j.actionID != nil {
+		link = fmt.Sprintf("/actions?open=%d", *j.actionID)
+	}
 	switch {
 	case j.Status == "failed":
-		s.notifier.EmitForUser(*j.ownerID, "error", what+" failed", j.Error, "/actions", "ai."+j.Kind+".failed")
+		s.notifier.EmitForUser(*j.ownerID, "error", what+" failed", j.Error, link, "ai."+j.Kind+".failed")
+	case j.Kind == "draft" && j.Draft != nil && j.Draft.Refused:
+		s.notifier.EmitForUser(*j.ownerID, "warning", "AI draft declined", strings.Join(j.Draft.Warnings, " "), "/actions", "ai.draft.refused")
 	case time.Duration(j.ElapsedMs)*time.Millisecond >= notifyLongJobMinimum:
-		body := "Open the action editor to see the result."
+		body := "Open the action to see the result."
 		if j.Kind == "draft" && j.Draft != nil && j.Draft.Name != "" {
-			body = fmt.Sprintf("%q is ready — open the action editor to review and use it.", j.Draft.Name)
+			body = fmt.Sprintf("%q is saved as a draft — review it and publish when ready.", j.Draft.Name)
 		}
-		s.notifier.EmitForUser(*j.ownerID, "success", what+" ready", body, "/actions", "ai."+j.Kind+".done")
+		s.notifier.EmitForUser(*j.ownerID, "success", what+" ready", body, link, "ai."+j.Kind+".done")
 	}
 }
