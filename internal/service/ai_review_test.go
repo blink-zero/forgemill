@@ -133,3 +133,18 @@ func TestReviewActionSurvivesBadModelAnswersAndProviderErrors(t *testing.T) {
 		t.Fatalf("provider error: %+v err %v", r, err)
 	}
 }
+
+// A script embedded with raw newlines inside a JSON string is repaired.
+func TestParseJSONObjectRepairsRawNewlinesInStrings(t *testing.T) {
+	raw := "Sure!\n```json\n{\"name\": \"x\", \"script\": \"#!/bin/bash\nset -e\necho \\\"hi\\\"\n\"}\n```"
+	var out struct {
+		Name   string `json:"name"`
+		Script string `json:"script"`
+	}
+	if err := parseJSONObject(raw, &out); err != nil {
+		t.Fatalf("repair: %v", err)
+	}
+	if out.Name != "x" || !strings.HasPrefix(out.Script, "#!/bin/bash\nset -e") || !strings.Contains(out.Script, `echo "hi"`) {
+		t.Errorf("parsed %+v", out)
+	}
+}

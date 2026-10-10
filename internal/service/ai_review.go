@@ -146,7 +146,7 @@ func (s *AIAssistService) ReviewAction(ctx context.Context, in ActionReviewInput
 	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
 	var parsed modelReview
-	resp, err := completeJSON(ctx, p, ai.Request{System: reviewSystemPrompt, User: user, MaxTokens: 6000, Temperature: 0.1, JSON: true}, &parsed)
+	resp, err := completeJSON(ctx, p, ai.Request{System: reviewSystemPrompt, User: user, MaxTokens: 16000, Temperature: 0.1, JSON: true, Schema: reviewSchema}, &parsed)
 	review.DurationMs = time.Since(start).Milliseconds()
 	s.auditAI(actor, actorID, "ai.action.review", cfg, resp, report, err, review.DurationMs, len(in.Script))
 	if err != nil {
@@ -246,8 +246,44 @@ func parseJSONObject(text string, out any) error {
 	if j := strings.LastIndex(t, "}"); j >= 0 && j < len(t)-1 {
 		t = t[:j+1]
 	}
-	dec := json.NewDecoder(strings.NewReader(t))
-	return dec.Decode(out)
+	if err := json.NewDecoder(strings.NewReader(t)).Decode(out); err == nil {
+		return nil
+	}
+	// Models that hand-escape a script often leave raw newlines or tabs
+	// inside string literals; repair those and try once more.
+	return json.NewDecoder(strings.NewReader(repairJSONStrings(t))).Decode(out)
+}
+
+// repairJSONStrings escapes raw control characters that appear inside JSON
+// string literals, leaving everything outside strings untouched.
+func repairJSONStrings(t string) string {
+	var b strings.Builder
+	b.Grow(len(t))
+	inString, escaped := false, false
+	for _, r := range t {
+		switch {
+		case escaped:
+			escaped = false
+			b.WriteRune(r)
+		case inString && r == '\\':
+			escaped = true
+			b.WriteRune(r)
+		case r == '"':
+			inString = !inString
+			b.WriteRune(r)
+		case inString && r == '\n':
+			b.WriteString(`\n`)
+		case inString && r == '\t':
+			b.WriteString(`\t`)
+		case inString && r == '\r':
+			b.WriteString(`\r`)
+		case inString && r < 0x20:
+			fmt.Fprintf(&b, `\u%04x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 var reParamName = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)

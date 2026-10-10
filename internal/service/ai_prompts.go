@@ -53,3 +53,69 @@ Answer with ONE JSON object and nothing else, with exactly these keys:
   "warnings": ["anything risky the script does, in plain words; empty if none"]
 }
 Every variable the script reads from its environment must appear in parameters. Never invent secrets; make them password parameters. If the request is unsafe or impossible as stated, still return the object, with an empty script and the reason in warnings.`
+
+// JSON schemas for the structured answers. Anthropic enforces them through
+// a forced tool call; the prompts above describe the same shape in words
+// for endpoints that only have a JSON mode.
+var parameterSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"name":        map[string]any{"type": "string"},
+		"label":       map[string]any{"type": "string"},
+		"type":        map[string]any{"type": "string", "enum": []string{"string", "number", "select", "boolean", "password"}},
+		"required":    map[string]any{"type": "boolean"},
+		"default":     map[string]any{"type": "string"},
+		"placeholder": map[string]any{"type": "string"},
+		"options":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		"description": map[string]any{"type": "string"},
+	},
+	"required": []string{"name", "type"},
+}
+
+var reviewSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"summary":    map[string]any{"type": "string"},
+		"risk":       map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "critical"}},
+		"idempotent": map[string]any{"type": "boolean"},
+		"distro_support": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"debian": map[string]any{"type": "boolean"},
+				"rhel":   map[string]any{"type": "boolean"},
+				"notes":  map[string]any{"type": "string"},
+			},
+		},
+		"findings": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"severity":   map[string]any{"type": "string", "enum": []string{"critical", "high", "medium", "low", "info"}},
+					"line":       map[string]any{"type": "integer"},
+					"title":      map[string]any{"type": "string"},
+					"detail":     map[string]any{"type": "string"},
+					"suggestion": map[string]any{"type": "string"},
+				},
+				"required": []string{"severity", "title"},
+			},
+		},
+		"suggested_parameters": map[string]any{"type": "array", "items": parameterSchema},
+	},
+	"required": []string{"summary", "risk", "findings"},
+}
+
+var draftSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"name":        map[string]any{"type": "string"},
+		"description": map[string]any{"type": "string"},
+		"category":    map[string]any{"type": "string", "enum": []string{"packages", "scripts", "security", "monitoring", "custom"}},
+		"script":      map[string]any{"type": "string"},
+		"parameters":  map[string]any{"type": "array", "items": parameterSchema},
+		"tags":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		"notes":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		"warnings":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+	},
+	"required": []string{"name", "description", "category", "script", "parameters", "tags"},
+}
