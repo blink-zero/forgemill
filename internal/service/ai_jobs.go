@@ -107,6 +107,9 @@ func (st *aiJobStore) startWith(kind string, ownerID *int64, run func(stage func
 	}
 	job := &AIJob{ID: newJobID(), Kind: kind, Status: "running", Stage: "queued", StartedAt: time.Now(), ownerID: ownerID}
 	st.jobs[job.ID] = job
+	// Copy for the caller while still holding the lock: the worker below
+	// starts writing the stage as soon as it is scheduled.
+	first := snapshot(job)
 	st.mu.Unlock()
 
 	go func() {
@@ -135,7 +138,7 @@ func (st *aiJobStore) startWith(kind string, ownerID *int64, run func(stage func
 			st.onFinish(done)
 		}
 	}()
-	return snapshot(job), nil
+	return first, nil
 }
 
 // startFix is start() for fix jobs, whose payload is an ActionFixResult.
