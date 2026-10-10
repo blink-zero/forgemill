@@ -689,6 +689,8 @@ export interface ActionFinding {
   title: string;
   detail?: string;
   suggestion?: string;
+  /** How this finding can be fixed: "auto" (deterministic edit), "ai" (model), or not at all. */
+  fix?: "auto" | "ai" | "" | string;
 }
 
 export interface ActionReview {
@@ -758,6 +760,42 @@ export interface AIJob {
   elapsed_ms: number;
   review?: ActionReview;
   draft?: ActionDraft;
+  fix?: ActionFixResult;
   error?: string;
   error_status?: number;
+}
+
+export interface ActionFixInput {
+  name?: string;
+  description?: string;
+  script: string;
+  parameters?: ActionParameter[];
+  platform?: string;
+  /** The findings the user ticked; nothing else is changed. */
+  findings: ActionFinding[];
+  action_id?: number;
+}
+
+// One selected finding and what happened to it.
+export interface ActionFixChange {
+  rule?: string;
+  title: string;
+  line?: number;
+  applied: boolean;
+  by: "auto" | "model" | string;
+  note?: string;
+}
+
+// A proposed script. Nothing in the editor changes until the user applies it.
+export interface ActionFixResult {
+  script: string;
+  parameters: ActionParameter[];
+  parameters_added?: ActionParameter[];
+  changes: ActionFixChange[];
+  notes?: string[];
+  review?: ActionReview;
+  model?: string;
+  used_ai: boolean;
+  redaction?: { counts: Record<string, number>; total: number };
+  duration_ms: number;
 }

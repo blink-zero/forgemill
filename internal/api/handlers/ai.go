@@ -204,3 +204,41 @@ func writeAIJobError(w http.ResponseWriter, err error) {
 	}
 	writeAIError(w, "could not start job", err)
 }
+
+func decodeFixInput(w http.ResponseWriter, r *http.Request) (service.ActionFixInput, bool) {
+	var in service.ActionFixInput
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, ai.MaxInputBytes+128*1024)).Decode(&in); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return in, false
+	}
+	return in, true
+}
+
+// AutoFix: POST /api/ai/actions/autofix — deterministic fixes only (AI off is fine).
+func (h *AIHandler) AutoFix(w http.ResponseWriter, r *http.Request) {
+	in, ok := decodeFixInput(w, r)
+	if !ok {
+		return
+	}
+	res, err := h.svc.AutoFixOnly(in)
+	if err != nil {
+		writeAIError(w, "autofix failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// StartFixJob: POST /api/ai/jobs/fix — deterministic + model fixes, polled.
+func (h *AIHandler) StartFixJob(w http.ResponseWriter, r *http.Request) {
+	in, ok := decodeFixInput(w, r)
+	if !ok {
+		return
+	}
+	actor, actorID := h.actor(r)
+	job, err := h.svc.StartFixJob(in, actor, actorID)
+	if err != nil {
+		writeAIJobError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, job)
+}

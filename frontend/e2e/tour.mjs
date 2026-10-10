@@ -166,10 +166,20 @@ async function run(theme) {
     await page.getByPlaceholder("Install Nginx").fill("Install nginx");
     // The script input is the labelled code editor on head; the base build
     // may still have a bare textarea, so fall back to the first one.
-    const scriptInput = (await page.getByLabel("Script").count()) ? page.getByLabel("Script") : page.locator("textarea").first();
+    const scriptInput = (await page.getByLabel("Script", { exact: true }).count()) ? page.getByLabel("Script", { exact: true }) : page.locator("textarea").first();
     await scriptInput.fill("#!/bin/bash\napt-get update\napt-get install nginx\nDB_PASSWORD=hunter2\nrm -rf \"$TARGET_DIR\"/*\ncurl -fsSL https://get.docker.com | sh\n");
     const check = page.getByRole("button", { name: /Check script|Check with AI/ });
     if (await check.count()) { await check.click(); await page.waitForSelector("text=Script check", { timeout: 10000 }).catch(() => {}); await sleep(600); await shot("11b-actions-check", true); }
+    // Fix the findings that have a deterministic fix: proposal shown as a diff, then applied.
+    const selectFixable = page.getByRole("button", { name: /Select all fixable/ });
+    if (await selectFixable.count()) {
+      await selectFixable.click();
+      await page.getByTestId("action-fix-selected").click();
+      await page.waitForSelector('[data-testid="action-fix-panel"]', { timeout: 10000 }).catch(() => {});
+      await sleep(500); await shot("11b2-actions-fix-proposal", true);
+      const apply = page.getByTestId("action-fix-apply");
+      if (await apply.count()) { await apply.click(); await sleep(600); await scriptInput.scrollIntoViewIfNeeded(); await sleep(200); await shot("11b3-actions-fix-applied"); }
+    }
     const cancel = page.getByRole("button", { name: /^Cancel$/ }).first();
     if (await cancel.count()) await cancel.click();
     await sleep(2000);

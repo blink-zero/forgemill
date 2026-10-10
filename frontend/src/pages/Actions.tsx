@@ -2,13 +2,14 @@ import React, { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { actions as actionsApi, ai as aiApi } from "@/api/client";
 import { ActionReviewPanel } from "@/pages/actions/ActionReviewPanel";
+import { ActionFixPanel } from "@/pages/actions/ActionFixPanel";
 import { ActionDraftPanel } from "@/pages/actions/ActionDraftPanel";
 import { CodeBlock } from "@/components/code/CodeBlock";
 import { CodeEditor } from "@/components/code/CodeEditor";
 import { languageFor } from "@/components/code/highlight";
 import { useAIJob } from "@/hooks/useAIJob";
 import type { ActionVersion } from "@/api/client";
-import type { Action, ActionParameter, ActionExportEntry, ActionExportFile, ActionReview, AIStatus } from "@/types";
+import type { Action, ActionParameter, ActionExportEntry, ActionExportFile, ActionReview, ActionFinding, ActionFixResult, AIStatus } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -149,6 +150,54 @@ export default function ActionsPage() {
     if (reviewJob.job?.status === "failed" || reviewJob.error) { if (reviewJob.error) toast(reviewJob.error, "error"); setChecking(false); }
   }, [reviewJob.job, reviewJob.error, toast]);
   useEffect(() => { if (reviewJob.running) setChecking(true); }, [reviewJob.running]);
+
+  // Fix selected findings: deterministic edits run at once; anything that
+  // needs the model runs as a job. The proposal lands in fixResult and is
+  // shown as a diff — the editor changes only on Apply.
+  const [fixing, setFixing] = useState(false);
+  const [fixResult, setFixResult] = useState<{ before: string; result: ActionFixResult } | null>(null);
+  const fixJob = useAIJob("ai-fix-job");
+  const fixBefore = useRef("");
+  useEffect(() => {
+    if (fixJob.job?.status === "done" && fixJob.job.fix) { setFixResult({ before: fixBefore.current || form.script, result: fixJob.job.fix }); setFixing(false); }
+    if (fixJob.job?.status === "failed" || fixJob.error) { if (fixJob.error) toast(fixJob.error, "error"); setFixing(false); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fixJob.job, fixJob.error, toast]);
+  useEffect(() => { if (fixJob.running) setFixing(true); }, [fixJob.running]);
+
+  const runFix = async (selected: ActionFinding[]) => {
+    if (selected.length === 0 || !form.script.trim()) return;
+    setFixing(true);
+    setFixResult(null);
+    fixBefore.current = form.script;
+    const input = { name: form.name, description: form.description, script: form.script, parameters: form.parameters, platform: "linux", findings: selected, ...(editingId ? { action_id: editingId } : {}) };
+    const needsModel = selected.some((f) => f.fix === "ai");
+    if (needsModel && aiOn) {
+      await fixJob.start(() => aiApi.startFixJob(input));
+      return;
+    }
+    try {
+      const res = await aiApi.autoFix(input);
+      setFixResult({ before: form.script, result: res.data });
+    } catch (e: unknown) {
+      toast(getErrorMessage(e, "Fix failed"), "error");
+    } finally {
+      setFixing(false);
+    }
+  };
+
+  const applyFix = () => {
+    if (!fixResult) return;
+    const { result } = fixResult;
+    const have = new Set(form.parameters.map((p) => p.name));
+    const added = (result.parameters_added || []).filter((p) => !have.has(p.name)).map((p) => ({ name: p.name, label: p.label || p.name, type: p.type, required: Boolean(p.required), default: p.default || "", placeholder: p.placeholder || "", options: p.options ?? null, description: p.description || "" }));
+    setForm({ ...form, script: result.script, parameters: [...form.parameters, ...added] });
+    validateScript(result.script);
+    if (result.review) setReview(result.review);
+    setFixResult(null);
+    const n = result.changes.filter((c) => c.applied).length;
+    toast(`Fix applied: ${n} finding${n === 1 ? "" : "s"} addressed${added.length ? `, ${added.length} parameter${added.length === 1 ? "" : "s"} added` : ""}. Save the action to keep it.`);
+  };
 
   const runCheck = async () => {
     if (!form.script.trim()) return;
@@ -683,7 +732,8 @@ export default function ActionsPage() {
                 {review && review.script_hash && review.script_hash !== scriptHashHint && editingId && (
                   <p className="text-xs text-warning flex items-center gap-1.5"><AlertTriangle className="h-3.5 w-3.5" /> This check was made before the last edit — run Check again for the current script.</p>
                 )}
-                {review && <ActionReviewPanel review={review} onJumpToLine={jumpToLine} onAddParameters={addSuggestedParameters} onClose={() => setReview(null)} />}
+                {review && <ActionReviewPanel review={review} aiOn={aiOn} fixing={fixing} fixElapsed={fixJob.running ? fixJob.elapsed : 0} onFix={runFix} onJumpToLine={jumpToLine} onAddParameters={addSuggestedParameters} onClose={() => { setReview(null); setFixResult(null); }} />}
+                {fixResult && <ActionFixPanel before={fixResult.before} result={fixResult.result} onApply={applyFix} onDiscard={() => setFixResult(null)} />}
               </div>
 
               {/* Parameters Section */}

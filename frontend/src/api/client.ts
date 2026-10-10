@@ -49,8 +49,7 @@ import type {
   ActionReviewInput,
   ActionDraft,
   ActionDraftInput,
-  AIJob,
-} from "@/types";
+  AIJob, ActionFixInput, ActionFixResult} from "@/types";
 
 const api = axios.create({
   baseURL: "/api",
@@ -194,6 +193,8 @@ export const ai = {
   // length of a model call (proxies with default timeouts are fine).
   startReviewJob: (input: ActionReviewInput) => api.post<AIJob>("/ai/jobs/review", input),
   startDraftJob: (input: ActionDraftInput) => api.post<AIJob>("/ai/jobs/draft", input),
+  startFixJob: (input: ActionFixInput) => api.post<AIJob>("/ai/jobs/fix", input),
+  autoFix: (input: ActionFixInput) => api.post<ActionFixResult>("/ai/actions/autofix", input),
   getJob: (id: string) => api.get<AIJob>(`/ai/jobs/${encodeURIComponent(id)}`),
 };
 
