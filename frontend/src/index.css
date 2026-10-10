@@ -300,3 +300,34 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---- Code colouring (Prism tokens on the app palette) ----------------- */
+/* Shared ground for read-only blocks and the editor: a shade below the
+   card in dark mode and the sunken "muted" surface in light. */
+.code-block {
+  background: hsl(var(--muted) / 0.6);
+  color: hsl(var(--foreground));
+  font-variant-ligatures: none;
+}
+.dark .code-block { background: hsl(225 16% 8%); }
+.code-block pre, .code-block textarea { margin: 0; background: transparent; }
+.code-gutter { color: hsl(var(--muted-foreground) / 0.6); border-right: 1px solid hsl(var(--border)); }
+.code-editor textarea { caret-color: hsl(var(--foreground)); color: transparent !important; }
+.code-editor textarea::placeholder { color: hsl(var(--muted-foreground) / 0.7); }
+
+.code-block .token.comment, .code-block .token.prolog, .code-block .token.doctype, .code-block .token.cdata { color: hsl(var(--muted-foreground)); font-style: italic; }
+.code-block .token.punctuation { color: hsl(var(--muted-foreground)); }
+.code-block .token.shebang, .code-block .token.important { color: hsl(var(--muted-foreground)); font-weight: 600; }
+.code-block .token.keyword, .code-block .token.builtin, .code-block .token.boolean, .code-block .token.null, .code-block .token.undefined { color: hsl(var(--primary)); }
+.code-block .token.function, .code-block .token.function-name, .code-block .token.class-name, .code-block .token.tag, .code-block .token.selector { color: hsl(var(--info)); }
+.code-block .token.string, .code-block .token.char, .code-block .token.attr-value, .code-block .token.template-string { color: hsl(var(--success)); }
+.code-block .token.number, .code-block .token.constant, .code-block .token.symbol, .code-block .token.regex { color: hsl(var(--warning)); }
+.code-block .token.variable, .code-block .token.environment, .code-block .token.parameter, .code-block .token.property, .code-block .token.attr-name, .code-block .token.key { color: hsl(var(--destructive)); }
+.dark .code-block .token.variable, .dark .code-block .token.environment, .dark .code-block .token.parameter, .dark .code-block .token.property, .dark .code-block .token.attr-name, .dark .code-block .token.key { color: hsl(0 70% 72%); }
+.code-block .token.operator, .code-block .token.entity, .code-block .token.url { color: hsl(var(--foreground) / 0.85); }
+.code-block .token.option, .code-block .token.file-descriptor { color: hsl(var(--warning)); }
+.code-block .token.bold { font-weight: 600; }
+.code-block .token.italic { font-style: italic; }
+/* bash: `$VAR` inside strings is a nested token */
+.code-block .token.string .token.variable { color: hsl(var(--destructive)); }
+.dark .code-block .token.string .token.variable { color: hsl(0 70% 72%); }

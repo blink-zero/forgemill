@@ -155,13 +155,19 @@ async function run(theme) {
   await page.locator("text=ubuntu-24.04-cloudinit").first().click(); await sleep(2200);
   await page.getByPlaceholder("web-server-01").fill("web-03"); await sleep(400); await shot("10-deploy-configure", true);
   await sleep(6000);
-  await go("/actions", "text=Security Hardening"); await shot("11-actions"); await sleep(5000);
+  await go("/actions", "text=Security Hardening"); await shot("11-actions");
+  const scriptToggle = page.getByRole("button", { name: /^Script$/ }).first();
+  if (await scriptToggle.count()) { await scriptToggle.click(); await sleep(500); await shot("11a-actions-script-preview"); await scriptToggle.click(); }
+  await sleep(4000);
   // Action editor: the Check panel (lint only — AI is off in the seed).
   const newAction = page.getByRole("button", { name: /Create Action/ }).first();
   if (await newAction.count()) {
     await newAction.click(); await sleep(500);
     await page.getByPlaceholder("Install Nginx").fill("Install nginx");
-    await page.locator("textarea").first().fill("#!/bin/bash\napt-get update\napt-get install nginx\nDB_PASSWORD=hunter2\nrm -rf \"$TARGET_DIR\"/*\ncurl -fsSL https://get.docker.com | sh\n");
+    // The script input is the labelled code editor on head; the base build
+    // may still have a bare textarea, so fall back to the first one.
+    const scriptInput = (await page.getByLabel("Script").count()) ? page.getByLabel("Script") : page.locator("textarea").first();
+    await scriptInput.fill("#!/bin/bash\napt-get update\napt-get install nginx\nDB_PASSWORD=hunter2\nrm -rf \"$TARGET_DIR\"/*\ncurl -fsSL https://get.docker.com | sh\n");
     const check = page.getByRole("button", { name: /Check script|Check with AI/ });
     if (await check.count()) { await check.click(); await page.waitForSelector("text=Script check", { timeout: 10000 }).catch(() => {}); await sleep(600); await shot("11b-actions-check", true); }
     const cancel = page.getByRole("button", { name: /^Cancel$/ }).first();
