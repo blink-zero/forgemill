@@ -46,7 +46,7 @@ func (a *anthropic) Complete(ctx context.Context, req Request) (*Response, error
 	httpReq.Header.Set("anthropic-version", anthropicVersion)
 	resp, err := a.http.Do(httpReq)
 	if err != nil {
-		return nil, &ProviderError{Provider: "Anthropic", Message: trimMessage(err.Error())}
+		return nil, &ProviderError{Provider: "Anthropic", Message: transportMessage(err, a.cfg.timeout())}
 	}
 	defer resp.Body.Close()
 	raw, err := readBody(resp.Body)

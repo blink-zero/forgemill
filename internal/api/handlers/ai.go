@@ -26,7 +26,7 @@ func NewAIHandler(svc *service.AIAssistService) *AIHandler { return &AIHandler{s
 // The server's global write timeout (60 s) suits every other endpoint; a
 // draft is two model calls back to back and a large model can need more,
 // so these handlers extend their own deadline instead of raising it for all.
-const aiRequestDeadline = 5 * time.Minute
+const aiRequestDeadline = 12 * time.Minute
 
 func extendDeadline(w http.ResponseWriter) {
 	rc := http.NewResponseController(w)

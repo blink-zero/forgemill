@@ -31,8 +31,10 @@ func DefaultBaseURL(provider string) string {
 	return ""
 }
 
-// DefaultTimeout bounds one completion call.
-const DefaultTimeout = 60 * time.Second
+// DefaultTimeout bounds one completion call. Answers are not streamed, so
+// the whole completion must arrive before the headers do; a large model
+// writing a few thousand tokens can take two or three minutes.
+const DefaultTimeout = 4 * time.Minute
 
 // MaxInputBytes caps what one request may carry — the action size limit,
 // so an editor payload always fits.

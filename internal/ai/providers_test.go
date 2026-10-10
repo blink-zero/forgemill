@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAnthropicAdapterRequestAndResponse(t *testing.T) {
@@ -183,5 +184,15 @@ func TestAnthropicExplainsExhaustedBudget(t *testing.T) {
 	var pe *ProviderError
 	if !errors.As(err, &pe) || !strings.Contains(pe.Message, "output budget") || !strings.Contains(pe.Message, "20 tokens") {
 		t.Errorf("want budget explanation, got %v", err)
+	}
+}
+
+func TestTransportMessageIsPlain(t *testing.T) {
+	msg := transportMessage(errors.New(`Post "https://api.example.com/v1/messages": context deadline exceeded (Client.Timeout exceeded while awaiting headers)`), 4*time.Minute)
+	if !strings.HasPrefix(msg, "no answer within 4m0s") || strings.Contains(msg, "Client.Timeout") {
+		t.Errorf("timeout message: %q", msg)
+	}
+	if msg := transportMessage(errors.New("dial tcp: lookup api.nope: no such host"), time.Minute); !strings.Contains(msg, "does not resolve") {
+		t.Errorf("dns: %q", msg)
 	}
 }

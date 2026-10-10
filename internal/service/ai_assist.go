@@ -35,13 +35,20 @@ const (
 var ErrAIRateLimited = errors.New("too many AI requests; try again in a moment")
 
 type AIAssistService struct {
-	db      *db.DB
-	enc     Encryptor
-	audit   *AuditService
-	limiter *rate.Limiter
-	jobs    *aiJobStore
+	db       *db.DB
+	enc      Encryptor
+	audit    *AuditService
+	limiter  *rate.Limiter
+	jobs     *aiJobStore
+	notifier *NotificationService
 	// newProvider is swapped in tests.
 	newProvider func(ai.Config) (ai.Provider, error)
+}
+
+// SetNotificationService wires the bell for finished background jobs. Optional.
+func (s *AIAssistService) SetNotificationService(n *NotificationService) {
+	s.notifier = n
+	s.jobs.onFinish = s.notifyJobFinished
 }
 
 func NewAIAssistService(database *db.DB, enc Encryptor, audit *AuditService) *AIAssistService {

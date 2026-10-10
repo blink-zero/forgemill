@@ -2,10 +2,12 @@ package service
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/forgemill/forgemill/internal/ai"
+	"github.com/forgemill/forgemill/internal/db/models"
 )
 
 func waitJob(t *testing.T, a *AIAssistService, id string, owner *int64) *AIJob {
@@ -111,5 +113,39 @@ func TestJobStoreSweepsExpiredAndCapsConcurrency(t *testing.T) {
 	st.mu.Unlock()
 	if n != aiJobRunningLimit-1 {
 		t.Errorf("sweep: %d jobs left, want %d", n, aiJobRunningLimit-1)
+	}
+}
+
+// A failed job rings the owner's bell; a fast successful one does not.
+func TestJobFinishNotifiesOwnerOnFailure(t *testing.T) {
+	a, _ := newAITestService(t)
+	a.SetNotificationService(NewNotificationService(a.db))
+	owner := &models.User{Username: "ops", Role: "admin", IsActive: true}
+	if err := a.db.CreateUser(owner); err != nil {
+		t.Fatal(err)
+	}
+	fp := &fakeAIProvider{err: &ai.ProviderError{Provider: "X", Status: 502, Message: "no answer within 4m0s"}}
+	enableAI(t, a, fp)
+	job, err := a.StartDraftJob(ActionDraftInput{Prompt: "install nginx and enable it"}, "ops", &owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := waitJob(t, a, job.ID, &owner.ID)
+	if done.Status != "failed" {
+		t.Fatalf("job: %+v", done)
+	}
+	time.Sleep(50 * time.Millisecond)
+	notes, _ := a.db.ListNotificationsForUser(owner.ID, true, 10)
+	if len(notes) != 1 || notes[0].Title != "AI draft failed" || notes[0].Link != "/actions" || !strings.Contains(notes[0].Body, "no answer") {
+		t.Fatalf("notification: %+v", notes)
+	}
+	// Quick success: no bell.
+	fp = &fakeAIProvider{answers: []string{`{"summary":"ok","risk":"low","findings":[]}`}}
+	enableAI(t, a, fp)
+	job, _ = a.StartReviewJob(ActionReviewInput{Script: "set -e\necho hi\n"}, "ops", &owner.ID)
+	waitJob(t, a, job.ID, &owner.ID)
+	time.Sleep(50 * time.Millisecond)
+	if notes, _ = a.db.ListNotificationsForUser(owner.ID, true, 10); len(notes) != 1 {
+		t.Errorf("a quick successful job must not notify, got %d", len(notes))
 	}
 }
