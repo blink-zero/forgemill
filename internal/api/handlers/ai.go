@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/forgemill/forgemill/internal/ai"
 	"github.com/forgemill/forgemill/internal/api/middleware"
 	"github.com/forgemill/forgemill/internal/service"
@@ -146,4 +148,59 @@ func (h *AIHandler) ListModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+}
+
+// Background jobs: start returns 202 with the job; poll until done/failed.
+// Each poll is a short request, so proxies with default timeouts are fine.
+
+func (h *AIHandler) StartReviewJob(w http.ResponseWriter, r *http.Request) {
+	in, ok := decodeReviewInput(w, r)
+	if !ok {
+		return
+	}
+	actor, actorID := h.actor(r)
+	job, err := h.svc.StartReviewJob(in, actor, actorID)
+	if err != nil {
+		writeAIJobError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+func (h *AIHandler) StartDraftJob(w http.ResponseWriter, r *http.Request) {
+	var in service.ActionDraftInput
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, ai.MaxInputBytes+64*1024)).Decode(&in); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	actor, actorID := h.actor(r)
+	job, err := h.svc.StartDraftJob(in, actor, actorID)
+	if err != nil {
+		writeAIJobError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+// GetJob: GET /api/ai/jobs/{id}
+func (h *AIHandler) GetJob(w http.ResponseWriter, r *http.Request) {
+	_, actorID := h.actor(r)
+	admin := false
+	if u := middleware.UserFromContext(r.Context()); u != nil && u.Role == "admin" {
+		admin = true
+	}
+	job, err := h.svc.GetJob(chi.URLParam(r, "id"), actorID, admin)
+	if err != nil {
+		writeError(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, job)
+}
+
+func writeAIJobError(w http.ResponseWriter, err error) {
+	if errors.Is(err, service.ErrAIBusy) {
+		writeError(w, err.Error(), http.StatusTooManyRequests)
+		return
+	}
+	writeAIError(w, "could not start job", err)
 }

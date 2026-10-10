@@ -39,6 +39,7 @@ type AIAssistService struct {
 	enc     Encryptor
 	audit   *AuditService
 	limiter *rate.Limiter
+	jobs    *aiJobStore
 	// newProvider is swapped in tests.
 	newProvider func(ai.Config) (ai.Provider, error)
 }
@@ -49,6 +50,7 @@ func NewAIAssistService(database *db.DB, enc Encryptor, audit *AuditService) *AI
 		enc:         enc,
 		audit:       audit,
 		limiter:     rate.NewLimiter(rate.Every(6*time.Second), 10), // 10 calls/min, burst 10
+		jobs:        newAIJobStore(),
 		newProvider: ai.New,
 	}
 }
@@ -249,4 +251,11 @@ func (s *AIAssistService) ListModels(ctx context.Context) ([]ai.ModelInfo, error
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	return lister.ListModels(ctx)
+}
+
+func errNotConfiguredSentinel() error { return ai.ErrNotConfigured }
+
+func isProviderError(err error) bool {
+	var pe *ai.ProviderError
+	return errors.As(err, &pe)
 }

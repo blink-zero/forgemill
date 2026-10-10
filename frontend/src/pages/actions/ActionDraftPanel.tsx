@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { ai as aiApi } from "@/api/client";
+import { useAIJob } from "@/hooks/useAIJob";
 import type { ActionDraft, ActionParameter } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
-import { getErrorMessage } from "@/lib/utils";
 import { ActionReviewPanel } from "./ActionReviewPanel";
 import { Sparkles, Loader2, Check, RefreshCw, X, AlertTriangle, Info } from "lucide-react";
 
@@ -25,42 +25,22 @@ export function ActionDraftPanel({ modelName, existingScript, existingParameters
   const { toast } = useToast();
   const [prompt, setPrompt] = useState("");
   const [useExisting, setUseExisting] = useState(Boolean(existingScript?.trim()));
-  const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<ActionDraft | null>(null);
-  // Failures stay on screen (a toast can be missed after a long wait).
-  const [error, setError] = useState<string | null>(null);
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (!busy) return;
-    setElapsed(0);
-    const t = setInterval(() => setElapsed((n) => n + 1), 1000);
-    return () => clearInterval(t);
-  }, [busy]);
+  // The draft runs as a background job: polled, refresh-safe, no long request.
+  const { job, running: busy, stage, elapsed, error, start } = useAIJob("ai-draft-job");
+  useEffect(() => { if (job?.status === "done" && job.draft) setDraft(job.draft); }, [job]);
 
   const generate = async () => {
     if (prompt.trim().length < 8) {
       toast("Describe what the action should do — a sentence or two", "error");
       return;
     }
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await aiApi.draftAction({
-        prompt: prompt.trim(),
-        platform: "linux",
-        ...(useExisting && existingScript?.trim() ? { existing_script: existingScript, existing_parameters: existingParameters } : {}),
-      });
-      setDraft(res.data);
-    } catch (e: unknown) {
-      const code = (e as { code?: string }).code;
-      const msg = code === "ECONNABORTED"
-        ? "The request timed out after five minutes. Try a smaller model, a shorter description, or check Settings → AI → Test connection."
-        : getErrorMessage(e, "The model could not draft an action");
-      setError(msg);
-      toast(msg, "error");
-    } finally {
-      setBusy(false);
-    }
+    setDraft(null);
+    await start(() => aiApi.startDraftJob({
+      prompt: prompt.trim(),
+      platform: "linux",
+      ...(useExisting && existingScript?.trim() ? { existing_script: existingScript, existing_parameters: existingParameters } : {}),
+    }));
   };
 
   return (
@@ -92,7 +72,7 @@ export function ActionDraftPanel({ modelName, existingScript, existingParameters
           <Button size="sm" onClick={generate} disabled={busy || prompt.trim().length < 8}>
             {busy ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />} {draft ? "Regenerate" : "Generate draft"}
           </Button>
-          {busy && <span className="text-xs text-muted-foreground">Asking the model, then checking the result… {elapsed}s{elapsed >= 45 ? " — large models can take a minute or two" : ""}</span>}
+          {busy && <span className="text-xs text-muted-foreground">{stage === "reviewing" ? "Checking the draft…" : stage === "drafting" ? "Asking the model…" : "Starting…"} {elapsed}s{elapsed >= 45 ? " — large models can take a minute or two; you can leave this page and come back" : ""}</span>}
         </div>
         {error && !busy && (
           <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning flex items-start gap-2">
