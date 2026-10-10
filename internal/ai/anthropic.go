@@ -23,6 +23,15 @@ const anthropicVersion = "2023-06-01"
 const answerToolName = "answer"
 
 func (a *anthropic) Complete(ctx context.Context, req Request) (*Response, error) {
+	return a.complete(ctx, req, false)
+}
+
+// complete sends one Messages request. forceAuto relaxes tool_choice to
+// "auto": models that reason before answering refuse a forced tool call
+// ("tool_choice: type tool and any are not supported…"), and with "auto"
+// they still answer through the tool almost always — and when they answer
+// in text instead, the caller's parser copes.
+func (a *anthropic) complete(ctx context.Context, req Request, forceAuto bool) (*Response, error) {
 	maxTokens := req.MaxTokens
 	if maxTokens <= 0 {
 		maxTokens = 2048
@@ -48,7 +57,11 @@ func (a *anthropic) Complete(ctx context.Context, req Request) (*Response, error
 			"description":  "Return your answer as this structured object. Call it exactly once.",
 			"input_schema": schema,
 		}}
-		body["tool_choice"] = map[string]any{"type": "tool", "name": answerToolName}
+		if forceAuto {
+			body["tool_choice"] = map[string]any{"type": "auto"}
+		} else {
+			body["tool_choice"] = map[string]any{"type": "tool", "name": answerToolName}
+		}
 	}
 	// No temperature: the current Claude models reject the parameter
 	// ("`temperature` is deprecated for this model") and the default is
@@ -72,7 +85,11 @@ func (a *anthropic) Complete(ctx context.Context, req Request) (*Response, error
 		return nil, &ProviderError{Provider: "Anthropic", Status: resp.StatusCode, Message: "could not read response"}
 	}
 	if resp.StatusCode/100 != 2 {
-		return nil, &ProviderError{Provider: "Anthropic", Status: resp.StatusCode, Message: apiErrorMessage(raw)}
+		msg := apiErrorMessage(raw)
+		if resp.StatusCode == 400 && req.JSON && !forceAuto && strings.Contains(strings.ToLower(msg), "tool_choice") {
+			return a.complete(ctx, req, true)
+		}
+		return nil, &ProviderError{Provider: "Anthropic", Status: resp.StatusCode, Message: msg}
 	}
 	var out struct {
 		Model   string `json:"model"`
