@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +27,9 @@ type ActionReviewInput struct {
 	Script      string                   `json:"script"`
 	Parameters  []models.ActionParameter `json:"parameters"`
 	Platform    string                   `json:"platform"` // linux | windows | any
+	// ActionID: store the review on this action when set (the editor passes
+	// it for saved actions and drafts).
+	ActionID *int64 `json:"action_id,omitempty"`
 }
 
 // ActionReview is the Check panel's content.
@@ -36,10 +41,14 @@ type ActionReview struct {
 	Findings            []Finding                `json:"findings"`
 	SuggestedParameters []models.ActionParameter `json:"suggested_parameters,omitempty"`
 	LintOnly            bool                     `json:"lint_only"` // AI off or failed: lint findings only
-	AIError             string                   `json:"ai_error,omitempty"`
-	Model               string                   `json:"model,omitempty"`
-	Redaction           *ai.RedactReport         `json:"redaction,omitempty"`
-	DurationMs          int64                    `json:"duration_ms,omitempty"`
+	// ScriptHash identifies the script this review is about, so a stored
+	// review can be recognised as stale once the script is edited.
+	ScriptHash string           `json:"script_hash,omitempty"`
+	ReviewedAt string           `json:"reviewed_at,omitempty"`
+	AIError    string           `json:"ai_error,omitempty"`
+	Model      string           `json:"model,omitempty"`
+	Redaction  *ai.RedactReport `json:"redaction,omitempty"`
+	DurationMs int64            `json:"duration_ms,omitempty"`
 }
 
 // ErrAIInput wraps a rejected request (400).
@@ -68,7 +77,27 @@ func (s *AIAssistService) LintOnly(in ActionReviewInput) (*ActionReview, error) 
 		return nil, err
 	}
 	findings, distro := LintAction(in.Script, in.Parameters)
-	return &ActionReview{Risk: riskFromFindings(findings), DistroSupport: distro, Findings: findings, LintOnly: true}, nil
+	return &ActionReview{Risk: riskFromFindings(findings), DistroSupport: distro, Findings: findings, LintOnly: true, ScriptHash: ScriptHash(in.Script), ReviewedAt: time.Now().UTC().Format(time.RFC3339)}, nil
+}
+
+// ScriptHash is the short fingerprint stored with a review.
+func ScriptHash(script string) string {
+	sum := sha256.Sum256([]byte(strings.ReplaceAll(script, "\r\n", "\n")))
+	return hex.EncodeToString(sum[:8])
+}
+
+// attachReview stores a review on an action when the input names one.
+func (s *AIAssistService) attachReview(in ActionReviewInput, review *ActionReview) {
+	if in.ActionID == nil || review == nil {
+		return
+	}
+	raw, err := json.Marshal(review)
+	if err != nil {
+		return
+	}
+	if err := s.db.SetActionReview(*in.ActionID, raw); err != nil {
+		slog.Warn("could not store action review", "action_id", *in.ActionID, "error", err)
+	}
 }
 
 // modelReview is the JSON shape the model is asked for.
@@ -98,6 +127,7 @@ func (s *AIAssistService) ReviewAction(ctx context.Context, in ActionReviewInput
 	if err != nil {
 		return nil, err
 	}
+	defer func() { s.attachReview(in, review) }()
 	p, cfg, err := s.provider()
 	if err != nil {
 		if errors.Is(err, ai.ErrNotConfigured) {

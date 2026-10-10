@@ -411,6 +411,14 @@ export interface Action {
   version?: number;
   created_at: string;
   updated_at: string;
+  /** "active" (runnable) or "draft" (saved, listed under Drafts, never runnable until published). */
+  status?: "active" | "draft" | string;
+  source?: "user" | "ai" | string;
+  created_by?: number | null;
+  /** Last stored check of this action; stale when review.script_hash no longer matches the script. */
+  review?: ActionReview | null;
+  reviewed_at?: string;
+  draft_meta?: { prompt?: string; model?: string; notes?: string[]; warnings?: string[]; drafted_at?: string } | null;
 }
 
 // --- Action import/export ---
@@ -695,6 +703,8 @@ export interface ActionReview {
   model?: string;
   redaction?: { counts: Record<string, number>; total: number };
   duration_ms?: number;
+  script_hash?: string;
+  reviewed_at?: string;
 }
 
 export interface ActionReviewInput {
@@ -703,6 +713,8 @@ export interface ActionReviewInput {
   script: string;
   parameters?: ActionParameter[];
   platform?: string;
+  /** Store the review on this action (saved actions and drafts). */
+  action_id?: number;
 }
 
 export interface ActionDraftInput {
@@ -710,6 +722,8 @@ export interface ActionDraftInput {
   platform?: string;
   existing_script?: string;
   existing_parameters?: ActionParameter[];
+  /** Regenerate into this draft instead of creating a new one. */
+  draft_action_id?: number;
 }
 
 // A complete, validated action drafted by the model, with its own review.
@@ -727,6 +741,8 @@ export interface ActionDraft {
   redaction?: { counts: Record<string, number>; total: number };
   duration_ms: number;
   refused?: boolean;
+  /** The draft action this was saved as (absent when refused). */
+  action_id?: number;
 }
 
 export interface AIModelInfo { id: string; name?: string }

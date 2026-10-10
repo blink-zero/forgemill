@@ -6,8 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
-import { ActionReviewPanel } from "./ActionReviewPanel";
-import { Sparkles, Loader2, Check, RefreshCw, X, AlertTriangle, Info } from "lucide-react";
+import { Sparkles, Loader2, Check, X, AlertTriangle } from "lucide-react";
 
 /*
   Draft with AI: a description in, a complete action out — in Forgemill's
@@ -15,20 +14,30 @@ import { Sparkles, Loader2, Check, RefreshCw, X, AlertTriangle, Info } from "luc
   linter and the model. "Use this draft" only fills the form; the user still
   reads it and clicks Create. Shown only when AI assistance is on.
 */
-export function ActionDraftPanel({ modelName, existingScript, existingParameters, onUse, onClose }: {
+export function ActionDraftPanel({ modelName, existingScript, existingParameters, draftActionId, initialPrompt, onSaved, onClose }: {
   modelName?: string;
   existingScript?: string;
   existingParameters?: ActionParameter[];
-  onUse: (draft: ActionDraft) => void;
+  /** Regenerate into this draft instead of creating a new one. */
+  draftActionId?: number;
+  initialPrompt?: string;
+  /** Called with the saved draft action's id once the job is done. */
+  onSaved: (actionId: number, draft: ActionDraft) => void;
   onClose: () => void;
 }) {
   const { toast } = useToast();
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(initialPrompt || "");
   const [useExisting, setUseExisting] = useState(Boolean(existingScript?.trim()));
   const [draft, setDraft] = useState<ActionDraft | null>(null);
   // The draft runs as a background job: polled, refresh-safe, no long request.
   const { job, running: busy, stage, elapsed, error, start } = useAIJob("ai-draft-job");
-  useEffect(() => { if (job?.status === "done" && job.draft) setDraft(job.draft); }, [job]);
+  useEffect(() => {
+    if (job?.status !== "done" || !job.draft) return;
+    setDraft(job.draft);
+    // Saved server-side as a draft action: hand it to the editor.
+    if (!job.draft.refused && job.draft.action_id) onSaved(job.draft.action_id, job.draft);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job]);
 
   const generate = async () => {
     if (prompt.trim().length < 8) {
@@ -40,6 +49,7 @@ export function ActionDraftPanel({ modelName, existingScript, existingParameters
       prompt: prompt.trim(),
       platform: "linux",
       ...(useExisting && existingScript?.trim() ? { existing_script: existingScript, existing_parameters: existingParameters } : {}),
+      ...(draftActionId ? { draft_action_id: draftActionId } : {}),
     }));
   };
 
@@ -48,7 +58,7 @@ export function ActionDraftPanel({ modelName, existingScript, existingParameters
       <div className="flex items-start justify-between gap-2">
         <div className="space-y-0.5">
           <p className="text-sm font-medium flex items-center gap-2"><Sparkles className="h-4 w-4 text-primary" /> Draft with AI {modelName && <Badge variant="info">{modelName}</Badge>}</p>
-          <p className="text-xs text-muted-foreground">Describe what the action should do. You get a script in Forgemill's conventions (set -e, parameters as variables, idempotent, distro-aware), already checked. Nothing is saved until you click Create.</p>
+          <p className="text-xs text-muted-foreground">Describe what the action should do. You get a script in Forgemill's conventions (set -e, parameters as variables, idempotent, distro-aware), already checked, saved as a <span className="text-foreground">draft</span> — listed under Drafts, never runnable until you publish it.</p>
         </div>
         <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={onClose} aria-label="Close draft panel"><X className="h-3.5 w-3.5" /></Button>
       </div>
@@ -72,7 +82,7 @@ export function ActionDraftPanel({ modelName, existingScript, existingParameters
           <Button size="sm" onClick={generate} disabled={busy || prompt.trim().length < 8}>
             {busy ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />} {draft ? "Regenerate" : "Generate draft"}
           </Button>
-          {busy && <span className="text-xs text-muted-foreground">{stage === "reviewing" ? "Checking the draft…" : stage === "drafting" ? "Asking the model…" : "Starting…"} {elapsed}s{elapsed >= 45 ? " — large models can take a few minutes. If you close this panel, the bell will tell you when it's done." : ""}</span>}
+          {busy && <span className="text-xs text-muted-foreground">{stage === "reviewing" ? "Checking the draft…" : stage === "drafting" ? "Asking the model…" : "Starting…"} {elapsed}s{elapsed >= 45 ? " — large models can take a few minutes. The result is saved as a draft either way; the bell will link to it if you leave." : ""}</span>}
         </div>
         {error && !busy && (
           <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning flex items-start gap-2">
@@ -83,7 +93,7 @@ export function ActionDraftPanel({ modelName, existingScript, existingParameters
       </div>
 
       {draft && (
-        <div className="space-y-3 border-t pt-3">
+        <div className="space-y-2 border-t pt-3">
           {draft.refused ? (
             <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning flex items-start gap-2">
               <AlertTriangle className="h-4 w-4 shrink-0 mt-px" />
@@ -93,38 +103,7 @@ export function ActionDraftPanel({ modelName, existingScript, existingParameters
               </div>
             </div>
           ) : (
-            <>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-medium">{draft.name}</span>
-                <Badge variant="secondary">{draft.category}</Badge>
-                {draft.tags.map((t) => <Badge key={t} variant="outline">{t}</Badge>)}
-                <span className="text-xs text-muted-foreground ml-auto">{draft.model}{draft.duration_ms ? ` · ${(draft.duration_ms / 1000).toFixed(1)} s` : ""}</span>
-              </div>
-              {draft.description && <p className="text-13 text-muted-foreground">{draft.description}</p>}
-              <pre className="rounded-md border bg-gray-950 text-success px-3 py-2 text-xs font-mono overflow-x-auto max-h-80 whitespace-pre">{draft.script}</pre>
-              {draft.parameters.length > 0 && (
-                <div className="text-xs flex items-center gap-2 flex-wrap">
-                  <span className="text-muted-foreground">Parameters:</span>
-                  {draft.parameters.map((p) => <code key={p.name} className="font-mono bg-muted px-1.5 py-0.5 rounded" title={p.description || ""}>{p.name}<span className="text-muted-foreground">:{p.type}{p.required ? "*" : ""}</span></code>)}
-                </div>
-              )}
-              {(draft.warnings || []).length > 0 && (
-                <ul className="text-xs text-warning space-y-0.5">
-                  {draft.warnings!.map((w, i) => <li key={i} className="flex items-start gap-1.5"><AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" /> {w}</li>)}
-                </ul>
-              )}
-              {(draft.notes || []).length > 0 && (
-                <ul className="text-xs text-muted-foreground space-y-0.5">
-                  {draft.notes!.map((n, i) => <li key={i} className="flex items-start gap-1.5"><Info className="h-3.5 w-3.5 shrink-0 mt-px" /> {n}</li>)}
-                </ul>
-              )}
-              {draft.review && <ActionReviewPanel review={draft.review} onClose={() => setDraft({ ...draft, review: undefined })} />}
-              <div className="flex items-center gap-2">
-                <Button size="sm" onClick={() => onUse(draft)}><Check className="h-3.5 w-3.5 mr-1" /> Use this draft</Button>
-                <Button size="sm" variant="outline" onClick={generate} disabled={busy}><RefreshCw className="h-3.5 w-3.5 mr-1" /> Regenerate</Button>
-                <span className="text-xs text-muted-foreground">Filling the form replaces its current content; review it before you click Create.</span>
-              </div>
-            </>
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-success" /> Saved as draft "{draft.name}" — it is loaded in the editor below. Review it, then <span className="text-foreground">Publish</span>, or regenerate with a different description.</p>
           )}
         </div>
       )}

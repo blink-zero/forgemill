@@ -323,8 +323,10 @@ export const executions = {
 
 // Post-deploy automation: Actions
 export const actions = {
-  list: () => api.get<Action[]>("/actions"),
+  // Runnable actions only; pass true to include drafts (the Actions page).
+  list: (includeDrafts = false) => api.get<Action[]>("/actions", { params: includeDrafts ? { include_drafts: "true" } : {} }),
   create: (data: Partial<Action>) => api.post<Action>("/actions", data),
+  publish: (id: number) => api.post<Action>(`/actions/${id}/publish`),
   update: (id: number, data: Partial<Action>) => api.put<Action>(`/actions/${id}`, data),
   delete: (id: number) => api.delete(`/actions/${id}`),
   getForDeployment: (deploymentId: number) =>

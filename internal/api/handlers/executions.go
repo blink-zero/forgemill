@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -41,6 +42,10 @@ func (h *ExecutionHandler) Execute(w http.ResponseWriter, r *http.Request) {
 
 	exec, err := h.executor.Execute(r.Context(), vmID, req, user.ID)
 	if err != nil {
+		if errors.Is(err, service.ErrActionDraft) {
+			writeError(w, err.Error(), http.StatusConflict)
+			return
+		}
 		writeErrorLog(w, "failed to start execution", http.StatusBadRequest, err)
 		return
 	}

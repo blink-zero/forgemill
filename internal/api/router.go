@@ -44,11 +44,14 @@ type RouterConfig struct {
 	WebhookService       *service.WebhookService
 	AllowPrivateWebhooks bool
 	TrustedProxies       string // V3-H1: Only use RealIP when behind trusted proxy
-	Encryptor            interface{ Encrypt(string) (string, error); Decrypt(string) (string, error) } // V3-M14
-	TLSCert              string // MED-03: Used to detect production mode for CORS enforcement
-	AuditService         *service.AuditService
-	AIAssistService      *service.AIAssistService
-	NotificationService  *service.NotificationService
+	Encryptor            interface {
+		Encrypt(string) (string, error)
+		Decrypt(string) (string, error)
+	} // V3-M14
+	TLSCert             string // MED-03: Used to detect production mode for CORS enforcement
+	AuditService        *service.AuditService
+	AIAssistService     *service.AIAssistService
+	NotificationService *service.NotificationService
 }
 
 func NewRouter(cfg RouterConfig) *chi.Mux {
@@ -303,6 +306,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 				r.Put("/actions/{id}", actionH.Update)
 				r.Delete("/actions/{id}", actionH.Delete)
 				r.Post("/actions/{id}/rollback", actionH.Rollback)
+				r.Post("/actions/{id}/publish", actionH.Publish)
 
 				// Targets (mutating)
 				r.Post("/targets", targetH.Create)
