@@ -19,6 +19,9 @@ func (a *anthropic) Name() string { return ProviderAnthropic }
 
 const anthropicVersion = "2023-06-01"
 
+// answerToolName is the forced tool that carries a structured answer.
+const answerToolName = "answer"
+
 func (a *anthropic) Complete(ctx context.Context, req Request) (*Response, error) {
 	maxTokens := req.MaxTokens
 	if maxTokens <= 0 {
@@ -31,6 +34,21 @@ func (a *anthropic) Complete(ctx context.Context, req Request) (*Response, error
 	}
 	if req.System != "" {
 		body["system"] = req.System
+	}
+	// Structured answers go through a forced tool call: the API validates
+	// the tool input as JSON, so scripts full of quotes and newlines come
+	// back intact instead of as a string the model had to escape by hand.
+	if req.JSON {
+		schema := req.Schema
+		if schema == nil {
+			schema = map[string]any{"type": "object"}
+		}
+		body["tools"] = []map[string]any{{
+			"name":         answerToolName,
+			"description":  "Return your answer as this structured object. Call it exactly once.",
+			"input_schema": schema,
+		}}
+		body["tool_choice"] = map[string]any{"type": "tool", "name": answerToolName}
 	}
 	// No temperature: the current Claude models reject the parameter
 	// ("`temperature` is deprecated for this model") and the default is
@@ -59,8 +77,10 @@ func (a *anthropic) Complete(ctx context.Context, req Request) (*Response, error
 	var out struct {
 		Model   string `json:"model"`
 		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type  string          `json:"type"`
+			Text  string          `json:"text"`
+			Name  string          `json:"name"`
+			Input json.RawMessage `json:"input"`
 		} `json:"content"`
 		StopReason string `json:"stop_reason"`
 		Usage      struct {
@@ -74,9 +94,16 @@ func (a *anthropic) Complete(ctx context.Context, req Request) (*Response, error
 	var text strings.Builder
 	var otherBlocks []string
 	for _, c := range out.Content {
-		if c.Type == "text" {
+		switch {
+		case c.Type == "tool_use" && c.Name == answerToolName && len(c.Input) > 0:
+			// The structured answer; it wins over any surrounding prose.
+			text.Reset()
+			text.Write(c.Input)
+			otherBlocks = nil
+		case c.Type == "text" && text.Len() == 0:
 			text.WriteString(c.Text)
-		} else {
+		case c.Type == "text":
+		default:
 			otherBlocks = append(otherBlocks, c.Type)
 		}
 	}
