@@ -223,3 +223,30 @@ func TestTransportMessageIsPlain(t *testing.T) {
 		t.Errorf("dns: %q", msg)
 	}
 }
+
+// A model that refuses a forced tool choice gets the request again with
+// tool_choice auto, and its tool answer is used.
+func TestAnthropicFallsBackToAutoToolChoice(t *testing.T) {
+	var choices []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var got map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		tc, _ := got["tool_choice"].(map[string]any)
+		choices = append(choices, tc["type"].(string))
+		if tc["type"] == "tool" {
+			w.WriteHeader(400)
+			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"tool_choice: type \"tool\" and \"any\" are not supported with this model."}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"model":"claude-x","content":[{"type":"tool_use","id":"t1","name":"answer","input":{"ok":true}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer srv.Close()
+	p, _ := New(Config{Provider: ProviderAnthropic, BaseURL: srv.URL, Model: "claude-x", APIKey: "k", AllowPrivateEndpoint: true})
+	resp, err := p.Complete(context.Background(), Request{User: "ping", JSON: true})
+	if err != nil || resp.Text != `{"ok":true}` {
+		t.Fatalf("resp %+v err %v", resp, err)
+	}
+	if len(choices) != 2 || choices[0] != "tool" || choices[1] != "auto" {
+		t.Errorf("tool_choice sequence %v", choices)
+	}
+}
