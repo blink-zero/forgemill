@@ -85,27 +85,29 @@ func (db *DB) ListVMExecutions(vmID int64) ([]models.ActionExecution, error) {
 	return execs, nil
 }
 
+// ListRecentExecutions is the dashboard feed: the newest executions with
+// the VM's name joined in and without script or output, which can be large
+// and are never shown there.
 func (db *DB) ListRecentExecutions(limit int) ([]models.ActionExecution, error) {
 	rows, err := db.conn.Query(
-		`SELECT id, vm_id, action_id, action_name, script, status, exit_code, output, parameter_values, started_at, completed_at, created_by, created_at
-		 FROM action_executions ORDER BY created_at DESC LIMIT ?`, limit,
+		`SELECT e.id, e.vm_id, e.action_id, e.action_name, COALESCE(v.vm_name, ''), e.status, e.exit_code, e.started_at, e.completed_at, e.created_by, e.created_at
+		 FROM action_executions e LEFT JOIN managed_vms v ON v.id = e.vm_id
+		 ORDER BY e.created_at DESC LIMIT ?`, limit,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list recent executions: %w", err)
 	}
 	defer rows.Close()
 
-	var execs []models.ActionExecution
+	execs := []models.ActionExecution{}
 	for rows.Next() {
 		var e models.ActionExecution
-		var pvRaw sql.NullString
-		if err := rows.Scan(&e.ID, &e.VMID, &e.ActionID, &e.ActionName, &e.Script, &e.Status, &e.ExitCode, &e.Output, &pvRaw, &e.StartedAt, &e.CompletedAt, &e.CreatedBy, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.VMID, &e.ActionID, &e.ActionName, &e.VMName, &e.Status, &e.ExitCode, &e.StartedAt, &e.CompletedAt, &e.CreatedBy, &e.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan execution: %w", err)
 		}
-		e.ParameterValues = scanParameterValues(pvRaw)
 		execs = append(execs, e)
 	}
-	return execs, nil
+	return execs, rows.Err()
 }
 
 func (db *DB) UpdateExecutionStatus(id int64, status string, exitCode *int, output string) error {
