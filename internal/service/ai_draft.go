@@ -80,6 +80,15 @@ func validateDraftInput(in *ActionDraftInput) error {
 // and reviewed. Unlike review, drafting needs AI on: without it there is
 // nothing to return, so ErrNotConfigured is returned (409).
 func (s *AIAssistService) DraftAction(ctx context.Context, in ActionDraftInput, actor string, actorID *int64) (*ActionDraft, error) {
+	return s.draftAction(ctx, in, actor, actorID, nil)
+}
+
+// draftAction is DraftAction with a progress hook, used by background jobs
+// to report "drafting" / "reviewing".
+func (s *AIAssistService) draftAction(ctx context.Context, in ActionDraftInput, actor string, actorID *int64, stage func(string)) (*ActionDraft, error) {
+	if stage == nil {
+		stage = func(string) {}
+	}
 	if err := validateDraftInput(&in); err != nil {
 		return nil, err
 	}
@@ -97,6 +106,7 @@ func (s *AIAssistService) DraftAction(ctx context.Context, in ActionDraftInput, 
 	// an answer or a reason rather than a dropped connection.
 	ctx, cancel := context.WithTimeout(ctx, draftTotalBudget(cfg.Timeout))
 	defer cancel()
+	stage("drafting")
 	var parsed modelDraft
 	resp, err := completeJSON(ctx, p, ai.Request{System: draftSystemPrompt, User: user, MaxTokens: 8000, Temperature: 0.3, JSON: true}, &parsed)
 	duration := time.Since(start).Milliseconds()
@@ -139,6 +149,7 @@ func (s *AIAssistService) DraftAction(ctx context.Context, in ActionDraftInput, 
 	// Every variable the script reads must be a parameter; the linter's
 	// undeclared-parameter rule catches misses, and the review below shows
 	// them. The draft is reviewed like a user's script would be.
+	stage("reviewing")
 	review, rerr := s.ReviewAction(ctx, ActionReviewInput{Name: draft.Name, Description: draft.Description, Script: draft.Script, Parameters: draft.Parameters, Platform: firstNonEmpty(in.Platform, "linux")}, actor, actorID)
 	if rerr == nil {
 		draft.Review = review

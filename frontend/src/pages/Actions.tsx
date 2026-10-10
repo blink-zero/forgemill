@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { actions as actionsApi, ai as aiApi } from "@/api/client";
 import { ActionReviewPanel } from "@/pages/actions/ActionReviewPanel";
 import { ActionDraftPanel } from "@/pages/actions/ActionDraftPanel";
+import { useAIJob } from "@/hooks/useAIJob";
 import type { ActionVersion } from "@/api/client";
 import type { Action, ActionParameter, ActionExportEntry, ActionExportFile, ActionReview, ActionDraft, AIStatus } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -147,16 +148,29 @@ export default function ActionsPage() {
     toast("Draft loaded into the editor — review it, then Create");
   };
 
+  // With AI on, the check runs as a background job (polled, refresh-safe);
+  // lint alone is instant and stays a plain request.
+  const reviewJob = useAIJob("ai-review-job");
+  useEffect(() => {
+    if (reviewJob.job?.status === "done" && reviewJob.job.review) { setReview(reviewJob.job.review); setChecking(false); }
+    if (reviewJob.job?.status === "failed" || reviewJob.error) { if (reviewJob.error) toast(reviewJob.error, "error"); setChecking(false); }
+  }, [reviewJob.job, reviewJob.error, toast]);
+  useEffect(() => { if (reviewJob.running) setChecking(true); }, [reviewJob.running]);
+
   const runCheck = async () => {
     if (!form.script.trim()) return;
     setChecking(true);
+    const input = { name: form.name, description: form.description, script: form.script, parameters: form.parameters, platform: "linux" };
+    if (aiOn) {
+      setReview(null);
+      await reviewJob.start(() => aiApi.startReviewJob(input));
+      return;
+    }
     try {
-      const input = { name: form.name, description: form.description, script: form.script, parameters: form.parameters, platform: "linux" };
-      const res = aiOn ? await aiApi.reviewAction(input) : await aiApi.lintAction(input);
+      const res = await aiApi.lintAction(input);
       setReview(res.data);
     } catch (e: unknown) {
-      const code = (e as { code?: string }).code;
-      toast(code === "ECONNABORTED" ? "The check timed out after five minutes; try again or use a smaller model." : getErrorMessage(e, "Check failed"), "error");
+      toast(getErrorMessage(e, "Check failed"), "error");
     } finally {
       setChecking(false);
     }
@@ -560,7 +574,7 @@ export default function ActionsPage() {
                   <p className="text-xs text-muted-foreground">Bash script that runs with sudo privileges on the target VM. Max 64KB.</p>
                   <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={runCheck} disabled={checking || !form.script.trim()} title={aiOn ? `Automatic checks plus a review by ${aiStatus?.model || "the configured model"}` : "Automatic checks: destructive commands, missing set -e, interactive package installs, secrets in the script, undeclared parameters, distro assumptions. Turn on AI assistance in Settings → AI for a model review too."}>
                     {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : aiOn ? <Sparkles className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
-                    {checking ? "Checking…" : aiOn ? "Check with AI" : "Check script"}
+                    {checking ? `Checking…${reviewJob.running && reviewJob.elapsed ? ` ${reviewJob.elapsed}s` : ""}` : aiOn ? "Check with AI" : "Check script"}
                   </Button>
                 </div>
                 {review && <ActionReviewPanel review={review} onJumpToLine={jumpToLine} onAddParameters={addSuggestedParameters} onClose={() => setReview(null)} />}

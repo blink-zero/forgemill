@@ -730,3 +730,18 @@ export interface ActionDraft {
 }
 
 export interface AIModelInfo { id: string; name?: string }
+
+// A background AI job: start it, then poll until status is done or failed.
+export interface AIJob {
+  id: string;
+  kind: "review" | "draft" | string;
+  status: "running" | "done" | "failed" | string;
+  stage?: string;
+  started_at: string;
+  finished_at?: string | null;
+  elapsed_ms: number;
+  review?: ActionReview;
+  draft?: ActionDraft;
+  error?: string;
+  error_status?: number;
+}
