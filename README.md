@@ -298,6 +298,8 @@ Settings → **AI** lets an admin connect a model — Anthropic, or any OpenAI-c
 - **Check with AI** — the deterministic linter (always available as *Check script*: destructive commands, missing `set -e`, `curl | sh`, interactive package installs, secrets in the script, undeclared parameters, distro assumptions) plus the model's review of the redacted script: a summary, findings with line numbers and the concrete fix, idempotency and distro judgement, and parameter suggestions you can add with one click.
 - **Draft with AI** — describe what the action should do and get a complete action in Forgemill's conventions (`set -euo pipefail`, parameters as variables, idempotent, distro-aware), validated like a user submission and already checked. *Use this draft* fills the form; you still read it and click Create.
 
+Model-backed requests (`/api/ai/actions/review`, `/draft`, `/api/ai/test`) can take a minute or more with a large model and are allowed up to five minutes end to end. If Forgemill sits behind a reverse proxy, raise that proxy's read/send timeout for `/api/ai/` accordingly (nginx `proxy_read_timeout 300s;`, Traefik `respondingTimeouts.readTimeout`), or the proxy will cut the connection before the answer arrives.
+
 Ground rules, enforced in code: every call is a button you click; the model only reads and drafts — it never runs anything; passwords, tokens, private keys and URL credentials (optionally IPs and hostnames) are redacted before anything is sent and the count is shown; every call is audit-logged (provider, model, sizes — never content); private endpoints are refused unless you allow them. Design: `docs/design/ai-assist.md`.
 
 ## Built-in actions

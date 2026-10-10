@@ -92,7 +92,10 @@ func (s *AIAssistService) DraftAction(ctx context.Context, in ActionDraftInput, 
 	}
 	start := time.Now()
 	user, report := buildDraftPrompt(in, cfg)
-	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+	// One budget for the draft call and its review (each may retry once);
+	// the handler's deadline is longer than this, so the user always gets
+	// an answer or a reason rather than a dropped connection.
+	ctx, cancel := context.WithTimeout(ctx, draftTotalBudget(cfg.Timeout))
 	defer cancel()
 	var parsed modelDraft
 	resp, err := completeJSON(ctx, p, ai.Request{System: draftSystemPrompt, User: user, MaxTokens: 8000, Temperature: 0.3, JSON: true}, &parsed)
@@ -217,4 +220,12 @@ func clipAll(items []string, n, max int) []string {
 		}
 	}
 	return out
+}
+
+// draftTotalBudget: the draft call, one retry, and the review that follows.
+func draftTotalBudget(perCall time.Duration) time.Duration {
+	if perCall <= 0 {
+		perCall = ai.DefaultTimeout
+	}
+	return 3 * perCall
 }
