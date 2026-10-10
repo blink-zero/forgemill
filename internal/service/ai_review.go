@@ -168,7 +168,7 @@ func (s *AIAssistService) ReviewAction(ctx context.Context, in ActionReviewInput
 		if strings.TrimSpace(f.Title) == "" {
 			continue
 		}
-		review.Findings = append(review.Findings, Finding{Severity: sev, Source: "model", Line: f.Line, Title: strings.TrimSpace(f.Title), Detail: strings.TrimSpace(f.Detail), Suggestion: strings.TrimSpace(f.Suggestion)})
+		review.Findings = append(review.Findings, Finding{Severity: sev, Source: "model", Line: f.Line, Title: strings.TrimSpace(f.Title), Detail: strings.TrimSpace(f.Detail), Suggestion: strings.TrimSpace(f.Suggestion), Fix: "ai"})
 	}
 	review.SuggestedParameters = sanitizeSuggestedParameters(parsed.SuggestedParameters, in.Parameters)
 	sortFindings(review.Findings)

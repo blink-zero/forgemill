@@ -54,6 +54,18 @@ Answer with ONE JSON object and nothing else, with exactly these keys:
 }
 Every variable the script reads from its environment must appear in parameters. Never invent secrets; make them password parameters. If the request is unsafe or impossible as stated, still return the object, with an empty script and the reason in warnings.`
 
+const fixSystemPrompt = `You edit bash scripts that will be saved as Forgemill actions and run on Linux servers as root. You are given a script and a short list of findings to fix. You change only what those findings require.
+
+` + actionConventions + `
+
+Rules:
+- Fix ONLY the listed findings. Keep every other line byte-for-byte unchanged where possible: same structure, comments, names, ordering and style. Do not reformat, do not add features, do not fix things that were not listed — mention those in notes instead.
+- If a fix needs an input that is not in the script (a secret, a host, a path), declare it in parameters_added (UPPER_SNAKE name, a type — use "password" for secrets) and reference it as "$NAME" in the script.
+- Some parts may show «REDACTED:kind» where a secret was removed before you saw it; keep those tokens exactly as they are.
+- For each listed finding report applied true or false with a one-line note saying what you did or why not.
+
+Answer with ONE JSON object: {"script": "the full script", "parameters_added": [ ... ], "changes": [ {"title": "finding title as given", "applied": true|false, "note": "short"} ], "notes": ["other things worth a look, not fixed"]}`
+
 // JSON schemas for the structured answers. Anthropic enforces them through
 // a forced tool call; the prompts above describe the same shape in words
 // for endpoints that only have a JSON mode.
@@ -118,4 +130,26 @@ var draftSchema = map[string]any{
 		"warnings":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 	},
 	"required": []string{"name", "description", "category", "script", "parameters", "tags"},
+}
+
+var fixSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"script":           map[string]any{"type": "string"},
+		"parameters_added": map[string]any{"type": "array", "items": parameterSchema},
+		"changes": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"title":   map[string]any{"type": "string"},
+					"applied": map[string]any{"type": "boolean"},
+					"note":    map[string]any{"type": "string"},
+				},
+				"required": []string{"title", "applied"},
+			},
+		},
+		"notes": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+	},
+	"required": []string{"script", "changes"},
 }

@@ -23,7 +23,18 @@ type Finding struct {
 	Title      string `json:"title"`
 	Detail     string `json:"detail,omitempty"`
 	Suggestion string `json:"suggestion,omitempty"`
+	// Fix says how this finding can be corrected: "auto" (a deterministic
+	// edit Forgemill applies itself), "ai" (needs the model), "" (manual).
+	Fix string `json:"fix,omitempty"`
 }
+
+// autoFixable are the lint rules with a safe mechanical fix.
+var autoFixable = map[string]bool{"missing-set-e": true, "apt-interactive": true, "dnf-interactive": true, "apt-frontend": true, "sudo-inside": true}
+
+// aiFixable are the rules the model can usually fix well on its own; the
+// rest are judgement calls the user should make (or ask the model about
+// with context).
+var aiFixable = map[string]bool{"rm-rf-unguarded": true, "pipe-to-shell": true, "chmod-777": true, "secret-literal": true, "hardcoded-address": true, "eval-variable": true, "interactive-command": true, "parameter-undeclared": true, "distro-debian-only": true, "distro-rhel-only": true, "distro-unbranched": true, "reboots-host": true, "disk-destructive": true}
 
 // DistroSupport is what the script appears to assume about the guest.
 type DistroSupport struct {
@@ -92,7 +103,13 @@ var shellEnv = map[string]bool{
 func LintAction(script string, params []models.ActionParameter) ([]Finding, DistroSupport) {
 	var findings []Finding
 	add := func(sev, rule string, line int, title, detail, suggestion string) {
-		findings = append(findings, Finding{Severity: sev, Source: "lint", Rule: rule, Line: line, Title: title, Detail: detail, Suggestion: suggestion})
+		fix := ""
+		if autoFixable[rule] {
+			fix = "auto"
+		} else if aiFixable[rule] {
+			fix = "ai"
+		}
+		findings = append(findings, Finding{Severity: sev, Source: "lint", Rule: rule, Line: line, Title: title, Detail: detail, Suggestion: suggestion, Fix: fix})
 	}
 	lines := strings.Split(script, "\n")
 

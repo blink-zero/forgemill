@@ -34,9 +34,10 @@ type AIJob struct {
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	ElapsedMs  int64      `json:"elapsed_ms"`
 	// Exactly one of these is set once Status is done / failed.
-	Review *ActionReview `json:"review,omitempty"`
-	Draft  *ActionDraft  `json:"draft,omitempty"`
-	Error  string        `json:"error,omitempty"`
+	Review *ActionReview    `json:"review,omitempty"`
+	Draft  *ActionDraft     `json:"draft,omitempty"`
+	Fix    *ActionFixResult `json:"fix,omitempty"`
+	Error  string           `json:"error,omitempty"`
 	// ErrorStatus is the HTTP status the synchronous endpoint would have
 	// returned for Error, so the UI can tell 409 (AI off) from 502.
 	ErrorStatus int `json:"error_status,omitempty"`
@@ -91,6 +92,13 @@ func (st *aiJobStore) running() int {
 // start registers a job and runs fn in the background. fn receives a stage
 // reporter and returns the finished job's payload via the setters.
 func (st *aiJobStore) start(kind string, ownerID *int64, run func(stage func(string)) (review *ActionReview, draft *ActionDraft, err error)) (*AIJob, error) {
+	return st.startWith(kind, ownerID, func(stage func(string)) (*ActionReview, *ActionDraft, *ActionFixResult, error) {
+		r, d, err := run(stage)
+		return r, d, nil, err
+	})
+}
+
+func (st *aiJobStore) startWith(kind string, ownerID *int64, run func(stage func(string)) (review *ActionReview, draft *ActionDraft, fix *ActionFixResult, err error)) (*AIJob, error) {
 	st.mu.Lock()
 	st.sweep(time.Now())
 	if st.running() >= aiJobRunningLimit {
@@ -107,7 +115,7 @@ func (st *aiJobStore) start(kind string, ownerID *int64, run func(stage func(str
 			job.Stage = s
 			st.mu.Unlock()
 		}
-		review, draft, err := run(stage)
+		review, draft, fix, err := run(stage)
 		st.mu.Lock()
 		now := time.Now()
 		job.FinishedAt = &now
@@ -119,7 +127,7 @@ func (st *aiJobStore) start(kind string, ownerID *int64, run func(stage func(str
 			job.ErrorStatus = aiErrorStatus(err)
 		} else {
 			job.Status = "done"
-			job.Review, job.Draft = review, draft
+			job.Review, job.Draft, job.Fix = review, draft, fix
 		}
 		done := snapshot(job)
 		st.mu.Unlock()
@@ -128,6 +136,14 @@ func (st *aiJobStore) start(kind string, ownerID *int64, run func(stage func(str
 		}
 	}()
 	return snapshot(job), nil
+}
+
+// startFix is start() for fix jobs, whose payload is an ActionFixResult.
+func (st *aiJobStore) startFix(kind string, ownerID *int64, run func(stage func(string)) (*ActionFixResult, error)) (*AIJob, error) {
+	return st.startWith(kind, ownerID, func(stage func(string)) (*ActionReview, *ActionDraft, *ActionFixResult, error) {
+		r, err := run(stage)
+		return nil, nil, r, err
+	})
 }
 
 // get returns a copy of the job for ownerID (admins may read any).
@@ -234,13 +250,16 @@ func (s *AIAssistService) notifyJobFinished(j *AIJob) {
 		return
 	}
 	what := "AI review"
-	if j.Kind == "draft" {
+	switch j.Kind {
+	case "draft":
 		what = "AI draft"
+	case "fix":
+		what = "AI fix"
 	}
 	link := "/actions"
 	if j.Kind == "draft" && j.Draft != nil && j.Draft.ActionID > 0 {
 		link = fmt.Sprintf("/actions?open=%d", j.Draft.ActionID)
-	} else if j.Kind == "review" && j.actionID != nil {
+	} else if (j.Kind == "review" || j.Kind == "fix") && j.actionID != nil {
 		link = fmt.Sprintf("/actions?open=%d", *j.actionID)
 	}
 	switch {

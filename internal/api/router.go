@@ -356,6 +356,8 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 				// Background jobs (what the UI uses): start → 202, then poll.
 				r.Post("/ai/jobs/review", aiH.StartReviewJob)
 				r.Post("/ai/jobs/draft", aiH.StartDraftJob)
+				r.Post("/ai/jobs/fix", aiH.StartFixJob)
+				r.Post("/ai/actions/autofix", aiH.AutoFix)
 				r.Get("/ai/jobs/{id}", aiH.GetJob)
 				r.Route("/settings", func(r chi.Router) {
 					r.Get("/", settingsH.GetSettings)

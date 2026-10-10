@@ -96,6 +96,23 @@ System prompt states Forgemill's conventions: bash, `set -euo pipefail`, `export
 - Model returns unparseable output → 502 "the model did not return a usable answer" after one retry.
 - Redaction report counts are returned so the UI can say "3 secrets were redacted before sending".
 
+### Fix contract (v0.22)
+
+Findings carry `fix`: `auto` (a deterministic edit exists), `ai` (the model can do it) or empty. The user ticks findings in the check panel and clicks **Fix selected**:
+
+1. `AutoFix` applies the mechanical edits without a model call (`set -euo pipefail` after the shebang, `DEBIAN_FRONTEND`, `-y` on apt/dnf, strip `sudo`) — `POST /api/ai/actions/autofix` is synchronous and works with AI off.
+2. Whatever is left goes to the model as a background job (`POST /api/ai/jobs/fix`) with the already auto-fixed, redacted script and *only the selected findings*. The system prompt forbids touching anything else and asks for a per-finding `applied` + note, plus `parameters_added` when a fix needs an input (a pasted secret becomes a `password` parameter).
+3. The result is validated like a user script and then **linted and reviewed again**, so the panel shows the fixed script's own check next to the diff.
+
+```json
+{ "script": "...", "parameters": [ ... ], "parameters_added": [ ... ],
+  "changes": [ { "rule": "apt-interactive", "title": "...", "line": 3, "applied": true, "by": "auto", "note": "added -y" },
+               { "title": "A secret is written into the script", "applied": true, "by": "model", "note": "..." } ],
+  "notes": ["..."], "review": { ...ActionReview }, "used_ai": true, "model": "..." }
+```
+
+The editor is never modified by the call: the proposal is shown as a line diff with the per-finding outcome, and **Apply** replaces the script, appends the new parameters and keeps the fresh review. Nothing is saved until the user saves the action.
+
 ## 4. UI
 
 - **Settings → AI** (admin tab): enable switch; provider select; base URL (prefilled per provider; hint for Ollama); model (free text with per-provider suggestions); API key (write-only field, "key set · Replace / Clear"); redact hostnames; allow private endpoint; **Test** button (round trip + latency); a plain paragraph of what gets sent and the redaction rules.
