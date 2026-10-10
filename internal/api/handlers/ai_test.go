@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/forgemill/forgemill/internal/db"
 	"github.com/forgemill/forgemill/internal/service"
@@ -65,5 +67,46 @@ func TestAIDraftEndpointIs409WhenOff(t *testing.T) {
 	h.DraftAction(rec, httptest.NewRequest(http.MethodPost, "/ai/actions/draft", strings.NewReader(`{"prompt":"x"}`)))
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("tiny prompt: %d", rec.Code)
+	}
+}
+
+// The server's global write timeout must not cut off a slow model-backed
+// request: a handler that extends its deadline answers after the global
+// timeout; one that doesn't is cut off. (This was the "draft loads for a
+// while, then nothing happens" bug.)
+func TestExtendDeadlineOutlivesServerWriteTimeout(t *testing.T) {
+	slow := func(extend bool) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if extend {
+				extendDeadline(w)
+			}
+			time.Sleep(1500 * time.Millisecond)
+			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		}
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/extended", slow(true))
+	mux.Handle("/plain", slow(false))
+	srv := httptest.NewUnstartedServer(mux)
+	srv.Config.WriteTimeout = 1 * time.Second
+	srv.Start()
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/extended")
+	if err != nil {
+		t.Fatalf("extended handler must answer: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || !strings.Contains(string(body), `"ok":true`) {
+		t.Fatalf("extended: %d %s", resp.StatusCode, body)
+	}
+	resp, err = http.Get(srv.URL + "/plain")
+	if err == nil {
+		body, _ = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if len(body) > 0 {
+			t.Fatalf("control handler should have been cut off by the write timeout, got %s", body)
+		}
 	}
 }
