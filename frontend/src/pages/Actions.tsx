@@ -1,15 +1,21 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { actions as actionsApi, ai as aiApi } from "@/api/client";
 import { ActionReviewPanel } from "@/pages/actions/ActionReviewPanel";
+import { ActionFixPanel } from "@/pages/actions/ActionFixPanel";
 import { ActionDraftPanel } from "@/pages/actions/ActionDraftPanel";
+import { CodeBlock } from "@/components/code/CodeBlock";
+import { CodeEditor } from "@/components/code/CodeEditor";
+import { languageFor } from "@/components/code/highlight";
+import { useAIJob } from "@/hooks/useAIJob";
 import type { ActionVersion } from "@/api/client";
-import type { Action, ActionParameter, ActionExportEntry, ActionExportFile, ActionReview, ActionDraft, AIStatus } from "@/types";
+import type { Action, ActionParameter, ActionExportEntry, ActionExportFile, ActionReview, ActionFinding, ActionFixResult, AIStatus } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Edit2, Package, Terminal, Shield, Activity, Puzzle, Search, X, Code2, ChevronDown, ChevronUp, Copy, Check, Loader2, ArrowUp, ArrowDown, Settings2, History, RotateCcw, Download, Upload, ShieldCheck, Sparkles } from "lucide-react";
+import { Plus, Trash2, Edit2, Package, Terminal, Shield, Activity, Puzzle, Search, X, Code2, ChevronDown, ChevronUp, Loader2, ArrowUp, ArrowDown, Settings2, History, RotateCcw, Download, Upload, ShieldCheck, Sparkles, FileEdit, Rocket, AlertTriangle } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Pagination } from "@/components/ui/pagination";
 import { useAuth } from "@/hooks/useAuth";
@@ -99,7 +105,6 @@ export default function ActionsPage() {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [copiedId, setCopiedId] = useState<number | null>(null);
   const [versionsOpenId, setVersionsOpenId] = useState<number | null>(null);
   const [versions, setVersions] = useState<ActionVersion[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
@@ -109,7 +114,7 @@ export default function ActionsPage() {
 
   const fetchActions = async () => {
     try {
-      const res = await actionsApi.list();
+      const res = await actionsApi.list(true);
       setActionList(res.data || []);
     } catch (e: unknown) {
       toast(getErrorMessage(e, "Failed to load actions"), "error");
@@ -129,38 +134,111 @@ export default function ActionsPage() {
   useEffect(() => { aiApi.status().then((res) => setAIStatus(res.data)).catch(() => setAIStatus(null)); }, []);
   const aiOn = Boolean(aiStatus?.enabled && aiStatus?.configured);
   const [showDraft, setShowDraft] = useState(false);
+  // The action being edited when it is a draft (Publish / Discard instead of Update).
+  const [editingDraft, setEditingDraft] = useState<Action | null>(null);
+  const [draftPrompt, setDraftPrompt] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "drafts">("all");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const draftCount = actionList.filter((a) => a.status === "draft").length;
 
-  // "Use this draft" fills the form; nothing is saved until Create.
-  const useDraft = (d: ActionDraft) => {
-    const cat = (["packages", "scripts", "security", "monitoring", "custom"] as const).includes(d.category as never) ? (d.category as Action["category"]) : "custom";
-    setForm({
-      name: d.name,
-      description: d.description,
-      category: cat,
-      script: d.script,
-      parameters: d.parameters.map((p) => ({ name: p.name, label: p.label || p.name, type: p.type, required: Boolean(p.required), default: p.default || "", placeholder: p.placeholder || "", options: p.options ?? null, description: p.description || "" })),
-      tags: d.tags,
-    });
-    setReview(d.review ?? null);
-    setShowDraft(false);
-    validateScript(d.script);
-    toast("Draft loaded into the editor — review it, then Create");
+
+  // With AI on, the check runs as a background job (polled, refresh-safe);
+  // lint alone is instant and stays a plain request.
+  const reviewJob = useAIJob("ai-review-job");
+  useEffect(() => {
+    if (reviewJob.job?.status === "done" && reviewJob.job.review) { setReview(reviewJob.job.review); setChecking(false); }
+    if (reviewJob.job?.status === "failed" || reviewJob.error) { if (reviewJob.error) toast(reviewJob.error, "error"); setChecking(false); }
+  }, [reviewJob.job, reviewJob.error, toast]);
+  useEffect(() => { if (reviewJob.running) setChecking(true); }, [reviewJob.running]);
+
+  // Fix selected findings: deterministic edits run at once; anything that
+  // needs the model runs as a job. The proposal lands in fixResult and is
+  // shown as a diff — the editor changes only on Apply.
+  const [fixing, setFixing] = useState(false);
+  const [fixResult, setFixResult] = useState<{ before: string; result: ActionFixResult } | null>(null);
+  const fixJob = useAIJob("ai-fix-job");
+  const fixBefore = useRef("");
+  useEffect(() => {
+    if (fixJob.job?.status === "done" && fixJob.job.fix) { setFixResult({ before: fixBefore.current || form.script, result: fixJob.job.fix }); setFixing(false); }
+    if (fixJob.job?.status === "failed" || fixJob.error) { if (fixJob.error) toast(fixJob.error, "error"); setFixing(false); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fixJob.job, fixJob.error, toast]);
+  useEffect(() => { if (fixJob.running) setFixing(true); }, [fixJob.running]);
+
+  const runFix = async (selected: ActionFinding[]) => {
+    if (selected.length === 0 || !form.script.trim()) return;
+    setFixing(true);
+    setFixResult(null);
+    fixBefore.current = form.script;
+    const input = { name: form.name, description: form.description, script: form.script, parameters: form.parameters, platform: "linux", findings: selected, ...(editingId ? { action_id: editingId } : {}) };
+    const needsModel = selected.some((f) => f.fix === "ai");
+    if (needsModel && aiOn) {
+      await fixJob.start(() => aiApi.startFixJob(input));
+      return;
+    }
+    try {
+      const res = await aiApi.autoFix(input);
+      setFixResult({ before: form.script, result: res.data });
+    } catch (e: unknown) {
+      toast(getErrorMessage(e, "Fix failed"), "error");
+    } finally {
+      setFixing(false);
+    }
+  };
+
+  const applyFix = () => {
+    if (!fixResult) return;
+    const { result } = fixResult;
+    const have = new Set(form.parameters.map((p) => p.name));
+    const added = (result.parameters_added || []).filter((p) => !have.has(p.name)).map((p) => ({ name: p.name, label: p.label || p.name, type: p.type, required: Boolean(p.required), default: p.default || "", placeholder: p.placeholder || "", options: p.options ?? null, description: p.description || "" }));
+    setForm({ ...form, script: result.script, parameters: [...form.parameters, ...added] });
+    validateScript(result.script);
+    if (result.review) setReview(result.review);
+    setFixResult(null);
+    const n = result.changes.filter((c) => c.applied).length;
+    toast(`Fix applied: ${n} finding${n === 1 ? "" : "s"} addressed${added.length ? `, ${added.length} parameter${added.length === 1 ? "" : "s"} added` : ""}. Save the action to keep it.`);
   };
 
   const runCheck = async () => {
     if (!form.script.trim()) return;
     setChecking(true);
+    let actionId = editingId;
+    if (aiOn && !actionId) {
+      // A model review needs somewhere to land: save the unsaved script as a
+      // draft first (never runnable), so the result survives leaving the page.
+      try {
+        const res = await actionsApi.create({ ...form, name: form.name || "Untitled draft", status: "draft", parameters: form.parameters.length > 0 ? form.parameters : undefined });
+        actionId = res.data.id;
+        setEditingId(actionId);
+        setEditingDraft(res.data);
+        if (!form.name) setForm({ ...form, name: "Untitled draft" });
+        fetchActions();
+      } catch (e: unknown) {
+        toast(getErrorMessage(e, "Could not save the draft before checking"), "error");
+        setChecking(false);
+        return;
+      }
+    }
+    const input = { name: form.name, description: form.description, script: form.script, parameters: form.parameters, platform: "linux", ...(actionId ? { action_id: actionId } : {}) };
+    if (aiOn) {
+      setReview(null);
+      await reviewJob.start(() => aiApi.startReviewJob(input));
+      return;
+    }
     try {
-      const input = { name: form.name, description: form.description, script: form.script, parameters: form.parameters, platform: "linux" };
-      const res = aiOn ? await aiApi.reviewAction(input) : await aiApi.lintAction(input);
+      const res = await aiApi.lintAction(input);
       setReview(res.data);
     } catch (e: unknown) {
-      const code = (e as { code?: string }).code;
-      toast(code === "ECONNABORTED" ? "The check timed out after five minutes; try again or use a smaller model." : getErrorMessage(e, "Check failed"), "error");
+      toast(getErrorMessage(e, "Check failed"), "error");
     } finally {
       setChecking(false);
     }
   };
+
+  // A stored review is stale once the script changes; we don't hash in the
+  // browser, so track "edited since the review arrived" instead.
+  const [scriptHashHint, setScriptHashHint] = useState<string | undefined>(undefined);
+  useEffect(() => { setScriptHashHint(review?.script_hash); }, [review]);
 
   const jumpToLine = (line: number) => {
     const ta = scriptRef.current;
@@ -207,6 +285,11 @@ export default function ActionsPage() {
       } else {
         await actionsApi.create(payload);
       }
+      if (editingDraft) {
+        toast("Draft saved");
+        fetchActions();
+        return;
+      }
       setShowForm(false);
       setEditingId(null);
       setForm({ name: "", description: "", category: "custom" as Action["category"], script: "", parameters: [], tags: [] });
@@ -227,8 +310,72 @@ export default function ActionsPage() {
       tags: action.tags || [],
     });
     setEditingId(action.id);
+    setEditingDraft(action.status === "draft" ? action : null);
+    setReview(action.review ?? null);
+    setShowDraft(false);
+    setDraftPrompt(action.draft_meta?.prompt || "");
     setShowForm(true);
     setConfigError("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // Deep link from the bell: /actions?open=<id> opens that action in the editor.
+  useEffect(() => {
+    const open = searchParams.get("open");
+    if (!open || actionList.length === 0) return;
+    const target = actionList.find((a) => a.id === Number(open));
+    const next = new URLSearchParams(searchParams);
+    next.delete("open");
+    setSearchParams(next, { replace: true });
+    if (target) handleEdit(target);
+    else toast("That action no longer exists", "error");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actionList, searchParams]);
+
+  // The AI job saved a draft: load it into the editor (fresh from the server).
+  const onDraftSaved = async (actionId: number) => {
+    try {
+      const res = await actionsApi.list(true);
+      setActionList(res.data || []);
+      const saved = (res.data || []).find((a) => a.id === actionId);
+      if (saved) handleEdit(saved);
+    } catch (e: unknown) {
+      toast(getErrorMessage(e, "Draft saved, but it could not be loaded"), "error");
+    }
+  };
+
+  const handlePublish = async () => {
+    if (!editingId) return;
+    // Save any edits first, then publish.
+    if (!validateScript(form.script)) return;
+    try {
+      await actionsApi.update(editingId, { ...form, parameters: form.parameters.length > 0 ? form.parameters : undefined });
+      await actionsApi.publish(editingId);
+      toast(`"${form.name}" published — it can now be run`);
+      setShowForm(false);
+      setEditingId(null);
+      setEditingDraft(null);
+      setReview(null);
+      fetchActions();
+    } catch (err: unknown) {
+      toast((err as { response?: { data?: { error?: string } } })?.response?.data?.error || "Failed to publish", "error");
+    }
+  };
+
+  const handleDiscardDraft = async () => {
+    if (!editingId) return;
+    const ok = await showConfirm({ title: "Discard draft", message: `Delete the draft "${form.name}"? This cannot be undone.`, confirmLabel: "Discard", variant: "destructive" });
+    if (!ok) return;
+    try {
+      await actionsApi.delete(editingId);
+      setShowForm(false);
+      setEditingId(null);
+      setEditingDraft(null);
+      setReview(null);
+      fetchActions();
+    } catch (err: unknown) {
+      toast(getErrorMessage(err, "Failed to discard draft"), "error");
+    }
   };
 
   const handleDelete = async (id: number) => {
@@ -289,7 +436,8 @@ export default function ActionsPage() {
   };
 
   const handleExportAll = () => {
-    downloadActionsFile(filtered.map(actionToExportEntry), `forgemill-actions-${new Date().toISOString().slice(0, 10)}.json`);
+    // Drafts are not exported: they haven't been published.
+    downloadActionsFile(filtered.filter((a) => a.status !== "draft").map(actionToExportEntry), `forgemill-actions-${new Date().toISOString().slice(0, 10)}.json`);
   };
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -339,7 +487,8 @@ export default function ActionsPage() {
       (a.description || "").toLowerCase().includes(q) ||
       (a.tags || []).some((t) => t.toLowerCase().includes(q));
     const matchCategory = categoryFilter === "all" || a.category === categoryFilter;
-    return matchSearch && matchCategory;
+    const matchStatus = statusFilter === "drafts" ? a.status === "draft" : true;
+    return matchSearch && matchCategory && matchStatus;
   });
   const viewMode = usePreference("view_mode", "cards");
   const { sorted: actionsSorted, sortField: actSortField, sortDir: actSortDir, toggleSort: actToggleSort } = useTableSort(filtered, "name");
@@ -395,7 +544,7 @@ export default function ActionsPage() {
                   </div>
                 </div>
                 {viewingVersion === v.version && (
-                  <pre className="text-xs bg-gray-950 text-success p-2 rounded-md overflow-x-auto max-h-48 whitespace-pre-wrap mt-2">{v.script}</pre>
+                  <CodeBlock code={v.script} language={languageFor(v.script_type)} maxHeight="12rem" className="mt-2" />
                 )}
               </li>
             );
@@ -457,7 +606,7 @@ export default function ActionsPage() {
                   {importing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
                   Import
                 </Button>
-                <Button onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ name: "", description: "", category: "custom" as Action["category"], script: "", parameters: [], tags: [] }); setConfigError(""); }}>
+                <Button onClick={() => { setShowForm(!showForm); setEditingId(null); setEditingDraft(null); setReview(null); setForm({ name: "", description: "", category: "custom" as Action["category"], script: "", parameters: [], tags: [] }); setConfigError(""); }}>
                   <Plus className="h-4 w-4 mr-2" /> Create Action
                 </Button>
               </>
@@ -493,6 +642,12 @@ export default function ActionsPage() {
                 </Button>
               );
             })}
+            {draftCount > 0 && (
+              <Button size="sm" variant={statusFilter === "drafts" ? "default" : "outline"} onClick={() => setStatusFilter(statusFilter === "drafts" ? "all" : "drafts")} className="gap-1" title="Saved but not published — not runnable">
+                <FileEdit className="h-3 w-3" /> Drafts
+                <Badge variant="warning" className="ml-1 h-5 text-xs">{draftCount}</Badge>
+              </Button>
+            )}
           </div>
         </div>
       )}
@@ -502,17 +657,27 @@ export default function ActionsPage() {
         <Card className="border-primary/30">
           <CardHeader>
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <CardTitle>{editingId ? "Edit Action" : "Create Action"}</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                {editingDraft ? "Review draft" : editingId ? "Edit Action" : "Create Action"}
+                {editingDraft && <Badge variant="warning">{editingDraft.source === "ai" ? "AI draft" : "draft"} · not runnable</Badge>}
+              </CardTitle>
               {aiOn && !showDraft && (
-                <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={() => setShowDraft(true)} title={`Draft an action from a description with ${aiStatus?.model || "the configured model"}`}>
-                  <Sparkles className="h-3.5 w-3.5" /> Draft with AI
+                <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={() => setShowDraft(true)} title={editingDraft ? "Regenerate this draft from a new description" : `Draft an action from a description with ${aiStatus?.model || "the configured model"}`}>
+                  <Sparkles className="h-3.5 w-3.5" /> {editingDraft ? "Regenerate with AI" : "Draft with AI"}
                 </Button>
               )}
             </div>
+            {editingDraft?.draft_meta && (editingDraft.draft_meta.notes?.length || editingDraft.draft_meta.warnings?.length) ? (
+              <div className="mt-2 space-y-1 text-xs">
+                {(editingDraft.draft_meta.warnings || []).map((w, i) => <p key={`w${i}`} className="text-warning flex items-start gap-1.5"><AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" /> {w}</p>)}
+                {(editingDraft.draft_meta.notes || []).map((n, i) => <p key={`n${i}`} className="text-muted-foreground flex items-start gap-1.5"><Sparkles className="h-3.5 w-3.5 shrink-0 mt-px" /> {n}</p>)}
+                {editingDraft.draft_meta.model && <p className="text-muted-foreground/80">Drafted by {editingDraft.draft_meta.model}{editingDraft.draft_meta.prompt ? ` from: "${editingDraft.draft_meta.prompt}"` : ""}</p>}
+              </div>
+            ) : null}
           </CardHeader>
           <CardContent className="space-y-4">
             {aiOn && showDraft && (
-              <ActionDraftPanel modelName={aiStatus?.model} existingScript={form.script} existingParameters={form.parameters} onUse={useDraft} onClose={() => setShowDraft(false)} />
+              <ActionDraftPanel modelName={aiStatus?.model} existingScript={editingDraft ? "" : form.script} existingParameters={editingDraft ? [] : form.parameters} draftActionId={editingDraft?.id} initialPrompt={draftPrompt} onSaved={onDraftSaved} onClose={() => setShowDraft(false)} />
             )}
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2 sm:col-span-2">
@@ -547,23 +712,28 @@ export default function ActionsPage() {
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label>Script *</Label>
-                <textarea
-                  ref={scriptRef}
+                <CodeEditor
                   value={form.script}
-                  onChange={(e) => { setForm({ ...form, script: e.target.value }); if (e.target.value) validateScript(e.target.value); if (review) setReview(null); }}
+                  onChange={(v) => { setForm({ ...form, script: v }); if (v) validateScript(v); if (review) setScriptHashHint("edited"); }}
+                  language="bash"
                   placeholder={"#!/bin/bash\nset -euo pipefail\n\napt-get update -y\napt-get install -y nginx\nsystemctl enable --now nginx"}
-                  rows={10}
-                  className="w-full rounded-md border border-input bg-gray-950 text-success px-3 py-2 text-sm shadow-xs placeholder:text-gray-600 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring font-mono resize-y"
+                  minRows={10}
+                  textareaRef={(el) => { scriptRef.current = el; }}
+                  ariaLabel="Script"
                 />
                 {configError && <p className="text-xs text-destructive">{configError}</p>}
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <p className="text-xs text-muted-foreground">Bash script that runs with sudo privileges on the target VM. Max 64KB.</p>
                   <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={runCheck} disabled={checking || !form.script.trim()} title={aiOn ? `Automatic checks plus a review by ${aiStatus?.model || "the configured model"}` : "Automatic checks: destructive commands, missing set -e, interactive package installs, secrets in the script, undeclared parameters, distro assumptions. Turn on AI assistance in Settings → AI for a model review too."}>
                     {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : aiOn ? <Sparkles className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
-                    {checking ? "Checking…" : aiOn ? "Check with AI" : "Check script"}
+                    {checking ? `Checking…${reviewJob.running && reviewJob.elapsed ? ` ${reviewJob.elapsed}s` : ""}` : aiOn ? "Check with AI" : "Check script"}
                   </Button>
                 </div>
-                {review && <ActionReviewPanel review={review} onJumpToLine={jumpToLine} onAddParameters={addSuggestedParameters} onClose={() => setReview(null)} />}
+                {review && review.script_hash && review.script_hash !== scriptHashHint && editingId && (
+                  <p className="text-xs text-warning flex items-center gap-1.5"><AlertTriangle className="h-3.5 w-3.5" /> This check was made before the last edit — run Check again for the current script.</p>
+                )}
+                {review && <ActionReviewPanel review={review} aiOn={aiOn} fixing={fixing} fixElapsed={fixJob.running ? fixJob.elapsed : 0} onFix={runFix} onJumpToLine={jumpToLine} onAddParameters={addSuggestedParameters} onClose={() => { setReview(null); setFixResult(null); }} />}
+                {fixResult && <ActionFixPanel before={fixResult.before} result={fixResult.result} onApply={applyFix} onDiscard={() => setFixResult(null)} />}
               </div>
 
               {/* Parameters Section */}
@@ -727,11 +897,20 @@ export default function ActionsPage() {
                 ))}
               </div>
 
-              <div className="sm:col-span-2 flex gap-2">
-                <Button onClick={handleSave} disabled={!form.name || !form.script || !!configError}>
-                  {editingId ? "Update" : "Create"}
-                </Button>
-                <Button variant="outline" onClick={() => { setShowForm(false); setEditingId(null); setReview(null); setShowDraft(false); }}>Cancel</Button>
+              <div className="sm:col-span-2 flex gap-2 flex-wrap items-center">
+                {editingDraft ? (
+                  <>
+                    <Button onClick={handlePublish} disabled={!form.name || !form.script || !!configError} title="Make this action runnable"><Rocket className="h-3.5 w-3.5 mr-1" /> Publish</Button>
+                    <Button variant="outline" onClick={handleSave} disabled={!form.name || !form.script || !!configError}>Save draft</Button>
+                    <Button variant="destructive" onClick={handleDiscardDraft}>Discard</Button>
+                    <span className="text-xs text-muted-foreground">Drafts are never run — not by you, deployments, blueprints or the MCP — until published.</span>
+                  </>
+                ) : (
+                  <Button onClick={handleSave} disabled={!form.name || !form.script || !!configError}>
+                    {editingId ? "Update" : "Create"}
+                  </Button>
+                )}
+                <Button variant="outline" onClick={() => { setShowForm(false); setEditingId(null); setEditingDraft(null); setReview(null); setShowDraft(false); }}>Cancel</Button>
               </div>
             </div>
           </CardContent>
@@ -777,6 +956,9 @@ export default function ActionsPage() {
                 <tr className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                   <td className="px-4 py-2.5 font-medium">
                     {action.name}
+                    {action.status === "draft" && (
+                      <Badge variant="warning" className="ml-1.5 text-[10px]" title="Saved but not published — not runnable">{action.source === "ai" ? "AI draft" : "draft"}</Badge>
+                    )}
                     {!action.builtin && action.version && action.version > 1 && (
                       <Badge variant="outline" className="ml-1.5 text-[10px]">v{action.version}</Badge>
                     )}
@@ -819,7 +1001,7 @@ export default function ActionsPage() {
                 {expandedId === action.id && (
                   <tr className="border-b last:border-0">
                     <td colSpan={5} className="px-4 py-3">
-                      <pre className="text-xs bg-gray-950 text-success p-3 rounded-md overflow-x-auto max-h-64 whitespace-pre-wrap">{action.script}</pre>
+                      <CodeBlock code={action.script} language={languageFor(action.script_type)} lineNumbers />
                     </td>
                   </tr>
                 )}
@@ -852,6 +1034,9 @@ export default function ActionsPage() {
                       <div className="flex items-start justify-between">
                         <div className="flex items-center gap-2">
                           <CardTitle className="text-base">{action.name}</CardTitle>
+                          {action.status === "draft" && (
+                            <Badge variant="warning" className="text-[10px]" title="Saved but not published — not runnable">{action.source === "ai" ? "AI draft" : "draft"}</Badge>
+                          )}
                           {!action.builtin && action.version && action.version > 1 && (
                             <Badge variant="outline" className="text-[10px]">v{action.version}</Badge>
                           )}
@@ -904,23 +1089,12 @@ export default function ActionsPage() {
                         </button>
                       </div>
                       {expandedId === action.id && (
-                        <div className="relative mb-3">
-                          <pre className="text-xs bg-gray-950 text-success p-3 pr-10 rounded-md overflow-x-auto max-h-64 whitespace-pre-wrap">{action.script}</pre>
-                          <button
-                            className="absolute top-2 right-2 p-1.5 rounded-md bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
-                            onClick={() => {
-                              navigator.clipboard.writeText(action.script);
-                              setCopiedId(action.id);
-                              setTimeout(() => setCopiedId(null), 2000);
-                            }}
-                            title="Copy script"
-                          >
-                            {copiedId === action.id ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
-                          </button>
+                        <div className="mb-3">
+                          <CodeBlock code={action.script} language={languageFor(action.script_type)} lineNumbers />
                         </div>
                       )}
 
-                      {!action.builtin && (
+                      {!action.builtin && action.status !== "draft" && (
                         <div className="flex gap-2 mt-2 pt-2 border-t">
                           <button
                             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"

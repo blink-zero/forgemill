@@ -411,6 +411,14 @@ export interface Action {
   version?: number;
   created_at: string;
   updated_at: string;
+  /** "active" (runnable) or "draft" (saved, listed under Drafts, never runnable until published). */
+  status?: "active" | "draft" | string;
+  source?: "user" | "ai" | string;
+  created_by?: number | null;
+  /** Last stored check of this action; stale when review.script_hash no longer matches the script. */
+  review?: ActionReview | null;
+  reviewed_at?: string;
+  draft_meta?: { prompt?: string; model?: string; notes?: string[]; warnings?: string[]; drafted_at?: string } | null;
 }
 
 // --- Action import/export ---
@@ -681,6 +689,8 @@ export interface ActionFinding {
   title: string;
   detail?: string;
   suggestion?: string;
+  /** How this finding can be fixed: "auto" (deterministic edit), "ai" (model), or not at all. */
+  fix?: "auto" | "ai" | "" | string;
 }
 
 export interface ActionReview {
@@ -695,6 +705,8 @@ export interface ActionReview {
   model?: string;
   redaction?: { counts: Record<string, number>; total: number };
   duration_ms?: number;
+  script_hash?: string;
+  reviewed_at?: string;
 }
 
 export interface ActionReviewInput {
@@ -703,6 +715,8 @@ export interface ActionReviewInput {
   script: string;
   parameters?: ActionParameter[];
   platform?: string;
+  /** Store the review on this action (saved actions and drafts). */
+  action_id?: number;
 }
 
 export interface ActionDraftInput {
@@ -710,6 +724,8 @@ export interface ActionDraftInput {
   platform?: string;
   existing_script?: string;
   existing_parameters?: ActionParameter[];
+  /** Regenerate into this draft instead of creating a new one. */
+  draft_action_id?: number;
 }
 
 // A complete, validated action drafted by the model, with its own review.
@@ -727,6 +743,59 @@ export interface ActionDraft {
   redaction?: { counts: Record<string, number>; total: number };
   duration_ms: number;
   refused?: boolean;
+  /** The draft action this was saved as (absent when refused). */
+  action_id?: number;
 }
 
 export interface AIModelInfo { id: string; name?: string }
+
+// A background AI job: start it, then poll until status is done or failed.
+export interface AIJob {
+  id: string;
+  kind: "review" | "draft" | string;
+  status: "running" | "done" | "failed" | string;
+  stage?: string;
+  started_at: string;
+  finished_at?: string | null;
+  elapsed_ms: number;
+  review?: ActionReview;
+  draft?: ActionDraft;
+  fix?: ActionFixResult;
+  error?: string;
+  error_status?: number;
+}
+
+export interface ActionFixInput {
+  name?: string;
+  description?: string;
+  script: string;
+  parameters?: ActionParameter[];
+  platform?: string;
+  /** The findings the user ticked; nothing else is changed. */
+  findings: ActionFinding[];
+  action_id?: number;
+}
+
+// One selected finding and what happened to it.
+export interface ActionFixChange {
+  rule?: string;
+  title: string;
+  line?: number;
+  applied: boolean;
+  by: "auto" | "model" | string;
+  note?: string;
+}
+
+// A proposed script. Nothing in the editor changes until the user applies it.
+export interface ActionFixResult {
+  script: string;
+  parameters: ActionParameter[];
+  parameters_added?: ActionParameter[];
+  changes: ActionFixChange[];
+  notes?: string[];
+  review?: ActionReview;
+  model?: string;
+  used_ai: boolean;
+  redaction?: { counts: Record<string, number>; total: number };
+  duration_ms: number;
+}

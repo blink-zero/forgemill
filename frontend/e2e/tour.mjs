@@ -155,28 +155,55 @@ async function run(theme) {
   await page.locator("text=ubuntu-24.04-cloudinit").first().click(); await sleep(2200);
   await page.getByPlaceholder("web-server-01").fill("web-03"); await sleep(400); await shot("10-deploy-configure", true);
   await sleep(6000);
-  await go("/actions", "text=Security Hardening"); await shot("11-actions"); await sleep(5000);
+  await go("/actions", "text=Security Hardening"); await shot("11-actions");
+  const scriptToggle = page.getByRole("button", { name: /^Script$/ }).first();
+  if (await scriptToggle.count()) { await scriptToggle.click(); await sleep(500); await shot("11a-actions-script-preview"); await scriptToggle.click(); }
+  await sleep(4000);
   // Action editor: the Check panel (lint only — AI is off in the seed).
   const newAction = page.getByRole("button", { name: /Create Action/ }).first();
   if (await newAction.count()) {
     await newAction.click(); await sleep(500);
     await page.getByPlaceholder("Install Nginx").fill("Install nginx");
-    await page.locator("textarea").first().fill("#!/bin/bash\napt-get update\napt-get install nginx\nDB_PASSWORD=hunter2\nrm -rf \"$TARGET_DIR\"/*\ncurl -fsSL https://get.docker.com | sh\n");
+    // The script input is the labelled code editor on head; the base build
+    // may still have a bare textarea, so fall back to the first one.
+    const scriptInput = (await page.getByLabel("Script", { exact: true }).count()) ? page.getByLabel("Script", { exact: true }) : page.locator("textarea").first();
+    await scriptInput.fill("#!/bin/bash\napt-get update\napt-get install nginx\nDB_PASSWORD=hunter2\nrm -rf \"$TARGET_DIR\"/*\ncurl -fsSL https://get.docker.com | sh\n");
     const check = page.getByRole("button", { name: /Check script|Check with AI/ });
     if (await check.count()) { await check.click(); await page.waitForSelector("text=Script check", { timeout: 10000 }).catch(() => {}); await sleep(600); await shot("11b-actions-check", true); }
+    // Fix the findings that have a deterministic fix: proposal shown as a diff, then applied.
+    const selectFixable = page.getByRole("button", { name: /Select all fixable/ });
+    if (await selectFixable.count()) {
+      await selectFixable.click();
+      await page.getByTestId("action-fix-selected").click();
+      await page.waitForSelector('[data-testid="action-fix-panel"]', { timeout: 10000 }).catch(() => {});
+      await sleep(500); await shot("11b2-actions-fix-proposal", true);
+      const apply = page.getByTestId("action-fix-apply");
+      if (await apply.count()) { await apply.click(); await sleep(600); await scriptInput.scrollIntoViewIfNeeded(); await sleep(200); await shot("11b3-actions-fix-applied"); }
+    }
     const cancel = page.getByRole("button", { name: /^Cancel$/ }).first();
     if (await cancel.count()) await cancel.click();
     await sleep(2000);
   }
   // Same editor with AI assistance mocked on: the Draft panel and a drafted action with its review.
   await page.route("**/api/ai/status", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ enabled: true, configured: true, provider: "anthropic", model: "claude-sonnet-5", key_set: true, redact_hostnames: false }) }));
-  await page.route("**/api/ai/actions/draft", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+  await page.route("**/api/ai/jobs/draft", (route) => route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ id: "tourjob1", kind: "draft", status: "running", stage: "drafting", started_at: new Date().toISOString(), elapsed_ms: 0 }) }));
+  await page.route("**/api/ai/jobs/tourjob1", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: "tourjob1", kind: "draft", status: "done", started_at: new Date().toISOString(), finished_at: new Date().toISOString(), elapsed_ms: 6200, draft: {
     name: "Mount NFS share", description: "Mounts an NFS export at a mount point and persists it in /etc/fstab. Debian and RHEL families.", category: "scripts",
     script: "#!/bin/bash\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\n: \"${NFS_SERVER:?NFS_SERVER is required}\"\n: \"${NFS_EXPORT:?NFS_EXPORT is required}\"\n: \"${MOUNT_POINT:?MOUNT_POINT is required}\"\n\n. /etc/os-release\ncase \"${ID_LIKE:-$ID}\" in\n  *debian*) command -v mount.nfs >/dev/null || apt-get install -y nfs-common ;;\n  *rhel*|*fedora*) command -v mount.nfs >/dev/null || dnf install -y nfs-utils ;;\nesac\n\nmkdir -p \"$MOUNT_POINT\"\nif ! grep -qs \" $MOUNT_POINT \" /etc/fstab; then\n  echo \"$NFS_SERVER:$NFS_EXPORT $MOUNT_POINT nfs defaults,_netdev 0 0\" >> /etc/fstab\nfi\nmountpoint -q \"$MOUNT_POINT\" || mount \"$MOUNT_POINT\"\n",
     parameters: [{ name: "NFS_SERVER", label: "NFS server", type: "string", required: true, default: "", placeholder: "nas.lab.internal", options: null, description: "Hostname or IP of the NFS server" }, { name: "NFS_EXPORT", label: "Export path", type: "string", required: true, default: "", placeholder: "/volume1/data", options: null, description: "" }, { name: "MOUNT_POINT", label: "Mount point", type: "string", required: true, default: "/data", placeholder: "", options: null, description: "" }],
     tags: ["nfs", "storage"], notes: ["Installs nfs-common (Debian/Ubuntu) or nfs-utils (RHEL family) only if the NFS client is missing."], warnings: ["Edits /etc/fstab; a wrong export path makes the next boot wait on the mount (_netdev limits the damage)."],
     review: { summary: "Mounts an NFS export idempotently and persists it; safe to re-run.", risk: "low", idempotent: true, distro_support: { debian: true, rhel: true }, findings: [{ severity: "info", source: "model", line: 16, title: "fstab line is appended, never updated", detail: "Changing the export later leaves the old line in place.", suggestion: "Match on the mount point and replace the line with sed if it exists." }], lint_only: false, model: "claude-sonnet-5", redaction: { counts: {}, total: 0 }, duration_ms: 4100 },
-    model: "claude-sonnet-5", redaction: { counts: {}, total: 0 }, duration_ms: 6200 }) }));
+    model: "claude-sonnet-5", redaction: { counts: {}, total: 0 }, duration_ms: 6200, action_id: 9001 } }) }));
+  // The saved draft, as the Actions page reloads it after the job.
+  const draftAction = { id: 9001, name: "Mount NFS share", description: "Mounts an NFS export at a mount point and persists it in /etc/fstab. Debian and RHEL families.", category: "scripts", script: "#!/bin/bash\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\n: \"${NFS_SERVER:?NFS_SERVER is required}\"\n: \"${NFS_EXPORT:?NFS_EXPORT is required}\"\n: \"${MOUNT_POINT:?MOUNT_POINT is required}\"\n\n. /etc/os-release\ncase \"${ID_LIKE:-$ID}\" in\n  *debian*) command -v mount.nfs >/dev/null || apt-get install -y nfs-common ;;\n  *rhel*|*fedora*) command -v mount.nfs >/dev/null || dnf install -y nfs-utils ;;\nesac\n\nmkdir -p \"$MOUNT_POINT\"\nif ! grep -qs \" $MOUNT_POINT \" /etc/fstab; then\n  echo \"$NFS_SERVER:$NFS_EXPORT $MOUNT_POINT nfs defaults,_netdev 0 0\" >> /etc/fstab\nfi\nmountpoint -q \"$MOUNT_POINT\" || mount \"$MOUNT_POINT\"\n", script_type: "bash", platform: "linux", builtin: false,
+    parameters: [{ name: "NFS_SERVER", label: "NFS server", type: "string", required: true, default: "", placeholder: "nas.lab.internal", options: null, description: "Hostname or IP of the NFS server" }, { name: "NFS_EXPORT", label: "Export path", type: "string", required: true, default: "", placeholder: "/volume1/data", options: null, description: "" }, { name: "MOUNT_POINT", label: "Mount point", type: "string", required: true, default: "/data", placeholder: "", options: null, description: "" }],
+    tags: ["nfs", "storage"], version: 1, created_at: "2026-10-10 03:00:00", updated_at: "2026-10-10 03:00:00", status: "draft", source: "ai", reviewed_at: "2026-10-10 03:00:05",
+    review: { summary: "Mounts an NFS export idempotently and persists it; safe to re-run.", risk: "low", idempotent: true, distro_support: { debian: true, rhel: true }, findings: [{ severity: "info", source: "model", line: 16, title: "fstab line is appended, never updated", detail: "Changing the export later leaves the old line in place.", suggestion: "Match on the mount point and replace the line with sed if it exists." }], lint_only: false, model: "claude-sonnet-5", redaction: { counts: {}, total: 0 }, duration_ms: 4100, script_hash: "abc" },
+    draft_meta: { prompt: "Mount an NFS export at a mount point given as a parameter and persist it in fstab. Install the NFS client if missing. Debian and RHEL families.", model: "claude-sonnet-5", notes: ["Installs nfs-common (Debian/Ubuntu) or nfs-utils (RHEL family) only if the NFS client is missing."], warnings: ["Edits /etc/fstab; a wrong export path makes the next boot wait on the mount (_netdev limits the damage)."], drafted_at: "2026-10-10T03:00:00Z" } };
+  await page.route("**/api/actions?include_drafts=true", async (route) => {
+    const res = await route.fetch(); const body = await res.json();
+    return route.fulfill({ response: res, body: JSON.stringify([draftAction, ...body]) });
+  });
   await go("/actions", "text=Security Hardening");
   const newAction2 = page.getByRole("button", { name: /Create Action/ }).first();
   if (await newAction2.count()) {
@@ -186,14 +213,18 @@ async function run(theme) {
       await draftBtn.click(); await sleep(400);
       await page.getByPlaceholder(/Mount an NFS export/).fill("Mount an NFS export at a mount point given as a parameter and persist it in fstab. Install the NFS client if missing. Debian and RHEL families.");
       await page.getByRole("button", { name: /Generate draft/ }).click();
-      await page.waitForSelector("text=Use this draft", { timeout: 10000 }).catch(() => {});
-      await sleep(500); await shot("11c-actions-draft", true);
+      await page.waitForSelector("text=Review draft", { timeout: 10000 }).catch(() => {});
+      await sleep(600); await shot("11c-actions-draft", true);
+      await page.getByRole("button", { name: /^Cancel$/ }).first().click(); await sleep(400);
+      // Drafts filter on the list.
+      const draftsChip = page.getByRole("button", { name: /^Drafts/ });
+      if (await draftsChip.count()) { await draftsChip.click(); await sleep(500); await shot("11d-actions-drafts"); await draftsChip.click(); }
     }
     const cancel2 = page.getByRole("button", { name: /^Cancel$/ }).first();
     if (await cancel2.count()) await cancel2.click();
     await sleep(2000);
   }
-  await page.unroute("**/api/ai/status"); await page.unroute("**/api/ai/actions/draft");
+  await page.unroute("**/api/ai/status"); await page.unroute("**/api/ai/jobs/draft"); await page.unroute("**/api/ai/jobs/tourjob1"); await page.unroute("**/api/actions?include_drafts=true");
   await go("/factory", "text=Available Operating Systems"); await shot("15-factory"); await sleep(5000);
   await go("/history", "text=staging-app-04"); await shot("12-history"); await sleep(5000);
   await go("/settings", "text=Settings"); await sleep(1000); await shot("13-settings", true);

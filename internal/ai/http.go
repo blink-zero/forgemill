@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -114,4 +115,22 @@ func trimMessage(s string) string {
 		return s[:300] + "…"
 	}
 	return s
+}
+
+// transportMessage turns Go's transport errors into one plain sentence.
+func transportMessage(err error, timeout time.Duration) string {
+	l := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(l, "client.timeout") || strings.Contains(l, "deadline exceeded") || strings.Contains(l, "timeout awaiting"):
+		return fmt.Sprintf("no answer within %s — the model may be slow or overloaded; try again, pick a smaller or faster model, or shorten the request", timeout.Round(time.Second))
+	case strings.Contains(l, "private or loopback"):
+		return err.Error()
+	case strings.Contains(l, "no such host"):
+		return "the endpoint's hostname does not resolve"
+	case strings.Contains(l, "connection refused"):
+		return "the endpoint refused the connection"
+	case strings.Contains(l, "certificate"), strings.Contains(l, "tls"):
+		return "TLS failed: " + trimMessage(err.Error())
+	}
+	return trimMessage(err.Error())
 }

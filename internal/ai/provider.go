@@ -20,6 +20,10 @@ type Request struct {
 	MaxTokens   int     // output cap; adapters apply a default when 0
 	Temperature float64 // 0..1
 	JSON        bool    // ask for a JSON object answer where the API supports it
+	// Schema, when set with JSON, describes the object wanted. Anthropic
+	// turns it into a forced tool call (the API then guarantees well-formed
+	// JSON); OpenAI-compatible endpoints get json_object mode.
+	Schema map[string]any
 }
 
 // Response is what came back.

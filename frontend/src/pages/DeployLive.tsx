@@ -4,6 +4,7 @@ import { useParams, Link, useLocation, useNavigate } from "react-router-dom";
 import { deploy as deployApi } from "@/api/client";
 import type { DeploymentManifest, TimelineEvent } from "@/api/client";
 import { useWebSocket } from "@/hooks/useWebSocket";
+import { CodeBlock } from "@/components/code/CodeBlock";
 import type { Deployment } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -452,9 +453,7 @@ function ReceiptTab({ deployId }: { deployId: number }) {
             {showInputs ? "Hide" : "Show"} raw inputs
           </button>
           {showInputs && (
-            <pre className="mt-2 text-xs bg-muted rounded-md p-3 overflow-auto max-h-64">
-              {JSON.stringify(manifest.inputs, null, 2)}
-            </pre>
+            <CodeBlock code={JSON.stringify(manifest.inputs, null, 2)} language="json" className="mt-2" />
           )}
         </div>
       </CardContent>

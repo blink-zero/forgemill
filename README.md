@@ -296,9 +296,9 @@ This prevents secrets from appearing in `docker inspect` output or process listi
 Settings → **AI** lets an admin connect a model — Anthropic, or any OpenAI-compatible endpoint (OpenAI, OpenRouter, vLLM, LM Studio, **Ollama** on your own network) — with your own key, stored encrypted and never shown again. With it on, the action editor gains two buttons:
 
 - **Check with AI** — the deterministic linter (always available as *Check script*: destructive commands, missing `set -e`, `curl | sh`, interactive package installs, secrets in the script, undeclared parameters, distro assumptions) plus the model's review of the redacted script: a summary, findings with line numbers and the concrete fix, idempotency and distro judgement, and parameter suggestions you can add with one click.
-- **Draft with AI** — describe what the action should do and get a complete action in Forgemill's conventions (`set -euo pipefail`, parameters as variables, idempotent, distro-aware), validated like a user submission and already checked. *Use this draft* fills the form; you still read it and click Create.
+- **Draft with AI** — describe what the action should do and get a complete action in Forgemill's conventions (`set -euo pipefail`, parameters as variables, idempotent, distro-aware), validated like a user submission and already checked. The result is **saved as a draft action**: listed under *Drafts*, badged *AI draft · not runnable*, deep-linked from the bell, and never executable — not by you, a deployment, a blueprint or the MCP — until you read it and click **Publish**. *Regenerate* overwrites the same draft; *Discard* deletes it.
 
-Model-backed requests (`/api/ai/actions/review`, `/draft`, `/api/ai/test`) can take a minute or more with a large model and are allowed up to five minutes end to end. If Forgemill sits behind a reverse proxy, raise that proxy's read/send timeout for `/api/ai/` accordingly (nginx `proxy_read_timeout 300s;`, Traefik `respondingTimeouts.readTimeout`), or the proxy will cut the connection before the answer arrives.
+Model-backed calls run as **background jobs**: the editor starts one (`POST /api/ai/jobs/review` or `/draft` → `202` with a job id) and polls `GET /api/ai/jobs/{id}` with short requests until it is done, so a large model taking a minute or two never holds an HTTP request open — no reverse-proxy timeout changes are needed, and a page refresh picks the job back up. The synchronous endpoints (`POST /api/ai/actions/review`, `/draft`) remain for scripts and the MCP; they are allowed up to five minutes end to end.
 
 Ground rules, enforced in code: every call is a button you click; the model only reads and drafts — it never runs anything; passwords, tokens, private keys and URL credentials (optionally IPs and hostnames) are redacted before anything is sent and the count is shown; every call is audit-logged (provider, model, sizes — never content); private endpoints are refused unless you allow them. Design: `docs/design/ai-assist.md`.
 
@@ -476,8 +476,9 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/actions` | List all actions |
-| `POST` | `/api/actions` | Create custom action (admin) |
+| `GET` | `/api/actions` | List runnable actions (`?include_drafts=true` adds drafts) |
+| `POST` | `/api/actions` | Create custom action (admin; `"status": "draft"` saves without publishing) |
+| `POST` | `/api/actions/:id/publish` | Publish a draft — validated like a create; versioning starts here (admin) |
 | `PUT` | `/api/actions/:id` | Update action — creates a new version (admin) |
 | `DELETE` | `/api/actions/:id` | Delete action (admin) |
 | `POST` | `/api/actions/import` | Bulk-import exported actions (admin) |

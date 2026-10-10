@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -25,6 +26,9 @@ type ActionDraftInput struct {
 	// when they ask for a change rather than something new.
 	ExistingScript     string                   `json:"existing_script,omitempty"`
 	ExistingParameters []models.ActionParameter `json:"existing_parameters,omitempty"`
+	// DraftActionID: regenerate into this existing draft instead of
+	// creating a new one.
+	DraftActionID *int64 `json:"draft_action_id,omitempty"`
 }
 
 // ActionDraft is what comes back: a complete, validated action plus its review.
@@ -44,6 +48,18 @@ type ActionDraft struct {
 	// Refused is set when the model declined (unsafe/impossible request):
 	// Script is empty and Warnings say why.
 	Refused bool `json:"refused,omitempty"`
+	// ActionID is the draft action this was saved as (0 when refused).
+	ActionID int64 `json:"action_id,omitempty"`
+}
+
+// DraftMeta is what the editor shows about an AI draft, stored on the
+// action as draft_meta_json.
+type DraftMeta struct {
+	Prompt    string   `json:"prompt"`
+	Model     string   `json:"model,omitempty"`
+	Notes     []string `json:"notes,omitempty"`
+	Warnings  []string `json:"warnings,omitempty"`
+	DraftedAt string   `json:"drafted_at"`
 }
 
 type modelDraft struct {
@@ -80,6 +96,15 @@ func validateDraftInput(in *ActionDraftInput) error {
 // and reviewed. Unlike review, drafting needs AI on: without it there is
 // nothing to return, so ErrNotConfigured is returned (409).
 func (s *AIAssistService) DraftAction(ctx context.Context, in ActionDraftInput, actor string, actorID *int64) (*ActionDraft, error) {
+	return s.draftAction(ctx, in, actor, actorID, nil)
+}
+
+// draftAction is DraftAction with a progress hook, used by background jobs
+// to report "drafting" / "reviewing".
+func (s *AIAssistService) draftAction(ctx context.Context, in ActionDraftInput, actor string, actorID *int64, stage func(string)) (*ActionDraft, error) {
+	if stage == nil {
+		stage = func(string) {}
+	}
 	if err := validateDraftInput(&in); err != nil {
 		return nil, err
 	}
@@ -97,8 +122,9 @@ func (s *AIAssistService) DraftAction(ctx context.Context, in ActionDraftInput, 
 	// an answer or a reason rather than a dropped connection.
 	ctx, cancel := context.WithTimeout(ctx, draftTotalBudget(cfg.Timeout))
 	defer cancel()
+	stage("drafting")
 	var parsed modelDraft
-	resp, err := completeJSON(ctx, p, ai.Request{System: draftSystemPrompt, User: user, MaxTokens: 8000, Temperature: 0.3, JSON: true}, &parsed)
+	resp, err := completeJSON(ctx, p, ai.Request{System: draftSystemPrompt, User: user, MaxTokens: 24000, Temperature: 0.3, JSON: true, Schema: draftSchema}, &parsed)
 	duration := time.Since(start).Milliseconds()
 	s.auditAI(actor, actorID, "ai.action.draft", cfg, resp, report, err, duration, len(in.Prompt)+len(in.ExistingScript))
 	if err != nil {
@@ -139,11 +165,50 @@ func (s *AIAssistService) DraftAction(ctx context.Context, in ActionDraftInput, 
 	// Every variable the script reads must be a parameter; the linter's
 	// undeclared-parameter rule catches misses, and the review below shows
 	// them. The draft is reviewed like a user's script would be.
+	stage("reviewing")
 	review, rerr := s.ReviewAction(ctx, ActionReviewInput{Name: draft.Name, Description: draft.Description, Script: draft.Script, Parameters: draft.Parameters, Platform: firstNonEmpty(in.Platform, "linux")}, actor, actorID)
 	if rerr == nil {
 		draft.Review = review
 	}
+	stage("saving")
+	if err := s.saveDraftAction(in, draft, actorID); err != nil {
+		return nil, err
+	}
 	return draft, nil
+}
+
+// saveDraftAction stores the draft as a draft action (new, or overwriting
+// the draft named by DraftActionID) with its review and the model's notes.
+func (s *AIAssistService) saveDraftAction(in ActionDraftInput, draft *ActionDraft, actorID *int64) error {
+	meta, _ := json.Marshal(DraftMeta{Prompt: in.Prompt, Model: draft.Model, Notes: draft.Notes, Warnings: draft.Warnings, DraftedAt: time.Now().UTC().Format(time.RFC3339)})
+	var review json.RawMessage
+	reviewedAt := ""
+	if draft.Review != nil {
+		if raw, err := json.Marshal(draft.Review); err == nil {
+			review = raw
+			reviewedAt = time.Now().UTC().Format(time.DateTime)
+		}
+	}
+	a := &models.Action{
+		Name: draft.Name, Description: draft.Description, Category: draft.Category, Script: draft.Script,
+		Parameters: draft.Parameters, Tags: draft.Tags, ScriptType: "bash", Platform: "linux",
+		Status: models.ActionStatusDraft, Source: models.ActionSourceAI, CreatedBy: actorID,
+		Review: review, ReviewedAt: reviewedAt, DraftMeta: meta,
+	}
+	if in.DraftActionID != nil {
+		existing, err := s.db.GetAction(*in.DraftActionID)
+		if err != nil || existing.Status != models.ActionStatusDraft {
+			return fmt.Errorf("%w: draft_action_id does not name a draft", ErrAIInput)
+		}
+		a.ID = existing.ID
+		if err := s.db.UpdateAction(a, actorID); err != nil {
+			return fmt.Errorf("overwrite draft: %w", err)
+		}
+	} else if err := s.db.CreateAction(a); err != nil {
+		return fmt.Errorf("save draft: %w", err)
+	}
+	draft.ActionID = a.ID
+	return nil
 }
 
 func buildDraftPrompt(in ActionDraftInput, cfg ai.Config) (string, ai.RedactReport) {

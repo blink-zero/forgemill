@@ -132,6 +132,7 @@ func main() {
 	}
 	auditSvc := service.NewAuditService(database)
 	aiSvc := service.NewAIAssistService(database, enc, auditSvc)
+	aiSvc.SetNotificationService(notificationSvc)
 	auditSvc.StartRetentionCleanup()
 	factorySvc := service.NewFactoryService(database, buildEngine, enc)
 	factorySvc.SetWebhookService(webhookSvc)

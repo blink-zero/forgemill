@@ -110,3 +110,51 @@ func TestExtendDeadlineOutlivesServerWriteTimeout(t *testing.T) {
 		}
 	}
 }
+
+func TestAIAutoFixEndpointWorksWithAIOff(t *testing.T) {
+	database, err := db.Open(filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	h := NewAIHandler(service.NewAIAssistService(database, nil, nil))
+
+	// Lint, then ask for the deterministic fixes of everything it flagged.
+	rec := httptest.NewRecorder()
+	h.LintAction(rec, httptest.NewRequest(http.MethodPost, "/ai/actions/lint", strings.NewReader(`{"script":"#!/bin/bash\napt-get install nginx\ncurl x | sh\n"}`)))
+	var review service.ActionReview
+	_ = json.Unmarshal(rec.Body.Bytes(), &review)
+	body, _ := json.Marshal(map[string]any{"script": "#!/bin/bash\napt-get install nginx\ncurl x | sh\n", "findings": review.Findings})
+	rec = httptest.NewRecorder()
+	h.AutoFix(rec, httptest.NewRequest(http.MethodPost, "/ai/actions/autofix", strings.NewReader(string(body))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	var out service.ActionFixResult
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if out.UsedAI || !strings.Contains(out.Script, "set -euo pipefail") || !strings.Contains(out.Script, "apt-get install -y nginx") || out.Review == nil || !out.Review.LintOnly {
+		t.Errorf("autofix: %+v", out)
+	}
+	var skipped bool
+	for _, c := range out.Changes {
+		if c.Rule == "pipe-to-shell" && !c.Applied {
+			skipped = true
+		}
+	}
+	if !skipped {
+		t.Errorf("pipe-to-shell has no deterministic fix and must be reported as not applied: %+v", out.Changes)
+	}
+	// No findings selected is a 400, not a no-op.
+	rec = httptest.NewRecorder()
+	h.AutoFix(rec, httptest.NewRequest(http.MethodPost, "/ai/actions/autofix", strings.NewReader(`{"script":"echo hi\n","findings":[]}`)))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("no findings: %d %s", rec.Code, rec.Body.String())
+	}
+	// A fix job that needs the model is refused while AI is off.
+	body, _ = json.Marshal(map[string]any{"script": "curl x | sh\n", "findings": []map[string]any{{"severity": "high", "source": "lint", "rule": "pipe-to-shell", "title": "x", "fix": "ai"}}})
+	rec = httptest.NewRecorder()
+	h.StartFixJob(rec, httptest.NewRequest(http.MethodPost, "/ai/jobs/fix", strings.NewReader(string(body))))
+	if rec.Code != http.StatusConflict {
+		t.Errorf("fix job with AI off: %d %s", rec.Code, rec.Body.String())
+	}
+}

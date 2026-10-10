@@ -47,7 +47,7 @@ func (o *openAI) Complete(ctx context.Context, req Request) (*Response, error) {
 	}
 	resp, err := o.http.Do(httpReq)
 	if err != nil {
-		return nil, &ProviderError{Provider: "OpenAI-compatible endpoint", Message: trimMessage(err.Error())}
+		return nil, &ProviderError{Provider: "OpenAI-compatible endpoint", Message: transportMessage(err, o.cfg.timeout())}
 	}
 	defer resp.Body.Close()
 	raw, err := readBody(resp.Body)

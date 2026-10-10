@@ -49,7 +49,7 @@ import type {
   ActionReviewInput,
   ActionDraft,
   ActionDraftInput,
-} from "@/types";
+  AIJob, ActionFixInput, ActionFixResult} from "@/types";
 
 const api = axios.create({
   baseURL: "/api",
@@ -189,6 +189,13 @@ export const ai = {
   reviewAction: (input: ActionReviewInput) => api.post<ActionReview>("/ai/actions/review", input, { timeout: AI_TIMEOUT_MS }),
   // A complete, validated, reviewed action from a description (AI must be on).
   draftAction: (input: ActionDraftInput) => api.post<ActionDraft>("/ai/actions/draft", input, { timeout: AI_TIMEOUT_MS }),
+  // Background jobs — what the UI uses, so no request is held open for the
+  // length of a model call (proxies with default timeouts are fine).
+  startReviewJob: (input: ActionReviewInput) => api.post<AIJob>("/ai/jobs/review", input),
+  startDraftJob: (input: ActionDraftInput) => api.post<AIJob>("/ai/jobs/draft", input),
+  startFixJob: (input: ActionFixInput) => api.post<AIJob>("/ai/jobs/fix", input),
+  autoFix: (input: ActionFixInput) => api.post<ActionFixResult>("/ai/actions/autofix", input),
+  getJob: (id: string) => api.get<AIJob>(`/ai/jobs/${encodeURIComponent(id)}`),
 };
 
 export const users = {
@@ -317,8 +324,10 @@ export const executions = {
 
 // Post-deploy automation: Actions
 export const actions = {
-  list: () => api.get<Action[]>("/actions"),
+  // Runnable actions only; pass true to include drafts (the Actions page).
+  list: (includeDrafts = false) => api.get<Action[]>("/actions", { params: includeDrafts ? { include_drafts: "true" } : {} }),
   create: (data: Partial<Action>) => api.post<Action>("/actions", data),
+  publish: (id: number) => api.post<Action>(`/actions/${id}/publish`),
   update: (id: number, data: Partial<Action>) => api.put<Action>(`/actions/${id}`, data),
   delete: (id: number) => api.delete(`/actions/${id}`),
   getForDeployment: (deploymentId: number) =>

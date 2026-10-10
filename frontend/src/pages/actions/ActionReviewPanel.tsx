@@ -1,7 +1,8 @@
+import { useEffect, useMemo, useState } from "react";
 import type { ActionReview, ActionFinding, ActionParameter } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ShieldCheck, ShieldAlert, AlertTriangle, Info, Sparkles, Plus, X } from "lucide-react";
+import { ShieldCheck, ShieldAlert, AlertTriangle, Info, Sparkles, Plus, X, Wrench } from "lucide-react";
 
 /*
   Result of "Check": the deterministic linter's findings, plus the model's
@@ -20,13 +21,31 @@ const SEV_CLASS: Record<string, string> = {
 };
 const SEV_BADGE: Record<string, "destructive" | "warning" | "secondary" | "info"> = { critical: "destructive", high: "destructive", medium: "warning", low: "secondary", info: "info" };
 
-export function ActionReviewPanel({ review, onJumpToLine, onAddParameters, onClose }: {
+export function ActionReviewPanel({ review, aiOn, fixing, fixElapsed, onFix, onJumpToLine, onAddParameters, onClose }: {
   review: ActionReview;
+  /** Whether model-backed fixes are available (findings marked fix: "ai" need it). */
+  aiOn?: boolean;
+  fixing?: boolean;
+  fixElapsed?: number;
+  /** Fix the ticked findings. Absent = no fix controls (read-only view). */
+  onFix?: (selected: ActionFinding[]) => void;
   onJumpToLine?: (line: number) => void;
   onAddParameters?: (params: ActionParameter[]) => void;
   onClose: () => void;
 }) {
-  const grouped = SEV_ORDER.map((sev) => ({ sev, items: review.findings.filter((f) => f.severity === sev) })).filter((g) => g.items.length > 0);
+  // Findings keep their index in review.findings so a selection survives re-grouping.
+  const indexed = useMemo(() => review.findings.map((f, idx) => ({ f, idx })), [review.findings]);
+  const grouped = SEV_ORDER.map((sev) => ({ sev, items: indexed.filter(({ f }) => f.severity === sev) })).filter((g) => g.items.length > 0);
+  const canFix = (f: ActionFinding) => f.fix === "auto" || (f.fix === "ai" && Boolean(aiOn));
+  const fixable = indexed.filter(({ f }) => canFix(f));
+  const needsAI = indexed.filter(({ f }) => f.fix === "ai" && !aiOn).length;
+  const [selected, setSelected] = useState<Set<number>>(() => new Set());
+  // A new review means a new set of findings; clear what was ticked.
+  useEffect(() => { setSelected(new Set()); }, [review]);
+  const toggle = (idx: number) => setSelected((prev) => { const n = new Set(prev); if (n.has(idx)) n.delete(idx); else n.add(idx); return n; });
+  const selectAll = () => setSelected(new Set(fixable.map(({ idx }) => idx)));
+  const selectedCount = [...selected].filter((idx) => indexed[idx] && canFix(indexed[idx].f)).length;
+  const showFix = Boolean(onFix) && review.findings.some((f) => f.fix === "auto" || f.fix === "ai");
   const okIcon = review.risk === "low" ? <ShieldCheck className="h-4 w-4 text-success" /> : <ShieldAlert className={`h-4 w-4 ${review.risk === "medium" ? "text-warning" : "text-destructive"}`} />;
 
   return (
@@ -62,9 +81,20 @@ export function ActionReviewPanel({ review, onJumpToLine, onAddParameters, onClo
         <p className="text-13 text-muted-foreground">No findings. {review.lint_only ? "The automatic checks found nothing to flag." : "Neither the automatic checks nor the model found anything to flag."}</p>
       ) : (
         <ul className="space-y-1.5">
-          {grouped.map(({ sev, items }) => items.map((f: ActionFinding, i: number) => (
-            <li key={`${sev}-${i}`} className={`rounded-md border px-3 py-2 ${SEV_CLASS[sev] || SEV_CLASS.info}`}>
+          {grouped.map(({ sev, items }) => items.map(({ f, idx }) => (
+            <li key={`${sev}-${idx}`} className={`rounded-md border px-3 py-2 ${SEV_CLASS[sev] || SEV_CLASS.info}${selected.has(idx) && canFix(f) ? " ring-1 ring-primary/40" : ""}`}>
               <div className="flex items-start gap-2">
+                {showFix && (
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-3.5 w-3.5 shrink-0 accent-primary disabled:opacity-40"
+                    checked={selected.has(idx) && canFix(f)}
+                    disabled={!canFix(f) || fixing}
+                    onChange={() => toggle(idx)}
+                    aria-label={`Fix: ${f.title}`}
+                    title={canFix(f) ? (f.fix === "auto" ? "Fixed by a deterministic edit" : "Fixed by the model") : f.fix === "ai" ? "Needs AI assistance (Settings → AI)" : "No automatic fix for this finding"}
+                  />
+                )}
                 <Badge variant={SEV_BADGE[sev] || "secondary"} className="mt-px shrink-0">{sev}</Badge>
                 <div className="min-w-0 flex-1 space-y-0.5">
                   <p className="text-13 font-medium flex items-center gap-2 flex-wrap">
@@ -73,6 +103,8 @@ export function ActionReviewPanel({ review, onJumpToLine, onAddParameters, onClo
                       <button type="button" className="text-xs font-mono text-primary hover:underline" onClick={() => onJumpToLine?.(f.line!)} title="Jump to line">line {f.line}</button>
                     ) : null}
                     <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">{f.source === "model" ? "model" : "lint"}</span>
+                    {showFix && f.fix === "auto" && <span className="text-[10px] uppercase tracking-wide text-success/80" title="A deterministic edit can fix this">auto-fix</span>}
+                    {showFix && f.fix === "ai" && <span className={`text-[10px] uppercase tracking-wide ${aiOn ? "text-primary/80" : "text-muted-foreground/60"}`} title={aiOn ? "The model can fix this" : "Needs AI assistance (Settings → AI)"}>AI fix</span>}
                   </p>
                   {f.detail && <p className="text-xs text-muted-foreground">{f.detail}</p>}
                   {f.suggestion && <p className="text-xs text-foreground/90 flex items-start gap-1"><Info className="h-3 w-3 shrink-0 mt-0.5 text-muted-foreground" /> {f.suggestion}</p>}
@@ -81,6 +113,22 @@ export function ActionReviewPanel({ review, onJumpToLine, onAddParameters, onClo
             </li>
           )))}
         </ul>
+      )}
+
+      {showFix && (
+        <div className="flex items-center gap-2 flex-wrap text-xs" data-testid="action-fix-controls">
+          <Button size="sm" variant="outline" className="h-7" disabled={selectedCount === 0 || fixing} onClick={() => onFix?.([...selected].filter((idx) => indexed[idx] && canFix(indexed[idx].f)).map((idx) => indexed[idx].f))} data-testid="action-fix-selected">
+            <Wrench className="h-3 w-3 mr-1" /> {fixing ? `Fixing…${fixElapsed ? ` ${fixElapsed}s` : ""}` : `Fix selected${selectedCount > 0 ? ` (${selectedCount})` : ""}`}
+          </Button>
+          {fixable.length > 0 && selectedCount < fixable.length && !fixing && (
+            <button type="button" className="text-primary hover:underline" onClick={selectAll}>Select all fixable ({fixable.length})</button>
+          )}
+          {selectedCount > 0 && !fixing && <button type="button" className="text-muted-foreground hover:underline" onClick={() => setSelected(new Set())}>Clear</button>}
+          <span className="text-muted-foreground">
+            {fixable.length === 0 ? "No finding here has an automatic fix." : "Tick findings to fix; the result is shown as a diff before anything changes."}
+            {needsAI > 0 ? ` ${needsAI} need${needsAI === 1 ? "s" : ""} AI assistance (Settings → AI).` : ""}
+          </span>
+        </div>
       )}
 
       {review.suggested_parameters && review.suggested_parameters.length > 0 && onAddParameters && (

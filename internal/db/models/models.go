@@ -6,17 +6,17 @@ import (
 )
 
 type User struct {
-	ID             int64      `json:"id"`
-	Username       string     `json:"username"`
-	PasswordHash   string     `json:"-"`
-	DisplayName    string     `json:"display_name"`
-	Role           string     `json:"role"`
-	IsActive       bool       `json:"is_active"`
-	LastLoginAt    *time.Time `json:"last_login_at"`
-	CreatedAt      time.Time  `json:"created_at"`
-	AuthSourceID   *int64     `json:"auth_source_id,omitempty"`
-	ExternalID     string     `json:"external_id,omitempty"`
-	TokenVersion   int        `json:"token_version"`
+	ID           int64      `json:"id"`
+	Username     string     `json:"username"`
+	PasswordHash string     `json:"-"`
+	DisplayName  string     `json:"display_name"`
+	Role         string     `json:"role"`
+	IsActive     bool       `json:"is_active"`
+	LastLoginAt  *time.Time `json:"last_login_at"`
+	CreatedAt    time.Time  `json:"created_at"`
+	AuthSourceID *int64     `json:"auth_source_id,omitempty"`
+	ExternalID   string     `json:"external_id,omitempty"`
+	TokenVersion int        `json:"token_version"`
 }
 
 type Target struct {
@@ -98,23 +98,23 @@ type TemplateFamily struct {
 }
 
 type Deployment struct {
-	ID               int64      `json:"id"`
-	TemplateID       *int64     `json:"template_id"`
-	TargetID         int64      `json:"target_id"`
-	VMName           string     `json:"vm_name"`
-	Status           string     `json:"status"`
-	ConfigJSON       string     `json:"config_json,omitempty"`
-	StartedAt        *time.Time `json:"started_at"`
-	CompletedAt      *time.Time `json:"completed_at"`
-	ErrorMessage     string     `json:"error_message,omitempty"`
-	CreatedBy        int64      `json:"created_by"`
-	CreatedAt        time.Time  `json:"created_at"`
-	BulkDeploymentID *int64     `json:"bulk_deployment_id,omitempty"`
-	InitialUsername  string     `json:"initial_username,omitempty"`
-	InitialPwdEnc   string     `json:"-"`                          // encrypted, never serialised
-	TemplateName     string     `json:"template_name,omitempty"`
-	TargetName       string     `json:"target_name,omitempty"`
-	VMID             *int64     `json:"vm_id,omitempty"`
+	ID               int64           `json:"id"`
+	TemplateID       *int64          `json:"template_id"`
+	TargetID         int64           `json:"target_id"`
+	VMName           string          `json:"vm_name"`
+	Status           string          `json:"status"`
+	ConfigJSON       string          `json:"config_json,omitempty"`
+	StartedAt        *time.Time      `json:"started_at"`
+	CompletedAt      *time.Time      `json:"completed_at"`
+	ErrorMessage     string          `json:"error_message,omitempty"`
+	CreatedBy        int64           `json:"created_by"`
+	CreatedAt        time.Time       `json:"created_at"`
+	BulkDeploymentID *int64          `json:"bulk_deployment_id,omitempty"`
+	InitialUsername  string          `json:"initial_username,omitempty"`
+	InitialPwdEnc    string          `json:"-"` // encrypted, never serialised
+	TemplateName     string          `json:"template_name,omitempty"`
+	TargetName       string          `json:"target_name,omitempty"`
+	VMID             *int64          `json:"vm_id,omitempty"`
 	Logs             []DeploymentLog `json:"logs,omitempty"`
 }
 
@@ -231,30 +231,30 @@ type VMSnapshot struct {
 }
 
 type Blueprint struct {
-	ID          int64     `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	TemplateID  *int64    `json:"template_id"`
-	TargetID    *int64    `json:"target_id"`
-	ConfigJSON  string    `json:"config_json"`
-	CreatedBy   int64     `json:"created_by"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	TemplateName string   `json:"template_name,omitempty"`
-	TargetName   string   `json:"target_name,omitempty"`
+	ID           int64     `json:"id"`
+	Name         string    `json:"name"`
+	Description  string    `json:"description"`
+	TemplateID   *int64    `json:"template_id"`
+	TargetID     *int64    `json:"target_id"`
+	ConfigJSON   string    `json:"config_json"`
+	CreatedBy    int64     `json:"created_by"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	TemplateName string    `json:"template_name,omitempty"`
+	TargetName   string    `json:"target_name,omitempty"`
 }
 
 type BulkDeployment struct {
-	ID           int64      `json:"id"`
-	Name         string     `json:"name"`
-	Status       string     `json:"status"`
-	TotalVMs     int        `json:"total_vms"`
-	CompletedVMs int        `json:"completed_vms"`
-	FailedVMs    int        `json:"failed_vms"`
-	Parallel     bool       `json:"parallel"`
-	CreatedBy    int64      `json:"created_by"`
-	CreatedAt    time.Time  `json:"created_at"`
-	CompletedAt  *time.Time `json:"completed_at"`
+	ID           int64        `json:"id"`
+	Name         string       `json:"name"`
+	Status       string       `json:"status"`
+	TotalVMs     int          `json:"total_vms"`
+	CompletedVMs int          `json:"completed_vms"`
+	FailedVMs    int          `json:"failed_vms"`
+	Parallel     bool         `json:"parallel"`
+	CreatedBy    int64        `json:"created_by"`
+	CreatedAt    time.Time    `json:"created_at"`
+	CompletedAt  *time.Time   `json:"completed_at"`
 	Deployments  []Deployment `json:"deployments,omitempty"`
 }
 
@@ -358,7 +358,26 @@ type Action struct {
 	Version     int               `json:"version"`
 	CreatedAt   string            `json:"created_at"`
 	UpdatedAt   string            `json:"updated_at"`
+	// Status: "active" (runnable) or "draft" (saved, listed under Drafts,
+	// never runnable until published). Source: "user" or "ai".
+	Status    string `json:"status"`
+	Source    string `json:"source"`
+	CreatedBy *int64 `json:"created_by,omitempty"`
+	// Review is the last stored check of this action (service.ActionReview
+	// as JSON); ReviewedAt says when. Cleared when the content changes.
+	Review     json.RawMessage `json:"review,omitempty"`
+	ReviewedAt string          `json:"reviewed_at,omitempty"`
+	// DraftMeta carries what the model said about an AI draft (notes,
+	// warnings, the prompt, the model) so the editor can show it.
+	DraftMeta json.RawMessage `json:"draft_meta,omitempty"`
 }
+
+const (
+	ActionStatusActive = "active"
+	ActionStatusDraft  = "draft"
+	ActionSourceUser   = "user"
+	ActionSourceAI     = "ai"
+)
 
 // ActionVersion is a superseded snapshot of an Action's content — written
 // just before an update or rollback overwrites the live row. The live
@@ -416,16 +435,16 @@ type ActionExecution struct {
 // was rotated). Kind is "password" or "private_key"; SecretEnc is encrypted
 // and never serialised.
 type VMCredential struct {
-	VMID      int64     `json:"vm_id"`
-	Username  string    `json:"username"`
-	Kind      string    `json:"kind"`
-	SecretEnc string    `json:"-"`
+	VMID      int64  `json:"vm_id"`
+	Username  string `json:"username"`
+	Kind      string `json:"kind"`
+	SecretEnc string `json:"-"`
 	// SudoPasswordEnc: what to hand sudo when it asks (encrypted, optional).
 	// Empty means "use the login password" for password logins and
 	// "none — the user needs passwordless sudo" for key logins.
-	SudoPasswordEnc string `json:"-"`
-	SetBy           *int64 `json:"set_by,omitempty"`
-	UpdatedAt time.Time `json:"updated_at"`
+	SudoPasswordEnc string    `json:"-"`
+	SetBy           *int64    `json:"set_by,omitempty"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 const (

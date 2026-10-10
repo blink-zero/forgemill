@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAnthropicAdapterRequestAndResponse(t *testing.T) {
@@ -42,6 +43,33 @@ func TestAnthropicAdapterRequestAndResponse(t *testing.T) {
 	// The current Claude models reject `temperature`; never send it.
 	if _, present := got["temperature"]; present {
 		t.Error("anthropic request must not carry temperature")
+	}
+	// A JSON answer is requested as a forced tool call with the schema.
+	tools, _ := got["tools"].([]any)
+	choice, _ := got["tool_choice"].(map[string]any)
+	if len(tools) != 1 || choice["type"] != "tool" || choice["name"] != "answer" {
+		t.Errorf("JSON answers must be forced tool calls: tools=%v choice=%v", tools, choice)
+	}
+}
+
+// The structured answer comes back as a tool_use block; its input is the
+// JSON, intact even with newlines and quotes inside strings.
+func TestAnthropicParsesToolUseAnswer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"model":"claude-x","content":[{"type":"text","text":"Here is the draft:"},{"type":"tool_use","id":"t1","name":"answer","input":{"name":"Install nginx","script":"#!/bin/bash\nset -euo pipefail\necho \"hi\"\n"}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":2}}`))
+	}))
+	defer srv.Close()
+	p, _ := New(Config{Provider: ProviderAnthropic, BaseURL: srv.URL, Model: "claude-x", APIKey: "k", AllowPrivateEndpoint: true})
+	resp, err := p.Complete(context.Background(), Request{User: "u", JSON: true, Schema: map[string]any{"type": "object"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Name   string `json:"name"`
+		Script string `json:"script"`
+	}
+	if err := json.Unmarshal([]byte(resp.Text), &out); err != nil || out.Name != "Install nginx" || !strings.Contains(out.Script, "echo \"hi\"") {
+		t.Errorf("tool_use input must be the answer: %q err %v", resp.Text, err)
 	}
 }
 
@@ -183,5 +211,42 @@ func TestAnthropicExplainsExhaustedBudget(t *testing.T) {
 	var pe *ProviderError
 	if !errors.As(err, &pe) || !strings.Contains(pe.Message, "output budget") || !strings.Contains(pe.Message, "20 tokens") {
 		t.Errorf("want budget explanation, got %v", err)
+	}
+}
+
+func TestTransportMessageIsPlain(t *testing.T) {
+	msg := transportMessage(errors.New(`Post "https://api.example.com/v1/messages": context deadline exceeded (Client.Timeout exceeded while awaiting headers)`), 4*time.Minute)
+	if !strings.HasPrefix(msg, "no answer within 4m0s") || strings.Contains(msg, "Client.Timeout") {
+		t.Errorf("timeout message: %q", msg)
+	}
+	if msg := transportMessage(errors.New("dial tcp: lookup api.nope: no such host"), time.Minute); !strings.Contains(msg, "does not resolve") {
+		t.Errorf("dns: %q", msg)
+	}
+}
+
+// A model that refuses a forced tool choice gets the request again with
+// tool_choice auto, and its tool answer is used.
+func TestAnthropicFallsBackToAutoToolChoice(t *testing.T) {
+	var choices []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var got map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		tc, _ := got["tool_choice"].(map[string]any)
+		choices = append(choices, tc["type"].(string))
+		if tc["type"] == "tool" {
+			w.WriteHeader(400)
+			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"tool_choice: type \"tool\" and \"any\" are not supported with this model."}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"model":"claude-x","content":[{"type":"tool_use","id":"t1","name":"answer","input":{"ok":true}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer srv.Close()
+	p, _ := New(Config{Provider: ProviderAnthropic, BaseURL: srv.URL, Model: "claude-x", APIKey: "k", AllowPrivateEndpoint: true})
+	resp, err := p.Complete(context.Background(), Request{User: "ping", JSON: true})
+	if err != nil || resp.Text != `{"ok":true}` {
+		t.Fatalf("resp %+v err %v", resp, err)
+	}
+	if len(choices) != 2 || choices[0] != "tool" || choices[1] != "auto" {
+		t.Errorf("tool_choice sequence %v", choices)
 	}
 }
