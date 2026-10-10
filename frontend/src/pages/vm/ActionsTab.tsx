@@ -4,6 +4,7 @@ import { executions as execApi, actions as actionsApi } from "@/api/client";
 import { usePageSize } from "@/hooks/usePageSize";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
+import { CodeEditor } from "@/components/code/CodeEditor";
 import type { Action, ActionExecution } from "@/types";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -508,12 +509,13 @@ export function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState:
             <AlertTriangle className="h-3 w-3" />
             Scripts run with sudo privileges on the target VM.
           </p>
-          <textarea
-            className="w-full h-32 bg-gray-950 text-success font-mono text-sm p-3 rounded-md border resize-y"
-            placeholder="#!/bin/bash&#10;echo 'Hello from Forgemill'"
+          <CodeEditor
             value={adHocScript}
-            onChange={(e) => setAdHocScript(e.target.value)}
-            disabled={!isPoweredOn}
+            onChange={(v) => setAdHocScript(v)}
+            language="bash"
+            placeholder={"#!/bin/bash\necho 'Hello from Forgemill'"}
+            minRows={6}
+            ariaLabel="Ad-hoc script"
           />
           <Button
             size="sm"

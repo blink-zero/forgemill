@@ -3,6 +3,9 @@ import { useSearchParams } from "react-router-dom";
 import { actions as actionsApi, ai as aiApi } from "@/api/client";
 import { ActionReviewPanel } from "@/pages/actions/ActionReviewPanel";
 import { ActionDraftPanel } from "@/pages/actions/ActionDraftPanel";
+import { CodeBlock } from "@/components/code/CodeBlock";
+import { CodeEditor } from "@/components/code/CodeEditor";
+import { languageFor } from "@/components/code/highlight";
 import { useAIJob } from "@/hooks/useAIJob";
 import type { ActionVersion } from "@/api/client";
 import type { Action, ActionParameter, ActionExportEntry, ActionExportFile, ActionReview, AIStatus } from "@/types";
@@ -11,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Edit2, Package, Terminal, Shield, Activity, Puzzle, Search, X, Code2, ChevronDown, ChevronUp, Copy, Check, Loader2, ArrowUp, ArrowDown, Settings2, History, RotateCcw, Download, Upload, ShieldCheck, Sparkles, FileEdit, Rocket, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Edit2, Package, Terminal, Shield, Activity, Puzzle, Search, X, Code2, ChevronDown, ChevronUp, Loader2, ArrowUp, ArrowDown, Settings2, History, RotateCcw, Download, Upload, ShieldCheck, Sparkles, FileEdit, Rocket, AlertTriangle } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Pagination } from "@/components/ui/pagination";
 import { useAuth } from "@/hooks/useAuth";
@@ -101,7 +104,6 @@ export default function ActionsPage() {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [copiedId, setCopiedId] = useState<number | null>(null);
   const [versionsOpenId, setVersionsOpenId] = useState<number | null>(null);
   const [versions, setVersions] = useState<ActionVersion[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
@@ -493,7 +495,7 @@ export default function ActionsPage() {
                   </div>
                 </div>
                 {viewingVersion === v.version && (
-                  <pre className="text-xs bg-gray-950 text-success p-2 rounded-md overflow-x-auto max-h-48 whitespace-pre-wrap mt-2">{v.script}</pre>
+                  <CodeBlock code={v.script} language={languageFor(v.script_type)} maxHeight="12rem" className="mt-2" />
                 )}
               </li>
             );
@@ -661,13 +663,14 @@ export default function ActionsPage() {
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label>Script *</Label>
-                <textarea
-                  ref={scriptRef}
+                <CodeEditor
                   value={form.script}
-                  onChange={(e) => { setForm({ ...form, script: e.target.value }); if (e.target.value) validateScript(e.target.value); if (review) setScriptHashHint("edited"); }}
+                  onChange={(v) => { setForm({ ...form, script: v }); if (v) validateScript(v); if (review) setScriptHashHint("edited"); }}
+                  language="bash"
                   placeholder={"#!/bin/bash\nset -euo pipefail\n\napt-get update -y\napt-get install -y nginx\nsystemctl enable --now nginx"}
-                  rows={10}
-                  className="w-full rounded-md border border-input bg-gray-950 text-success px-3 py-2 text-sm shadow-xs placeholder:text-gray-600 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring font-mono resize-y"
+                  minRows={10}
+                  textareaRef={(el) => { scriptRef.current = el; }}
+                  ariaLabel="Script"
                 />
                 {configError && <p className="text-xs text-destructive">{configError}</p>}
                 <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -948,7 +951,7 @@ export default function ActionsPage() {
                 {expandedId === action.id && (
                   <tr className="border-b last:border-0">
                     <td colSpan={5} className="px-4 py-3">
-                      <pre className="text-xs bg-gray-950 text-success p-3 rounded-md overflow-x-auto max-h-64 whitespace-pre-wrap">{action.script}</pre>
+                      <CodeBlock code={action.script} language={languageFor(action.script_type)} lineNumbers />
                     </td>
                   </tr>
                 )}
@@ -1036,19 +1039,8 @@ export default function ActionsPage() {
                         </button>
                       </div>
                       {expandedId === action.id && (
-                        <div className="relative mb-3">
-                          <pre className="text-xs bg-gray-950 text-success p-3 pr-10 rounded-md overflow-x-auto max-h-64 whitespace-pre-wrap">{action.script}</pre>
-                          <button
-                            className="absolute top-2 right-2 p-1.5 rounded-md bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
-                            onClick={() => {
-                              navigator.clipboard.writeText(action.script);
-                              setCopiedId(action.id);
-                              setTimeout(() => setCopiedId(null), 2000);
-                            }}
-                            title="Copy script"
-                          >
-                            {copiedId === action.id ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
-                          </button>
+                        <div className="mb-3">
+                          <CodeBlock code={action.script} language={languageFor(action.script_type)} lineNumbers />
                         </div>
                       )}
 
