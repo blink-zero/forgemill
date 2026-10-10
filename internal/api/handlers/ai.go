@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/forgemill/forgemill/internal/ai"
 	"github.com/forgemill/forgemill/internal/api/middleware"
@@ -19,6 +20,18 @@ type AIHandler struct {
 
 func NewAIHandler(svc *service.AIAssistService) *AIHandler { return &AIHandler{svc: svc} }
 
+// aiRequestDeadline is how long a model-backed request may take end to end.
+// The server's global write timeout (60 s) suits every other endpoint; a
+// draft is two model calls back to back and a large model can need more,
+// so these handlers extend their own deadline instead of raising it for all.
+const aiRequestDeadline = 5 * time.Minute
+
+func extendDeadline(w http.ResponseWriter) {
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Now().Add(aiRequestDeadline))
+	_ = rc.SetReadDeadline(time.Now().Add(aiRequestDeadline))
+}
+
 // Status: GET /api/ai/status
 func (h *AIHandler) Status(w http.ResponseWriter, r *http.Request) {
 	st := h.svc.Status()
@@ -33,6 +46,7 @@ func (h *AIHandler) Status(w http.ResponseWriter, r *http.Request) {
 
 // Test: POST /api/ai/test — round trip against the configured provider.
 func (h *AIHandler) Test(w http.ResponseWriter, r *http.Request) {
+	extendDeadline(w)
 	actor, actorID := "api", (*int64)(nil)
 	if u := middleware.UserFromContext(r.Context()); u != nil {
 		actor, actorID = u.Username, &u.ID
@@ -91,6 +105,7 @@ func (h *AIHandler) LintAction(w http.ResponseWriter, r *http.Request) {
 // ReviewAction: POST /api/ai/actions/review — lint plus the model's review
 // when AI assistance is on. A model failure still returns the lint result.
 func (h *AIHandler) ReviewAction(w http.ResponseWriter, r *http.Request) {
+	extendDeadline(w)
 	in, ok := decodeReviewInput(w, r)
 	if !ok {
 		return
@@ -107,6 +122,7 @@ func (h *AIHandler) ReviewAction(w http.ResponseWriter, r *http.Request) {
 // DraftAction: POST /api/ai/actions/draft — a complete, validated, reviewed
 // action from a description. Needs AI assistance on (409 otherwise).
 func (h *AIHandler) DraftAction(w http.ResponseWriter, r *http.Request) {
+	extendDeadline(w)
 	var in service.ActionDraftInput
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, ai.MaxInputBytes+64*1024)).Decode(&in); err != nil {
 		writeError(w, "invalid request body", http.StatusBadRequest)
@@ -123,6 +139,7 @@ func (h *AIHandler) DraftAction(w http.ResponseWriter, r *http.Request) {
 
 // ListModels: GET /api/ai/models — what the configured provider offers.
 func (h *AIHandler) ListModels(w http.ResponseWriter, r *http.Request) {
+	extendDeadline(w)
 	models, err := h.svc.ListModels(r.Context())
 	if err != nil {
 		writeAIError(w, "list models failed", err)

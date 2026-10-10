@@ -174,17 +174,21 @@ export const settings = {
 
 // AI assistance (optional, admin-configured). Status tells the editor whether
 // to show AI controls; test is Settings → AI → Test.
+// Model-backed calls can take minutes with a large model; give them their own
+// timeout so a stuck request fails with a message instead of hanging forever.
+const AI_TIMEOUT_MS = 5 * 60 * 1000;
+
 export const ai = {
   status: () => api.get<AIStatus>("/ai/status"),
-  test: () => api.post<AITestResult>("/ai/test"),
+  test: () => api.post<AITestResult>("/ai/test", undefined, { timeout: AI_TIMEOUT_MS }),
   // Models the configured provider offers (uses the saved provider/key).
-  models: () => api.get<{ models: AIModelInfo[] }>("/ai/models"),
+  models: () => api.get<{ models: AIModelInfo[] }>("/ai/models", { timeout: 60_000 }),
   // Deterministic checks only (works with AI off).
   lintAction: (input: ActionReviewInput) => api.post<ActionReview>("/ai/actions/lint", input),
   // Lint + the model's review when AI assistance is on; a model failure still returns the lint result.
-  reviewAction: (input: ActionReviewInput) => api.post<ActionReview>("/ai/actions/review", input),
+  reviewAction: (input: ActionReviewInput) => api.post<ActionReview>("/ai/actions/review", input, { timeout: AI_TIMEOUT_MS }),
   // A complete, validated, reviewed action from a description (AI must be on).
-  draftAction: (input: ActionDraftInput) => api.post<ActionDraft>("/ai/actions/draft", input),
+  draftAction: (input: ActionDraftInput) => api.post<ActionDraft>("/ai/actions/draft", input, { timeout: AI_TIMEOUT_MS }),
 };
 
 export const users = {

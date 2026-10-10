@@ -155,7 +155,8 @@ export default function ActionsPage() {
       const res = aiOn ? await aiApi.reviewAction(input) : await aiApi.lintAction(input);
       setReview(res.data);
     } catch (e: unknown) {
-      toast(getErrorMessage(e, "Check failed"), "error");
+      const code = (e as { code?: string }).code;
+      toast(code === "ECONNABORTED" ? "The check timed out after five minutes; try again or use a smaller model." : getErrorMessage(e, "Check failed"), "error");
     } finally {
       setChecking(false);
     }
