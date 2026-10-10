@@ -72,7 +72,7 @@ export function ActionDraftPanel({ modelName, existingScript, existingParameters
           <Button size="sm" onClick={generate} disabled={busy || prompt.trim().length < 8}>
             {busy ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />} {draft ? "Regenerate" : "Generate draft"}
           </Button>
-          {busy && <span className="text-xs text-muted-foreground">{stage === "reviewing" ? "Checking the draft…" : stage === "drafting" ? "Asking the model…" : "Starting…"} {elapsed}s{elapsed >= 45 ? " — large models can take a minute or two; you can leave this page and come back" : ""}</span>}
+          {busy && <span className="text-xs text-muted-foreground">{stage === "reviewing" ? "Checking the draft…" : stage === "drafting" ? "Asking the model…" : "Starting…"} {elapsed}s{elapsed >= 45 ? " — large models can take a few minutes. If you close this panel, the bell will tell you when it's done." : ""}</span>}
         </div>
         {error && !busy && (
           <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning flex items-start gap-2">

@@ -53,6 +53,8 @@ var ErrAIBusy = errors.New("too many AI requests running right now; try again in
 type aiJobStore struct {
 	mu   sync.Mutex
 	jobs map[string]*AIJob
+	// onFinish is called (outside the lock) when a job completes or fails.
+	onFinish func(*AIJob)
 }
 
 func newAIJobStore() *aiJobStore { return &aiJobStore{jobs: map[string]*AIJob{}} }
@@ -105,7 +107,6 @@ func (st *aiJobStore) start(kind string, ownerID *int64, run func(stage func(str
 		}
 		review, draft, err := run(stage)
 		st.mu.Lock()
-		defer st.mu.Unlock()
 		now := time.Now()
 		job.FinishedAt = &now
 		job.Stage = ""
@@ -114,10 +115,15 @@ func (st *aiJobStore) start(kind string, ownerID *int64, run func(stage func(str
 			job.err = err
 			job.Error = userFacingAIError(err)
 			job.ErrorStatus = aiErrorStatus(err)
-			return
+		} else {
+			job.Status = "done"
+			job.Review, job.Draft = review, draft
 		}
-		job.Status = "done"
-		job.Review, job.Draft = review, draft
+		done := snapshot(job)
+		st.mu.Unlock()
+		if st.onFinish != nil {
+			st.onFinish(done)
+		}
 	}()
 	return snapshot(job), nil
 }
@@ -203,4 +209,32 @@ func (s *AIAssistService) GetJob(id string, actorID *int64, admin bool) (*AIJob,
 }
 
 // aiRequestBudget bounds one job end to end (draft + review, with retries).
-const aiRequestBudget = 5 * time.Minute
+const aiRequestBudget = 12 * time.Minute
+
+// notifyLongJobMinimum: a job that finishes faster than this is still on
+// screen; only longer ones (or failures) earn a notification, so a quick
+// check doesn't ring the bell.
+const notifyLongJobMinimum = 30 * time.Second
+
+// notifyJobFinished tells the job's owner through the in-app bell, so a
+// draft or review that was left running is not lost when the panel is
+// closed, and a failure is seen even if the page was navigated away from.
+func (s *AIAssistService) notifyJobFinished(j *AIJob) {
+	if s.notifier == nil || j.ownerID == nil {
+		return
+	}
+	what := "AI review"
+	if j.Kind == "draft" {
+		what = "AI draft"
+	}
+	switch {
+	case j.Status == "failed":
+		s.notifier.EmitForUser(*j.ownerID, "error", what+" failed", j.Error, "/actions", "ai."+j.Kind+".failed")
+	case time.Duration(j.ElapsedMs)*time.Millisecond >= notifyLongJobMinimum:
+		body := "Open the action editor to see the result."
+		if j.Kind == "draft" && j.Draft != nil && j.Draft.Name != "" {
+			body = fmt.Sprintf("%q is ready — open the action editor to review and use it.", j.Draft.Name)
+		}
+		s.notifier.EmitForUser(*j.ownerID, "success", what+" ready", body, "/actions", "ai."+j.Kind+".done")
+	}
+}
