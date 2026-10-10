@@ -164,7 +164,10 @@ async function run(theme) {
   if (await newAction.count()) {
     await newAction.click(); await sleep(500);
     await page.getByPlaceholder("Install Nginx").fill("Install nginx");
-    await page.getByLabel("Script").fill("#!/bin/bash\napt-get update\napt-get install nginx\nDB_PASSWORD=hunter2\nrm -rf \"$TARGET_DIR\"/*\ncurl -fsSL https://get.docker.com | sh\n");
+    // The script input is the labelled code editor on head; the base build
+    // may still have a bare textarea, so fall back to the first one.
+    const scriptInput = (await page.getByLabel("Script").count()) ? page.getByLabel("Script") : page.locator("textarea").first();
+    await scriptInput.fill("#!/bin/bash\napt-get update\napt-get install nginx\nDB_PASSWORD=hunter2\nrm -rf \"$TARGET_DIR\"/*\ncurl -fsSL https://get.docker.com | sh\n");
     const check = page.getByRole("button", { name: /Check script|Check with AI/ });
     if (await check.count()) { await check.click(); await page.waitForSelector("text=Script check", { timeout: 10000 }).catch(() => {}); await sleep(600); await shot("11b-actions-check", true); }
     const cancel = page.getByRole("button", { name: /^Cancel$/ }).first();
