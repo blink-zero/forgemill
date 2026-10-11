@@ -11,6 +11,9 @@ frontend/e2e/
   diff.mjs         per-image % of differing pixels; writes diff images above the threshold
   run.sh           seed / tour / compare driver (also used by .github/workflows/ui-regression.yml)
   api-snapshot.sh  JSON dumps of GET endpoints for diffing backend refactors
+  fixtures.mjs     the in-browser answers for hypervisor- and model-backed calls, shared by tour and demo
+  demo.mjs         the README walkthrough: a narrated tour with a drawn cursor and captions, recorded as video
+  demo.sh          seed / serve / record / render docs/demo.gif
 ```
 
 ## Local use
@@ -53,3 +56,21 @@ E2E_ADMIN_PASSWORD=… frontend/e2e/api-snapshot.sh /tmp/api-base /vms /vms/1 /h
 # switch binaries, re-run into /tmp/api-head, then
 diff -r /tmp/api-base /tmp/api-head
 ```
+
+## README demo
+
+`docs/demo.gif` is recorded, not hand-made, so it can be redone after any UI change:
+
+```bash
+go build -o /tmp/fm ./cmd/forgemill && (cd frontend && npm run build)
+cd frontend && npm i --no-save ffmpeg-static gifsicle   # Playwright's ffmpeg cannot write GIFs
+FFMPEG=node_modules/ffmpeg-static/ffmpeg GIFSICLE=node_modules/gifsicle/vendor/gifsicle npm run demo -- /tmp/fm dist /tmp/fm-demo
+# → docs/demo.gif (920 px wide, 5 fps, lossy-optimised) and /tmp/fm-demo/video/demo.{webm,mp4}
+```
+
+`demo.mjs` reuses the seed and `fixtures.mjs`, pins the clock the same way the tour does,
+and drives the UI at human pace through sign-in, dashboard, targets, discover & adopt,
+templates, the Factory, the deploy wizard up to pre-flight, a deployment's receipt,
+the VM list and page, the actions library with the script check and an AI
+draft, history, settings and the bell. `DEMO_FAST=1` skips the holds and `DEMO_SHOTS=<dir>`
+saves a PNG at every caption, which is the quick way to check selectors after a UI change.
