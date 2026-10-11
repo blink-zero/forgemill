@@ -12,6 +12,7 @@
 // under the API rate limit (5 req/s, burst 40 per IP).
 import fs from "node:fs";
 import { chromium } from "playwright";
+import { mockHypervisor, mockAI, NFS_PROMPT } from "./fixtures.mjs";
 
 const BASE = process.env.E2E_BASE_URL || "http://localhost:8097";
 const OUT = process.env.E2E_SHOT_DIR;
@@ -25,44 +26,8 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let failed = false;
 
-// Fixtures for the hypervisor-backed calls the seeded instance can't answer
-// (the targets are fictional). Everything else hits the real API.
-async function mockHypervisor(page) {
-  await page.route("**/api/targets/*/resources", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
-    platform: "vcenter", datacenters: [{ name: "Lab-DC", id: "dc" }], clusters: [{ name: "Lab-Cluster", id: "c" }], hosts: [],
-    datastores: [{ name: "ds-nvme-01", id: "d1" }, { name: "ds-sata-01", id: "d2" }],
-    networks: [{ name: "VM Network", id: "n1", path: "/Lab-DC/network/VM Network" }, { name: "dvPG-Backend", id: "n2", path: "/Lab-DC/network/dvPG-Backend" }],
-    folders: [{ name: "Production", id: "f1" }], resource_pools: [], defaults: { datastore: "ds-nvme-01", network: "/Lab-DC/network/VM Network" } }) }));
-  await page.route("**/api/deploy/preflight", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ valid: true, blockers: [], warnings: [] }) }));
-  await page.route("**/api/vms/*/nics", (route) => route.request().method() === "GET"
-    ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([
-        { key: 4000, label: "Network adapter 1", adapter_type: "vmxnet3", network: "VM Network", mac_address: "00:50:56:AA:BB:01", connected: true, addresses: ["10.20.10.11", "fe80::250:56ff:feaa:bb01"] },
-        { key: 4001, label: "Network adapter 2", adapter_type: "vmxnet3", network: "dvPG-Backend", mac_address: "00:50:56:AA:BB:02", connected: false, start_connected: true, addresses: [] },
-        { key: 4002, label: "Network adapter 3", adapter_type: "e1000e", network: "dvPG-Backend", mac_address: "00:50:56:AA:BB:03", connected: false, pending: true, addresses: [] }]) })
-    : route.continue());
-  await page.route("**/api/vms/*/disks", (route) => route.request().method() === "GET"
-    ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([
-        { key: 2000, label: "Hard disk 1", size_gb: 40, datastore: "ds-nvme-01", provisioning: "thin", backing: "[ds-nvme-01] web-01/web-01.vmdk" },
-        { key: 2001, label: "Hard disk 2", size_gb: 100, datastore: "ds-sata-01", provisioning: "thick", backing: "[ds-nvme-01] web-01/web-01_1.vmdk" }]) })
-    : route.continue());
-  await page.route("**/api/targets/*/discover*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
-    target_id: 1, target_name: "vcenter-lab", computed_at: FIXED_TIME || new Date().toISOString(), managed: 5, unmanaged: 3, ignored: 1,
-    vms: [
-      { ref: "vm-4101", name: "jenkins-agent-02", power_state: "poweredOn", ip_address: "10.20.10.44", cpu: 4, memory_mb: 8192, disk_gb: 80, guest_id: "ubuntu64Guest", host: "esx-01", ignored: false },
-      { ref: "vm-4102", name: "legacy-crm", power_state: "poweredOn", ip_address: "10.20.10.70", cpu: 2, memory_mb: 4096, disk_gb: 120, guest_id: "windows2019srvNext_64Guest", host: "esx-02", ignored: false },
-      { ref: "vm-4103", name: "old-test-vm", power_state: "poweredOff", cpu: 2, memory_mb: 2048, disk_gb: 20, host: "esx-01", ignored: false }] }) }));
-  await page.route("**/api/vms/*/credentials", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ username: "forgemill", password: "s3cr3t-Pa55", kind: "password", source: "deployment" }) }));
-  // The only server-clock value the tour renders: the admin's last login,
-  // stamped at real time by the login the tour itself just performed. Pin it
-  // so the Users table lays out identically on every run.
-  await page.route("**/api/users", async (route) => {
-    if (route.request().method() !== "GET") return route.continue();
-    const res = await route.fetch();
-    const users = await res.json();
-    if (Array.isArray(users)) for (const u of users) if (u.last_login_at) u.last_login_at = FIXED_TIME || u.last_login_at;
-    await route.fulfill({ response: res, body: JSON.stringify(users) });
-  });
-}
+// Hypervisor-backed calls are answered by in-browser fixtures (fixtures.mjs);
+// everything else hits the real API.
 
 async function run(theme) {
   const ctx = await browser.newContext({ viewport: { width: 1360, height: 860 }, deviceScaleFactor: 1 });
@@ -72,7 +37,7 @@ async function run(theme) {
   if (FIXED_TIME) await page.clock.setFixedTime(new Date(FIXED_TIME));
   // Theme is a class on <html> persisted in localStorage; main.tsx applies it on boot.
   await page.addInitScript((t) => { localStorage.setItem("forgemill_theme", t); }, theme);
-  await mockHypervisor(page);
+  await mockHypervisor(page, FIXED_TIME);
   // Pages show a Loader2 spinner (svg.animate-spin) until their data has
   // arrived. Waiting for it to disappear — rather than a fixed pause — is what
   // keeps a cold CI runner from screenshotting a half-loaded page.
@@ -185,25 +150,7 @@ async function run(theme) {
     await sleep(2000);
   }
   // Same editor with AI assistance mocked on: the Draft panel and a drafted action with its review.
-  await page.route("**/api/ai/status", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ enabled: true, configured: true, provider: "anthropic", model: "claude-sonnet-5", key_set: true, redact_hostnames: false }) }));
-  await page.route("**/api/ai/jobs/draft", (route) => route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ id: "tourjob1", kind: "draft", status: "running", stage: "drafting", started_at: new Date().toISOString(), elapsed_ms: 0 }) }));
-  await page.route("**/api/ai/jobs/tourjob1", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: "tourjob1", kind: "draft", status: "done", started_at: new Date().toISOString(), finished_at: new Date().toISOString(), elapsed_ms: 6200, draft: {
-    name: "Mount NFS share", description: "Mounts an NFS export at a mount point and persists it in /etc/fstab. Debian and RHEL families.", category: "scripts",
-    script: "#!/bin/bash\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\n: \"${NFS_SERVER:?NFS_SERVER is required}\"\n: \"${NFS_EXPORT:?NFS_EXPORT is required}\"\n: \"${MOUNT_POINT:?MOUNT_POINT is required}\"\n\n. /etc/os-release\ncase \"${ID_LIKE:-$ID}\" in\n  *debian*) command -v mount.nfs >/dev/null || apt-get install -y nfs-common ;;\n  *rhel*|*fedora*) command -v mount.nfs >/dev/null || dnf install -y nfs-utils ;;\nesac\n\nmkdir -p \"$MOUNT_POINT\"\nif ! grep -qs \" $MOUNT_POINT \" /etc/fstab; then\n  echo \"$NFS_SERVER:$NFS_EXPORT $MOUNT_POINT nfs defaults,_netdev 0 0\" >> /etc/fstab\nfi\nmountpoint -q \"$MOUNT_POINT\" || mount \"$MOUNT_POINT\"\n",
-    parameters: [{ name: "NFS_SERVER", label: "NFS server", type: "string", required: true, default: "", placeholder: "nas.lab.internal", options: null, description: "Hostname or IP of the NFS server" }, { name: "NFS_EXPORT", label: "Export path", type: "string", required: true, default: "", placeholder: "/volume1/data", options: null, description: "" }, { name: "MOUNT_POINT", label: "Mount point", type: "string", required: true, default: "/data", placeholder: "", options: null, description: "" }],
-    tags: ["nfs", "storage"], notes: ["Installs nfs-common (Debian/Ubuntu) or nfs-utils (RHEL family) only if the NFS client is missing."], warnings: ["Edits /etc/fstab; a wrong export path makes the next boot wait on the mount (_netdev limits the damage)."],
-    review: { summary: "Mounts an NFS export idempotently and persists it; safe to re-run.", risk: "low", idempotent: true, distro_support: { debian: true, rhel: true }, findings: [{ severity: "info", source: "model", line: 16, title: "fstab line is appended, never updated", detail: "Changing the export later leaves the old line in place.", suggestion: "Match on the mount point and replace the line with sed if it exists." }], lint_only: false, model: "claude-sonnet-5", redaction: { counts: {}, total: 0 }, duration_ms: 4100 },
-    model: "claude-sonnet-5", redaction: { counts: {}, total: 0 }, duration_ms: 6200, action_id: 9001 } }) }));
-  // The saved draft, as the Actions page reloads it after the job.
-  const draftAction = { id: 9001, name: "Mount NFS share", description: "Mounts an NFS export at a mount point and persists it in /etc/fstab. Debian and RHEL families.", category: "scripts", script: "#!/bin/bash\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\n: \"${NFS_SERVER:?NFS_SERVER is required}\"\n: \"${NFS_EXPORT:?NFS_EXPORT is required}\"\n: \"${MOUNT_POINT:?MOUNT_POINT is required}\"\n\n. /etc/os-release\ncase \"${ID_LIKE:-$ID}\" in\n  *debian*) command -v mount.nfs >/dev/null || apt-get install -y nfs-common ;;\n  *rhel*|*fedora*) command -v mount.nfs >/dev/null || dnf install -y nfs-utils ;;\nesac\n\nmkdir -p \"$MOUNT_POINT\"\nif ! grep -qs \" $MOUNT_POINT \" /etc/fstab; then\n  echo \"$NFS_SERVER:$NFS_EXPORT $MOUNT_POINT nfs defaults,_netdev 0 0\" >> /etc/fstab\nfi\nmountpoint -q \"$MOUNT_POINT\" || mount \"$MOUNT_POINT\"\n", script_type: "bash", platform: "linux", builtin: false,
-    parameters: [{ name: "NFS_SERVER", label: "NFS server", type: "string", required: true, default: "", placeholder: "nas.lab.internal", options: null, description: "Hostname or IP of the NFS server" }, { name: "NFS_EXPORT", label: "Export path", type: "string", required: true, default: "", placeholder: "/volume1/data", options: null, description: "" }, { name: "MOUNT_POINT", label: "Mount point", type: "string", required: true, default: "/data", placeholder: "", options: null, description: "" }],
-    tags: ["nfs", "storage"], version: 1, created_at: "2026-10-10 03:00:00", updated_at: "2026-10-10 03:00:00", status: "draft", source: "ai", reviewed_at: "2026-10-10 03:00:05",
-    review: { summary: "Mounts an NFS export idempotently and persists it; safe to re-run.", risk: "low", idempotent: true, distro_support: { debian: true, rhel: true }, findings: [{ severity: "info", source: "model", line: 16, title: "fstab line is appended, never updated", detail: "Changing the export later leaves the old line in place.", suggestion: "Match on the mount point and replace the line with sed if it exists." }], lint_only: false, model: "claude-sonnet-5", redaction: { counts: {}, total: 0 }, duration_ms: 4100, script_hash: "abc" },
-    draft_meta: { prompt: "Mount an NFS export at a mount point given as a parameter and persist it in fstab. Install the NFS client if missing. Debian and RHEL families.", model: "claude-sonnet-5", notes: ["Installs nfs-common (Debian/Ubuntu) or nfs-utils (RHEL family) only if the NFS client is missing."], warnings: ["Edits /etc/fstab; a wrong export path makes the next boot wait on the mount (_netdev limits the damage)."], drafted_at: "2026-10-10T03:00:00Z" } };
-  await page.route("**/api/actions?include_drafts=true", async (route) => {
-    const res = await route.fetch(); const body = await res.json();
-    return route.fulfill({ response: res, body: JSON.stringify([draftAction, ...body]) });
-  });
+  const unmockAI = await mockAI(page);
   await go("/actions", "text=Security Hardening");
   const newAction2 = page.getByRole("button", { name: /Create Action/ }).first();
   if (await newAction2.count()) {
@@ -211,7 +158,7 @@ async function run(theme) {
     const draftBtn = page.getByRole("button", { name: /Draft with AI/ });
     if (await draftBtn.count()) {
       await draftBtn.click(); await sleep(400);
-      await page.getByPlaceholder(/Mount an NFS export/).fill("Mount an NFS export at a mount point given as a parameter and persist it in fstab. Install the NFS client if missing. Debian and RHEL families.");
+      await page.getByPlaceholder(/Mount an NFS export/).fill(NFS_PROMPT);
       await page.getByRole("button", { name: /Generate draft/ }).click();
       await page.waitForSelector("text=Review draft", { timeout: 10000 }).catch(() => {});
       await sleep(600); await shot("11c-actions-draft", true);
@@ -224,7 +171,7 @@ async function run(theme) {
     if (await cancel2.count()) await cancel2.click();
     await sleep(2000);
   }
-  await page.unroute("**/api/ai/status"); await page.unroute("**/api/ai/jobs/draft"); await page.unroute("**/api/ai/jobs/tourjob1"); await page.unroute("**/api/actions?include_drafts=true");
+  await unmockAI();
   await go("/factory", "text=Available Operating Systems"); await shot("15-factory"); await sleep(5000);
   await go("/history", "text=staging-app-04"); await shot("12-history"); await sleep(5000);
   await go("/settings", "text=Settings"); await sleep(1000); await shot("13-settings", true);

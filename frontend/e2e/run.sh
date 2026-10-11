@@ -38,6 +38,9 @@ tour() { # binary dist workdir shotdir
   stop
 }
 
+# demo.sh sources this file for start/stop/seed; only run the CLI when executed.
+[[ "${BASH_SOURCE[0]}" == "$0" ]] || return 0
+
 case "${1:-}" in
   seed)    seed "$2" "${3:?binary}" "${4:?dist}" ;;
   tour)    tour "$2" "$3" "$4" "$5" ;;

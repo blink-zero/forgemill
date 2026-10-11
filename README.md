@@ -8,12 +8,12 @@ Self-hosted VM deployment and lifecycle management for VMware vCenter, ESXi, and
 [![CI](https://img.shields.io/github/actions/workflow/status/blink-zero/forgemill/ci.yml?branch=main&logo=githubactions&logoColor=white&label=CI)](https://github.com/blink-zero/forgemill/actions/workflows/ci.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-blink--zero%2Fforgemill-2496ED?logo=docker&logoColor=white)](https://github.com/blink-zero/forgemill/pkgs/container/forgemill)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev)
-[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
-![Forgemill demo — dashboard, targets, templates, deploy wizard, VM inventory and lifecycle, actions, history](docs/demo.gif)
+![Forgemill demo — dashboard, targets, discover & adopt, templates, Template Factory, deploy wizard with pre-flight, deployment receipt, VM inventory with search qualifiers, VM page (NICs, disks, resize, credentials, snapshots, actions), actions library with script check and AI draft, history, settings, notifications](docs/demo.gif)
 
-Forgemill is a self-hosted platform that brings template building, VM deployment, lifecycle management, and post-deploy automation behind a single modern interface. Point it at your hypervisors, build golden templates from ISO with Packer, deploy VMs with cloud-init, and run SSH-based actions against your fleet — all from the same app.
+Forgemill is a self-hosted platform that brings template building, VM deployment, lifecycle management, and post-deploy automation behind a single modern interface. Point it at your hypervisors, build golden templates from ISO with Packer, deploy VMs with cloud-init, adopt the VMs you already have, and run SSH-based actions against your fleet — all from the same app.
 
 ```bash
 docker run -d --name forgemill -p 8080:8080 -v forgemill-data:/app/data \
@@ -59,14 +59,16 @@ If you already run full-blown cloud platforms or need multi-tenancy, Forgemill i
 
 ## Features at a glance
 
-- **Multi-hypervisor** — vCenter, standalone ESXi, Proxmox VE, behind a unified API
+- **Multi-hypervisor** — vCenter, standalone ESXi, Proxmox VE, behind a unified API; free / expired ESXi licenses detected and explained, evaluation countdowns with reminders
 - **Template Factory** — ISO-to-template pipeline with Packer; versioning, scheduled rebuilds, update detection on ISO checksum change
-- **One-click deploy** — cloud-init customisation, pre-flight validation before anything is created, bulk deploys, reusable blueprints
-- **Lifecycle in one place** — power, snapshots, resize, disk expand, add network adapter, console, credential reveal, uptime / runtime tracking
-- **Post-deploy actions** — reusable bash scripts run over SSH with streaming output, parameters, versioning with rollback, import / export
-- **In-app notifications** — bell + drawer for deploy / execution / build / template-update events
+- **One-click deploy** — cloud-init customisation, extra disks and NICs at deploy time, pre-flight validation before anything is created, bulk deploys, reusable blueprints, a receipt and timeline for every deployment
+- **Discover & adopt** — see every VM on a target that Forgemill doesn't manage and take the ones you want under management without touching the hypervisor
+- **Lifecycle in one place** — power, snapshots, resize, expand / add disk, add network adapter, console, per-VM SSH credentials, uptime / runtime tracking, a per-VM event log of what the hypervisor did or refused
+- **Post-deploy actions** — 23 built-in actions plus your own bash scripts, run over SSH with streaming output, parameters, versioning with rollback, import / export, and a deterministic script check with one-click fixes
+- **AI assistance, off by default** — review or draft an action with Anthropic, any OpenAI-compatible endpoint or Ollama; secrets redacted before anything is sent, drafts never runnable until published
+- **In-app notifications** — bell + drawer for deploy / execution / build / template-update / AI-draft events
 - **Auth that scales** — local accounts, LDAP / AD with group→role mapping, per-user API keys with scoped roles, JWT with revocation
-- **Webhooks + audit log** — HMAC-signed webhooks for external systems, comprehensive audit trail for compliance
+- **Webhooks, audit log, diagnostics** — HMAC-signed webhooks for external systems, a comprehensive audit trail, and a Diagnostics page that collects what you'd otherwise grep the server log for
 - **MCP server** — companion [forgemill-mcp](https://github.com/blink-zero/forgemill-mcp) lets Claude and other agents operate Forgemill safely
 - **Runs as one container** — single Docker image, SQLite-backed, no external services required
 
@@ -222,20 +224,24 @@ This prevents secrets from appearing in `docker inspect` output or process listi
 - **Pre-flight check** — validates the VM name, name collisions, and that the chosen network / datastore / folder / cluster actually resolve on the target, *before* anything is created
 - Real-time progress streaming over WebSocket
 - Configurable CPU, memory, disk, network, datastore; thin / thick / eager-zero provisioning (vSphere); optional VLAN tag (Proxmox)
+- **Extra disks and network adapters at deploy time** — up to eight of each, with a datastore per disk and a network / adapter model / VLAN per NIC, validated in pre-flight; the matching built-in actions (*Format and Mount New Disk*, *Configure New Network Interface*) finish the job inside the guest
 - Resource pool, host and folder placement (vSphere)
 - Cloud-init: hostname, SSH keys, password, user-data injection
 - Platform-aware advanced options with smart defaults per hypervisor
 - **Deployment manifest + timeline** — one receipt per deployment: inputs, outcome, who triggered it, where the credentials live, and the merged log / audit timeline
+- **Nothing silent** — what the hypervisor did or refused lands in the deployment log; a deploy that created the VM but could not finish it (a failed post-clone resize, a power-on the host refused) is reported as failed *and keeps the VM tracked* so you can see and fix it rather than hunt for an orphan
 
 ### VM lifecycle management
 - Power operations: start, stop, restart, suspend
 - Snapshot management: create, revert, delete
 - Live resource resizing: CPU, memory, disk expansion
+- **Disks view and Add Disk** — every disk with its size, datastore, provisioning and backing; attach a new disk to a running VM (vSphere and Proxmox), with the datastore chosen explicitly and an unreachable one reported together with the usable ones
 - **Network adapters view** — every NIC on the VM with its network/bridge, adapter model, MAC, VLAN tag and the guest-reported addresses (IPv4 and IPv6), not just one primary IP
 - **Add a network adapter** to an existing VM — hot-add on vSphere and Proxmox (Proxmox with hot-plug disabled saves it for the next power cycle and says so), optional VLAN tag on Proxmox, network picked from the target's live inventory
 - **Uptime and runtime tracking** — current-state duration, last power-off, cumulative lifetime runtime (frozen while suspended, never reset); searchable with `state:stopped`, `uptime>30d`, `age>14d`
 - Web console access (noVNC / VMRC)
-- Managed VM inventory with live status tracking and orphan detection on sync
+- **Per-VM event log** — provider warnings and attach results for power, resize, snapshot, disk and NIC operations, kept on the VM (`GET /api/vms/:id/events`) and surfaced on the Diagnostics page, so a refused hypervisor write is never only in the server log
+- Managed VM inventory with live status tracking and orphan detection on sync; the guest OS is read from the hypervisor and a sync never downgrades it
 - **Delete preview** — see exactly what a delete would do (hypervisor destroy vs. untrack, dependent snapshots / executions) before confirming
 - **Discover & adopt** — see every VM on a target that Forgemill doesn't manage (live from the hypervisor, templates excluded) and take the ones you want under management without touching the hypervisor; ignore the rest so they stop counting. Adopted VMs are marked with their origin and get power, snapshots, disks, NICs, sync and destroy immediately
 - **Per-VM SSH credentials** — set a login (password or private key) on any VM so actions can run on adopted VMs, or to rotate a deployed VM's password; stored AES-256 encrypted, a private key is never shown again. Actions run under sudo: Forgemill hands sudo the stored password when it asks (so a normal password user works without a sudoers edit), a key login can carry a separate sudo password, and credentials are tried on the VM before they're saved — the result says whether SSH or sudo is the problem. Adoption and credential changes are admin-only by default; Settings → Preferences can open them to operators
@@ -254,6 +260,8 @@ This prevents secrets from appearing in `docker inspect` output or process listi
 - Merge actions into cloud-init user-data for zero-touch provisioning
 - **Versioned** — every edit to a custom action keeps its history; roll back to any previous version
 - **Import / export** — download custom actions as JSON, import them on another instance (bad entries fail individually, the rest still import); searchable tags
+- **Script check** — a deterministic linter in the editor, no AI needed: destructive commands, missing `set -e`, `curl | sh`, interactive package installs, secrets in the script, undeclared parameters, distro assumptions. Findings with a mechanical fix can be selected and applied as a diff
+- Syntax-coloured script display everywhere a script is shown (editor, previews, execution history)
 - See [Built-in actions](#built-in-actions) below for what ships in the box
 
 ### In-app notifications
@@ -285,9 +293,12 @@ This prevents secrets from appearing in `docker inspect` output or process listi
 - Secrets encrypted at rest (AES-256-GCM)
 
 ### Dashboard
-- Stats for targets, templates, VMs, and actions
-- Real-time target health monitoring
-- Recent activity feed combining deployments and executions
+- Instrument tiles with a breakdown under each number: VMs (running / stopped), deployments (today), targets (connected / inventory-only), templates (built by the Factory), actions ready to run
+- One **Needs attention** list: unreachable targets, deployments that failed in the last 24 hours, evaluation licenses ending within two weeks, unmanaged VMs waiting to be adopted, inventory-only targets, deployments in progress — each a link to the page that fixes it
+- Recent activity feed combining deployments and executions, target health, and auto-refresh
+
+### Diagnostics
+Settings → **Diagnostics** (admin) is one page for when things are already wrong: build and version, how many requests the rate limiter has refused, per-target connection and last-sync state, recent VM warnings, recent failed deployments and recent server errors. Each section degrades on its own, so a broken database list shows an error in its place rather than a blank page. The same snapshot is available as JSON at `GET /api/diagnostics` for bug reports.
 
 ---
 
@@ -297,28 +308,40 @@ Settings → **AI** lets an admin connect a model — Anthropic, or any OpenAI-c
 
 - **Check with AI** — the deterministic linter (always available as *Check script*: destructive commands, missing `set -e`, `curl | sh`, interactive package installs, secrets in the script, undeclared parameters, distro assumptions) plus the model's review of the redacted script: a summary, findings with line numbers and the concrete fix, idempotency and distro judgement, and parameter suggestions you can add with one click.
 - **Draft with AI** — describe what the action should do and get a complete action in Forgemill's conventions (`set -euo pipefail`, parameters as variables, idempotent, distro-aware), validated like a user submission and already checked. The result is **saved as a draft action**: listed under *Drafts*, badged *AI draft · not runnable*, deep-linked from the bell, and never executable — not by you, a deployment, a blueprint or the MCP — until you read it and click **Publish**. *Regenerate* overwrites the same draft; *Discard* deletes it.
+- **Fix selected findings** — tick the findings you want fixed: the ones with a mechanical fix are edited deterministically, the rest go to the model, and the result is shown as a diff you apply or discard. Without AI, the deterministic fixes alone are still available.
 
-Model-backed calls run as **background jobs**: the editor starts one (`POST /api/ai/jobs/review` or `/draft` → `202` with a job id) and polls `GET /api/ai/jobs/{id}` with short requests until it is done, so a large model taking a minute or two never holds an HTTP request open — no reverse-proxy timeout changes are needed, and a page refresh picks the job back up. The synchronous endpoints (`POST /api/ai/actions/review`, `/draft`) remain for scripts and the MCP; they are allowed up to five minutes end to end.
+Model-backed calls run as **background jobs**: the editor starts one (`POST /api/ai/jobs/review`, `/draft` or `/fix` → `202` with a job id) and polls `GET /api/ai/jobs/{id}` with short requests until it is done, so a large model taking a minute or two never holds an HTTP request open — no reverse-proxy timeout changes are needed, and a page refresh picks the job back up. The synchronous endpoints (`POST /api/ai/actions/review`, `/draft`) remain for scripts and the MCP; they are allowed up to five minutes end to end. The model list in Settings → AI comes from the provider itself, and *Test* uses the same request shape as a real review.
 
 Ground rules, enforced in code: every call is a button you click; the model only reads and drafts — it never runs anything; passwords, tokens, private keys and URL credentials (optionally IPs and hostnames) are redacted before anything is sent and the count is shown; every call is audit-logged (provider, model, sizes — never content); private endpoints are refused unless you allow them. Design: `docs/design/ai-assist.md`.
 
 ## Built-in actions
 
-Twelve actions ship with Forgemill. All are parameterised where useful and run over SSH with streaming output. Built-in actions cannot be modified directly — create a copy to customise.
+Twenty-three actions ship with Forgemill. All are parameterised where useful and run over SSH with streaming output. Built-in actions cannot be modified directly — create a copy to customise.
 
 | Action | Category | What it does |
 |--------|----------|--------------|
-| **Update System Packages** | packages | Detects OS and runs apt / dnf / yum / zypper to apply the latest updates and security patches |
+| **Update System Packages** | packages | Detects the OS and runs apt / dnf / yum / zypper to apply the latest updates and security patches |
 | **Install Docker** | packages | Installs Docker Engine via the official convenience script (Ubuntu, Debian, Rocky, CentOS, Fedora, SUSE) |
-| **Install QEMU Guest Agent** | packages | Installs and enables `qemu-guest-agent` so the hypervisor can coordinate shutdowns, snapshots, and IP reporting |
+| **Install Docker Compose** | packages | Installs the Docker Compose plugin (Docker must already be installed) |
+| **Install Nginx** | packages | Installs and enables the Nginx web server |
+| **Install PostgreSQL** | packages | Installs and enables PostgreSQL from the distro's repositories |
+| **Install MariaDB** | packages | Installs and enables MariaDB (MySQL-compatible) from the distro's repositories |
+| **Install Redis** | packages | Installs and enables Redis |
+| **Install Node.js** | packages | Installs Node.js and npm via NodeSource for a chosen major version (parameter: `NODE_VERSION`) |
 | **Set Timezone** | scripts | Sets the system timezone via `timedatectl` (parameter: `TIMEZONE`, defaults to UTC) |
 | **Collect VM Info** | scripts | Prints a detailed system report (hostname, OS, hardware, network, disk usage, services) — useful for VM handoff |
 | **Configure Log Forwarding** | scripts | Installs rsyslog and forwards to a remote syslog server (parameters: server, port, tcp/udp) |
+| **Configure Swap File** | scripts | Creates and enables a swap file of a given size, persisted in fstab (parameter: `SWAP_SIZE_MB`) |
+| **Expand Root Filesystem** | scripts | Grows the root partition and filesystem after a disk resize (no LVM) |
+| **Format and Mount New Disk** | scripts | Partitions, formats and mounts a disk attached with *Add Disk*: auto-detects the single unused disk, refuses anything that already has partitions or a filesystem, persists the mount in fstab by UUID (parameters: device, filesystem, mount point, label) |
+| **Configure New Network Interface** | scripts | Brings up an interface attached with *Add Network Adapter*, DHCP or static, via netplan (Ubuntu / Debian) or NetworkManager (Rocky / Alma); never touches the interface carrying the default route (parameters: interface, mode, address, gateway, DNS) |
 | **Security Hardening** | security | Disables root SSH, disables password auth, installs and configures `ufw`/`firewalld` and `fail2ban` |
+| **Enable Unattended Security Updates** | security | Configures automatic security patching (`unattended-upgrades` on Debian / Ubuntu, `dnf-automatic` on the RHEL family) |
 | **User & Access Provisioning** | security | Creates a user with optional SSH key, sudo level, and extra group memberships |
 | **Change VM Password** | security | Changes the password for a user on the VM via `chpasswd` (parameters: username, new password) |
 | **Add SSH Authorized Key** | security | Appends an SSH public key to a user's `authorized_keys`, idempotent (dedup check) |
 | **Network Connectivity Validation** | monitoring | Validates gateway, DNS, NTP, outbound HTTPS; shows network config with PASS/FAIL summary |
+| **System Health Check** | monitoring | Checks disk usage, memory and load average against thresholds and reports PASS / WARN / FAIL |
 | **Deploy Monitoring Agent** | monitoring | Installs Prometheus `node_exporter` as a hardened systemd service (parameter: port) |
 
 ---
@@ -450,15 +473,18 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/vms` | List managed VMs (`?origin=deployed|adopted|registered`) |
+| `GET` | `/api/vms` | List managed VMs (`?origin=deployed` \| `adopted` \| `registered`) |
 | `GET` | `/api/vms/:id` | VM details |
 | `POST` | `/api/vms/:id/power/:action` | Power operations (admin) |
 | `POST` | `/api/vms/:id/snapshots` | Create snapshot (admin) |
 | `POST` | `/api/vms/:id/snapshots/:snapId/revert` | Revert to snapshot (admin) |
 | `DELETE` | `/api/vms/:id/snapshots/:snapId` | Delete snapshot (admin) |
 | `PUT` | `/api/vms/:id/resize` | Resize CPU/memory (admin) |
+| `POST` | `/api/vms` | Register an existing VM by `{"vm_name", "vm_ref", "target_id"}` (admin) |
 | `GET` | `/api/vms/:id/disks` | List disks (admin) |
+| `POST` | `/api/vms/:id/disks` | Attach a new disk: `{"size_gb", "datastore"?, "provisioning"?}` (admin) |
 | `PUT` | `/api/vms/:id/disks/:key/expand` | Expand a disk (admin) |
+| `GET` | `/api/vms/:id/events` | The VM's recent operational events — provider warnings, attach results — newest first (`?limit=`) |
 | `GET` | `/api/vms/:id/nics` | Network adapters with network, MAC, guest-reported addresses |
 | `POST` | `/api/vms/:id/nics` | Attach an additional network adapter (admin; optional `vlan_tag` on Proxmox) |
 | `GET` | `/api/vms/:id/console` | Console URL (admin) |
@@ -484,9 +510,23 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 | `POST` | `/api/actions/import` | Bulk-import exported actions (admin) |
 | `GET` | `/api/actions/:id/versions` | Version history |
 | `POST` | `/api/actions/:id/rollback` | Roll back to a previous version (admin) |
+| `GET` | `/api/deployments/:id/actions` | The actions a deployment ran, with their executions |
 | `GET` | `/api/executions/:id` | Execution details |
-| `POST` | `/api/executions/:id/cancel` | Cancel running execution |
+| `POST` | `/api/executions/:id/cancel` | Cancel running execution (kills the remote job and its children) |
 | `WS` | `/api/ws/execution/:id` | Live execution output stream |
+
+### AI assistance (admin; model-backed calls need Settings → AI enabled)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/ai/status` | Whether assistance is enabled and configured (non-admins get exactly three fields) |
+| `GET` | `/api/ai/models` | The configured provider's own model list |
+| `POST` | `/api/ai/test` | Test the configured provider with a real review-shaped request |
+| `POST` | `/api/ai/actions/lint` | Deterministic script check only — works with AI off |
+| `POST` | `/api/ai/actions/autofix` | Apply the deterministic fixes for selected findings — works with AI off |
+| `POST` | `/api/ai/actions/review`, `/draft` | Synchronous review / draft (up to five minutes) |
+| `POST` | `/api/ai/jobs/review`, `/draft`, `/fix` | Start a background job → `202` + job id |
+| `GET` | `/api/ai/jobs/:id` | Poll a job; a finished draft carries the saved draft action's id |
 
 ### Blueprints
 
@@ -501,11 +541,16 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/factory/os-definitions` | List available OS templates |
+| `GET` | `/api/factory/prerequisites` | Whether Packer and its plugins are available to the server |
 | `POST` | `/api/factory/builds` | Start a template build (admin) |
 | `GET` | `/api/factory/builds/:id` | Build status |
+| `GET` | `/api/factory/builds/:id/hcl` | The generated Packer HCL for a build |
 | `WS` | `/api/ws/build/:id` | Live build log stream |
 | `GET` | `/api/factory/schedules` | List build schedules |
+| `GET` | `/api/factory/families` | Template families and their version lineage |
+| `GET` | `/api/factory/updates` | Templates whose ISO has changed since they were built |
 | `POST` | `/api/factory/updates/:id/rebuild` | Rebuild on ISO update (admin) |
+| `POST` | `/api/templates/:id/cleanup` | Remove superseded versions per the retention policy (admin) |
 
 ### Users (admin)
 
@@ -535,6 +580,7 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/api/webhooks` | Create webhook |
+| `POST` | `/api/webhooks/:id/test` | Send a signed test delivery |
 | `POST` | `/api/api-keys` | Generate API key |
 | `GET` | `/api/auth-sources` | List auth sources |
 | `POST` | `/api/auth-sources` | Create auth source (LDAP/AD) |
@@ -544,9 +590,11 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/dashboard` | Dashboard statistics and activity |
+| `GET` | `/api/dashboard` | Dashboard statistics, attention items and activity |
 | `GET` | `/api/history` | Deployment history |
 | `GET` | `/api/audit-logs` | Audit log (admin) |
+| `GET` | `/api/diagnostics` | Diagnostics snapshot: build, rate-limit refusals, targets, recent VM events, failed deployments, server errors (admin) |
+| `GET` / `PUT` | `/api/preferences` | Instance preferences, e.g. which role may adopt VMs and set credentials (admin) |
 | `GET` | `/api/version` | Application version info |
 
 ### Rate limits
@@ -574,7 +622,7 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 |       |               |                  |              |
 |  +----+---------------+------------------+----------+   |
 |  |                Service Layer                     |   |
-|  |  deploy · vm · webhook · notification · factory  |   |
+|  |  deploy · vm · webhook · notification · factory · ai |  |
 |  +-------------------------+------------------------+   |
 |                            |                            |
 |  +-------------------------+------------------------+   |
@@ -593,12 +641,13 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 | Layer | Technology |
 |-------|-----------|
 | Backend | Go 1.26, chi/v5 router, gorilla/websocket |
-| Frontend | React 18, TypeScript 5, Vite 6, Tailwind CSS 3 |
+| Frontend | React 19, TypeScript 7, Vite 8, Tailwind CSS 4 |
 | Database | SQLite with WAL mode (modernc.org/sqlite) |
 | Auth | JWT (HS256), bcrypt, LDAP/AD, API keys |
 | Encryption | AES-256-GCM with HKDF-SHA256 key derivation |
 | Hypervisors | govmomi (vSphere/ESXi), REST (Proxmox) |
 | Template builds | HashiCorp Packer with HCL generation |
+| AI assistance (optional) | Anthropic Messages API, OpenAI-compatible chat completions (OpenAI, OpenRouter, vLLM, LM Studio, Ollama) |
 | CLI | spf13/cobra |
 
 ---
@@ -614,8 +663,11 @@ Forgemill has been through multiple rounds of security review; all CRITICAL, HIG
 - **Rate limiting** — token-bucket on login (5/min) and API (5/s, burst 40) per IP, with `Retry-After` on refusals
 - **Security headers** — CSP, HSTS, X-Frame-Options, X-Content-Type-Options on all responses
 - **Webhook safety** — HMAC-SHA256 signed payloads, private-IP filtering, redirect validation
+- **Proxy headers only from trusted proxies** — `X-Forwarded-For` / `X-Real-IP` are honoured only for requests arriving from `FORGEMILL_TRUSTED_PROXIES`, so rate limits and audit entries cannot be spoofed from the outside
+- **SSH host keys** — trust-on-first-use fingerprints for every VM Forgemill connects to (including Proxmox hosts), with an explicit reset when a VM is legitimately rebuilt
 - **LDAP hardening** — unauthenticated-bind protection, generic error messages
 - **Credential redaction** — sensitive values stripped from Packer build logs before storage; password-typed action parameters redacted in execution history
+- **AI assistance guardrails** — off by default; the model only reads and drafts and never runs anything; passwords, tokens, private keys and URL credentials are redacted before a script leaves the server; every call is audit-logged without content; private endpoints refused unless allowed; drafts are not executable until a person publishes them
 - **Input validation** — URL-path escaping for all provider API calls, 1 MB request-body size limit
 - **Hardened container** — runs as unprivileged user (UID 1001), read-only filesystem, `no-new-privileges`, all capabilities dropped
 - **Docker secrets** — production credentials can be mounted as files rather than env vars
@@ -629,6 +681,7 @@ cmd/
   forgemill/              # Server binary
   forgemill-cli/          # CLI companion tool
 internal/
+  ai/                     # Optional AI assistance: providers, redaction, linter, guarded client
   api/                    # HTTP handlers, middleware, WebSocket
   config/                 # Environment-based configuration
   crypto/                 # AES-256-GCM encryption utilities
@@ -640,12 +693,17 @@ internal/
     vmware/               # vSphere + ESXi provider
   service/                # Business logic layer
 frontend/
+  e2e/                    # Screenshot regression harness + README demo recorder (Playwright)
   src/
     api/                  # Axios API client
     components/           # React UI components (Tailwind, shadcn-style)
     hooks/                # Auth, WebSocket hooks
+    lib/                  # Shared helpers: status badges, lifecycle maths, line diffs
     pages/                # Page components
     types/                # TypeScript interfaces
+docs/
+  design/                 # Design notes for the larger features (lifecycle, AI assist, drafts)
+  audit/                  # Code audits and how each finding was delivered
 ```
 
 ---
@@ -662,7 +720,7 @@ Contributions welcome:
 4. Push to the branch (`git push origin feature/my-feature`)
 5. Open a pull request
 
-Ensure your code passes `go build ./...`, `go vet ./...`, and `npm run build` (frontend) before submitting.
+Ensure your code passes `go build ./...`, `go vet ./...`, `go test ./...` and `npm run build` (frontend) before submitting. Pull requests also run the screenshot regression harness in `frontend/e2e`, which pixel-diffs every page of the UI between the base branch and your change — a pure refactor must come back at 0 %, and an intended UI change is reviewed from the uploaded diff images.
 
 ---
 
