@@ -24,6 +24,11 @@ type Config struct {
 	TrustedProxies       string // V3-H1: Only trust X-Forwarded-For when set
 	TLSCert              string // V3-M8: TLS certificate file path
 	TLSKey               string // V3-M8: TLS key file path
+	// CredentialExportEnabled gates the admin-only export of VM SSH logins
+	// (Settings → Credentials). FORGEMILL_CREDENTIAL_EXPORT=disabled removes
+	// the routes entirely for installations that never want secrets to
+	// leave the server in bulk.
+	CredentialExportEnabled bool
 }
 
 // DefaultJWTSecret is the insecure default that must be replaced on first run.
@@ -37,22 +42,23 @@ const DefaultEncryptionKey = "change-me-in-production!!"
 func Load() *Config {
 	dataDir := envOrDefault("FORGEMILL_DATA_DIR", "/app/data")
 	return &Config{
-		ListenAddr:           envOrDefault("FORGEMILL_LISTEN_ADDR", ":8080"),
-		DatabasePath:         envOrDefault("FORGEMILL_DB_PATH", dataDir+"/forgemill.db"),
-		DataDir:              dataDir,
+		ListenAddr:   envOrDefault("FORGEMILL_LISTEN_ADDR", ":8080"),
+		DatabasePath: envOrDefault("FORGEMILL_DB_PATH", dataDir+"/forgemill.db"),
+		DataDir:      dataDir,
 		// HIGH-07: Support Docker secrets via _FILE env vars
-		JWTSecret:            envOrFileOrDefault("FORGEMILL_JWT_SECRET", DefaultJWTSecret),
-		JWTExpiry:            envDurationOrDefault("FORGEMILL_JWT_EXPIRY", 1*time.Hour),
-		EncryptionKey:        envOrFileOrDefault("FORGEMILL_ENCRYPTION_KEY", DefaultEncryptionKey),
-		AdminUsername:        envOrDefault("FORGEMILL_ADMIN_USER", "admin"),
-		AdminPassword:        envOrFileOrDefault("FORGEMILL_ADMIN_PASSWORD", ""),
-		LogLevel:             envOrDefault("FORGEMILL_LOG_LEVEL", "info"),
-		FrontendPath:         envOrDefault("FORGEMILL_FRONTEND_PATH", "./frontend/dist"),
-		CORSOrigins:          envOrDefault("FORGEMILL_CORS_ORIGINS", ""),
-		AllowPrivateWebhooks: envOrDefault("FORGEMILL_ALLOW_PRIVATE_WEBHOOKS", "") == "true",
-		TrustedProxies:       envOrDefault("FORGEMILL_TRUSTED_PROXIES", ""),
-		TLSCert:              envOrDefault("FORGEMILL_TLS_CERT", ""),
-		TLSKey:               envOrDefault("FORGEMILL_TLS_KEY", ""),
+		JWTSecret:               envOrFileOrDefault("FORGEMILL_JWT_SECRET", DefaultJWTSecret),
+		JWTExpiry:               envDurationOrDefault("FORGEMILL_JWT_EXPIRY", 1*time.Hour),
+		EncryptionKey:           envOrFileOrDefault("FORGEMILL_ENCRYPTION_KEY", DefaultEncryptionKey),
+		AdminUsername:           envOrDefault("FORGEMILL_ADMIN_USER", "admin"),
+		AdminPassword:           envOrFileOrDefault("FORGEMILL_ADMIN_PASSWORD", ""),
+		LogLevel:                envOrDefault("FORGEMILL_LOG_LEVEL", "info"),
+		FrontendPath:            envOrDefault("FORGEMILL_FRONTEND_PATH", "./frontend/dist"),
+		CORSOrigins:             envOrDefault("FORGEMILL_CORS_ORIGINS", ""),
+		AllowPrivateWebhooks:    envOrDefault("FORGEMILL_ALLOW_PRIVATE_WEBHOOKS", "") == "true",
+		TrustedProxies:          envOrDefault("FORGEMILL_TRUSTED_PROXIES", ""),
+		TLSCert:                 envOrDefault("FORGEMILL_TLS_CERT", ""),
+		TLSKey:                  envOrDefault("FORGEMILL_TLS_KEY", ""),
+		CredentialExportEnabled: !strings.EqualFold(strings.TrimSpace(envOrDefault("FORGEMILL_CREDENTIAL_EXPORT", "enabled")), "disabled"),
 	}
 }
 

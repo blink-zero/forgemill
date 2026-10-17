@@ -192,6 +192,7 @@ All configuration is via environment variables. For sensitive values, Forgemill 
 | `FORGEMILL_TLS_KEY` | – | Path to TLS private key |
 | `FORGEMILL_TRUSTED_PROXIES` | – | Comma-separated reverse-proxy IPs or CIDRs. `X-Forwarded-For` / `X-Real-IP` are honoured **only** for requests arriving from these addresses |
 | `FORGEMILL_ALLOW_PRIVATE_WEBHOOKS` | `false` | Allow webhook delivery to private/RFC1918 IPs |
+| `FORGEMILL_CREDENTIAL_EXPORT` | `enabled` | Set to `disabled` to remove the admin-only bulk export of VM SSH logins (Settings → Credentials) entirely |
 | `FORGEMILL_FRONTEND_PATH` | `./frontend/dist` | Path to built frontend assets |
 
 ### Docker secrets (optional)
@@ -667,6 +668,7 @@ Forgemill has been through multiple rounds of security review; all CRITICAL, HIG
 - **SSH host keys** — trust-on-first-use fingerprints for every VM Forgemill connects to (including Proxmox hosts), with an explicit reset when a VM is legitimately rebuilt
 - **LDAP hardening** — unauthenticated-bind protection, generic error messages
 - **Credential redaction** — sensitive values stripped from Packer build logs before storage; password-typed action parameters redacted in execution history
+- **Credential export, gated** — an admin can export the fleet's SSH logins for 1Password (`.1pux`) or as CSV, but only from an interactive session (never an API key), after re-entering their own password (five failures lock the account out for 15 minutes), and only once the audit entry is on disk; every admin is notified and a `credentials.exported` webhook fires. Revealing a single VM's password on its page is audited the same way. `FORGEMILL_CREDENTIAL_EXPORT=disabled` removes the export routes
 - **AI assistance guardrails** — off by default; the model only reads and drafts and never runs anything; passwords, tokens, private keys and URL credentials are redacted before a script leaves the server; every call is audit-logged without content; private endpoints refused unless allowed; drafts are not executable until a person publishes them
 - **Input validation** — URL-path escaping for all provider API calls, 1 MB request-body size limit
 - **Hardened container** — runs as unprivileged user (UID 1001), read-only filesystem, `no-new-privileges`, all capabilities dropped
