@@ -102,9 +102,9 @@ func (db *DB) GetUserByUsername(username string) (*models.User, error) {
 func (db *DB) GetUserByID(id int64) (*models.User, error) {
 	u := &models.User{}
 	err := db.conn.QueryRow(
-		`SELECT id, username, password_hash, display_name, role, is_active, last_login_at, created_at, COALESCE(token_version, 0) FROM users WHERE id = ?`,
+		`SELECT id, username, password_hash, display_name, role, is_active, last_login_at, created_at, COALESCE(token_version, 0), auth_source_id, COALESCE(external_id, '') FROM users WHERE id = ?`,
 		id,
-	).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.DisplayName, &u.Role, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.TokenVersion)
+	).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.DisplayName, &u.Role, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.TokenVersion, &u.AuthSourceID, &u.ExternalID)
 	if err != nil {
 		return nil, err
 	}

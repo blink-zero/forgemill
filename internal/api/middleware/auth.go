@@ -21,6 +21,15 @@ const (
 	userContextKey    contextKey = "user"
 	effectiveRoleKey  contextKey = "effective_role"
 	effectiveScopeKey contextKey = "effective_scope"
+	authMethodKey     contextKey = "auth_method"
+)
+
+// How the current request authenticated. Routes that need the caller to
+// re-enter a password (credential export) only accept interactive sessions:
+// an API key has no password to re-enter, whatever its role or scope.
+const (
+	AuthMethodJWT    = "jwt"
+	AuthMethodAPIKey = "api_key"
 )
 
 // roleLevel is the canonical role ladder. Higher = more privileged.
@@ -157,6 +166,7 @@ func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), userContextKey, user)
 		ctx = context.WithValue(ctx, effectiveRoleKey, user.Role)
 		ctx = context.WithValue(ctx, effectiveScopeKey, "full")
+		ctx = context.WithValue(ctx, authMethodKey, AuthMethodJWT)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -230,7 +240,22 @@ func (m *AuthMiddleware) authenticateAPIKey(w http.ResponseWriter, r *http.Reque
 	ctx := context.WithValue(r.Context(), userContextKey, user)
 	ctx = context.WithValue(ctx, effectiveRoleKey, effRole)
 	ctx = context.WithValue(ctx, effectiveScopeKey, effScope)
+	ctx = context.WithValue(ctx, authMethodKey, AuthMethodAPIKey)
 	next.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// RequireInteractiveSession refuses requests authenticated with an API key.
+// It is for routes that ask the caller to confirm their password: a key has
+// none, so the check could never pass, and the error should say why rather
+// than "password not accepted".
+func (m *AuthMiddleware) RequireInteractiveSession(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if AuthMethodFromContext(r.Context()) != AuthMethodJWT {
+			writeJSONError(w, `{"error":"this operation requires an interactive session, not an API key","code":"interactive_session_required"}`, http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (m *AuthMiddleware) RequireAdmin(next http.Handler) http.Handler {
@@ -325,6 +350,14 @@ func UserFromContext(ctx context.Context) *models.User {
 // clamped) per-key role for API-key requests.
 func EffectiveRoleFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(effectiveRoleKey).(string)
+	return v
+}
+
+// AuthMethodFromContext reports how the request authenticated:
+// AuthMethodJWT for browser sessions, AuthMethodAPIKey for API keys, ""
+// when unauthenticated.
+func AuthMethodFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(authMethodKey).(string)
 	return v
 }
 

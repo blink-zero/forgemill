@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -142,6 +143,34 @@ func (s *AuditService) Log(actor string, actorID *int64, action, resourceType, r
 		// Buffer full — log warning but don't block the request
 		slog.Warn("audit: buffer full, dropping entry", "action", action, "actor", actor)
 	}
+}
+
+// LogSync persists an audit entry before returning. Log is fire-and-forget
+// and drops entries when its buffer is full, which is the right trade for a
+// power-cycle but not for handing out secrets: a credential export that is
+// not on record must not happen, so callers of LogSync refuse the operation
+// when it returns an error.
+func (s *AuditService) LogSync(actor string, actorID *int64, action, resourceType, resourceID, ipAddress string, metadata map[string]interface{}) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("audit service not available")
+	}
+	meta := json.RawMessage("{}")
+	if len(metadata) > 0 {
+		b, err := json.Marshal(metadata)
+		if err != nil {
+			return fmt.Errorf("encode audit metadata: %w", err)
+		}
+		meta = b
+	}
+	return s.db.CreateAuditLog(&models.AuditLog{
+		Actor:        actor,
+		ActorID:      actorID,
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Metadata:     meta,
+		IPAddress:    ipAddress,
+	})
 }
 
 // IPFromRequest extracts the client IP from an HTTP request.

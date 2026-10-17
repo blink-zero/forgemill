@@ -52,6 +52,10 @@ type RouterConfig struct {
 	AuditService        *service.AuditService
 	AIAssistService     *service.AIAssistService
 	NotificationService *service.NotificationService
+	// CredentialExportService serves Settings → Credentials. nil (the
+	// FORGEMILL_CREDENTIAL_EXPORT=disabled kill switch) leaves the routes
+	// unmounted.
+	CredentialExportService *service.CredentialExportService
 }
 
 func NewRouter(cfg RouterConfig) *chi.Mux {
@@ -362,6 +366,18 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 				r.Route("/settings", func(r chi.Router) {
 					r.Get("/", settingsH.GetSettings)
 					r.Put("/", settingsH.UpdateSettings)
+					if cfg.CredentialExportService != nil {
+						// Bulk export of VM SSH logins. The preview is
+						// counts only; the export re-verifies the admin's
+						// password, so it refuses API keys and shares the
+						// login route's per-IP limiter.
+						exportH := handlers.NewCredentialExportHandler(cfg.DB, cfg.CredentialExportService, cfg.AuditService)
+						exportH.SetNotifications(cfg.NotificationService)
+						exportH.SetWebhooks(cfg.WebhookService)
+						exportH.SetLDAP(cfg.LDAPService)
+						r.Get("/credentials/export/preview", exportH.Preview)
+						r.With(cfg.Auth.RequireInteractiveSession, loginLimiter.Limit).Post("/credentials/export", exportH.Export)
+					}
 				})
 
 				// Users

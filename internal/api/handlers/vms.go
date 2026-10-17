@@ -386,6 +386,16 @@ func (h *VMHandler) GetCredentials(w http.ResponseWriter, r *http.Request) {
 		writeErrorLog(w, "credentials not available", http.StatusNotFound, err)
 		return
 	}
+	// A plaintext password leaves the server here: record it first, and
+	// refuse if it cannot be recorded (same rule as the bulk export).
+	actor := middleware.UserFromContext(r.Context())
+	if actor != nil {
+		meta := map[string]interface{}{"kind": creds.Kind, "source": creds.Source, "username": creds.Username}
+		if err := h.audit.LogSync(actor.Username, &actor.ID, "vm.credentials.reveal", "vm", strconv.FormatInt(id, 10), service.IPFromRequest(r), meta); err != nil {
+			writeErrorLog(w, "credentials not available: audit entry could not be written", http.StatusInternalServerError, err)
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, creds)
 }
 

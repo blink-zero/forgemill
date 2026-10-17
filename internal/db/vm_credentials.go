@@ -38,3 +38,51 @@ func (db *DB) DeleteVMCredential(vmID int64) error {
 	_, err := db.conn.Exec(`DELETE FROM vm_credentials WHERE vm_id = ?`, vmID)
 	return err
 }
+
+// VMCredentialMeta is what the credential-export preview needs to count a
+// VM's explicit login without decrypting anything.
+type VMCredentialMeta struct {
+	Kind            string
+	HasSudoPassword bool
+}
+
+// ListVMCredentialMeta returns, per VM id, the kind of explicit credential
+// stored and whether a separate sudo password exists. No secret material is
+// read.
+func (db *DB) ListVMCredentialMeta() (map[int64]VMCredentialMeta, error) {
+	rows, err := db.conn.Query(`SELECT vm_id, kind, COALESCE(sudo_password_enc, '') != '' FROM vm_credentials`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]VMCredentialMeta{}
+	for rows.Next() {
+		var id int64
+		var m VMCredentialMeta
+		if err := rows.Scan(&id, &m.Kind, &m.HasSudoPassword); err != nil {
+			return nil, err
+		}
+		out[id] = m
+	}
+	return out, rows.Err()
+}
+
+// ListDeploymentsWithInitialCredentials returns the ids of deployments that
+// still hold the cloud-init login they were created with, so the export
+// preview can count VMs whose only login is the inherited one.
+func (db *DB) ListDeploymentsWithInitialCredentials() (map[int64]bool, error) {
+	rows, err := db.conn.Query(`SELECT id FROM deployments WHERE COALESCE(initial_username, '') != '' AND COALESCE(initial_password_enc, '') != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]bool{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
