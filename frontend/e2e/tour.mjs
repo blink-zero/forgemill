@@ -184,6 +184,8 @@ async function run(theme) {
   if (await goSoft("/settings?tab=preferences", "text=VM Adoption")) await shot("13d-settings-preferences", true);
   await sleep(4000);
   if (await goSoft("/settings?tab=ai", "text=AI assistance")) await shot("13e-settings-ai", true);
+  await sleep(4000);
+  if (await goSoft("/settings?tab=credentials", "text=Export VM logins")) await shot("13f-settings-credentials", true);
   const more = page.locator("button[aria-label*='ctions'], button:has(svg.lucide-ellipsis), button:has(svg.lucide-more-horizontal)").first();
   if (await more.count()) { await more.click(); await sleep(500); const del = page.getByRole("menuitem", { name: /Delete user/ }); if (await del.count()) { await del.click(); await sleep(900); await shot("14-confirm-typed"); await page.keyboard.press("Escape"); } }
 
