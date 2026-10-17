@@ -267,7 +267,7 @@ This prevents secrets from appearing in `docker inspect` output or process listi
 
 ### In-app notifications
 - Bell icon in the top bar with a per-user unread count
-- Automatic events: deploy completed/failed, action execution completed/failed, template rebuild completed, template update available (admins)
+- Automatic events: deploy completed/failed, action execution completed/failed, template rebuild completed, template update available (admins), credentials exported (admins)
 - Mark-one-read, mark-all-read, dismiss, deep-link to the relevant page
 - Automatic 30-day retention for read notifications
 

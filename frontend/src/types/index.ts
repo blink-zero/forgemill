@@ -808,3 +808,40 @@ export interface ActionFixResult {
   redaction?: { counts: Record<string, number>; total: number };
   duration_ms: number;
 }
+
+// --- Credential export (Settings → Credentials) ---
+
+export interface CredentialExportPreviewTarget {
+  target_id: number;
+  name: string;
+  exportable: number;
+}
+
+export interface CredentialExportPreview {
+  total_vms: number;
+  exportable: number;
+  password_logins: number;
+  key_logins: number;
+  with_sudo_password: number;
+  from_deployment: number;
+  skipped_no_login: number;
+  by_target: CredentialExportPreviewTarget[];
+  per_request_limit: number;
+}
+
+export type CredentialExportFormat = "1pux" | "csv";
+
+export interface CredentialExportScope {
+  all?: boolean;
+  target_id?: number;
+  vm_ids?: number[];
+}
+
+export interface CredentialExportRequest {
+  password: string;
+  format: CredentialExportFormat;
+  scope: CredentialExportScope;
+  include_sudo_passwords: boolean;
+  include_private_keys: boolean;
+  include_deployment_logins: boolean;
+}
