@@ -49,7 +49,8 @@ import type {
   ActionReviewInput,
   ActionDraft,
   ActionDraftInput,
-  AIJob, ActionFixInput, ActionFixResult} from "@/types";
+  AIJob, ActionFixInput, ActionFixResult,
+  CredentialExportPreview, CredentialExportRequest} from "@/types";
 
 const api = axios.create({
   baseURL: "/api",
@@ -468,6 +469,17 @@ export interface ActionVersion {
 // Admin operational snapshot — Settings → Diagnostics.
 export const diagnostics = {
   get: () => api.get<Diagnostics>("/diagnostics"),
+};
+
+// Settings → Credentials. The preview is counts only; the export answers
+// with the file itself (a blob) and names it in Content-Disposition. A wrong
+// password is a 403 with code "password", never a 401, so the session
+// interceptor leaves the form alone.
+export const credentialExport = {
+  preview: (params?: { target_id?: number; vm_ids?: string; include_deployment_logins?: boolean }, signal?: AbortSignal) =>
+    api.get<CredentialExportPreview>("/settings/credentials/export/preview", { params, signal }),
+  export: (body: CredentialExportRequest) =>
+    api.post<Blob>("/settings/credentials/export", body, { responseType: "blob" }),
 };
 
 export const auditLogs = {
