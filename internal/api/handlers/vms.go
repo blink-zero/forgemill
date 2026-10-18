@@ -386,6 +386,16 @@ func (h *VMHandler) GetCredentials(w http.ResponseWriter, r *http.Request) {
 		writeErrorLog(w, "credentials not available", http.StatusNotFound, err)
 		return
 	}
+	// A plaintext password leaves the server here: record it first, and
+	// refuse if it cannot be recorded (same rule as the bulk export).
+	actor := middleware.UserFromContext(r.Context())
+	if actor != nil {
+		meta := map[string]interface{}{"kind": creds.Kind, "source": creds.Source, "username": creds.Username}
+		if err := h.audit.LogSync(actor.Username, &actor.ID, "vm.credentials.reveal", "vm", strconv.FormatInt(id, 10), service.IPFromRequest(r), meta); err != nil {
+			writeErrorLog(w, "credentials not available: audit entry could not be written", http.StatusInternalServerError, err)
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, creds)
 }
 
@@ -487,6 +497,46 @@ func (h *VMHandler) ClearCredentials(w http.ResponseWriter, r *http.Request) {
 		h.audit.Log(actor.Username, &actor.ID, "vm.credentials.cleared", "vm", fmt.Sprintf("%d", id), service.IPFromRequest(r), nil)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// SetAddress stores or clears the operator-typed address for a VM.
+// PUT /api/vms/{id}/address  {"address": "10.0.0.5"}   ("" clears)
+func (h *VMHandler) SetAddress(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Address string `json:"address"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4*1024)).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	actor := middleware.UserFromContext(r.Context())
+	actorName := "api"
+	if actor != nil {
+		actorName = actor.Username
+	}
+	vm, err := h.svc.SetAddressOverride(r.Context(), id, req.Address, actorName)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrVMNotFound):
+			writeError(w, "VM not found", http.StatusNotFound)
+		case errors.Is(err, service.ErrInvalidAddress):
+			writeError(w, err.Error(), http.StatusBadRequest)
+		default:
+			writeErrorLog(w, "failed to set address", http.StatusInternalServerError, err)
+		}
+		return
+	}
+	if actor != nil {
+		h.audit.Log(actor.Username, &actor.ID, "vm.address.set", "vm", fmt.Sprintf("%d", id), service.IPFromRequest(r), map[string]interface{}{
+			"address": vm.AddressOverride, "cleared": vm.AddressOverride == "",
+		})
+	}
+	writeJSON(w, http.StatusOK, vm)
 }
 
 type addNICRequest struct {

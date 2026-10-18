@@ -252,6 +252,8 @@ export interface ManagedVM {
   vm_ref: string;
   power_state: string;
   ip_address: string;
+  /** Address an operator typed in because the hypervisor reports none (no guest agent). Wins over ip_address. */
+  address_override: string;
   cpu: number;
   memory_mb: number;
   disk_gb: number;
@@ -660,6 +662,8 @@ export interface SetVMCredentialsRequest {
 // Live result of trying credentials on the VM: SSH login, then sudo.
 export interface CredentialCheck {
   skipped: boolean;
+  /** Skipped because Forgemill has no address for the VM (guest agent missing, no manual address). */
+  no_address?: boolean;
   ssh_ok: boolean;
   sudo?: "nopasswd" | "password" | "needs_password" | "wrong_password" | "not_permitted" | "requiretty" | "probe_failed" | "unknown_failure" | string;
   ok: boolean;
@@ -807,4 +811,41 @@ export interface ActionFixResult {
   used_ai: boolean;
   redaction?: { counts: Record<string, number>; total: number };
   duration_ms: number;
+}
+
+// --- Credential export (Settings → Credentials) ---
+
+export interface CredentialExportPreviewTarget {
+  target_id: number;
+  name: string;
+  exportable: number;
+}
+
+export interface CredentialExportPreview {
+  total_vms: number;
+  exportable: number;
+  password_logins: number;
+  key_logins: number;
+  with_sudo_password: number;
+  from_deployment: number;
+  skipped_no_login: number;
+  by_target: CredentialExportPreviewTarget[];
+  per_request_limit: number;
+}
+
+export type CredentialExportFormat = "1pux" | "csv";
+
+export interface CredentialExportScope {
+  all?: boolean;
+  target_id?: number;
+  vm_ids?: number[];
+}
+
+export interface CredentialExportRequest {
+  password: string;
+  format: CredentialExportFormat;
+  scope: CredentialExportScope;
+  include_sudo_passwords: boolean;
+  include_private_keys: boolean;
+  include_deployment_logins: boolean;
 }

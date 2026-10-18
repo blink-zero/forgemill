@@ -186,23 +186,27 @@ type Notification struct {
 // --- Phase 3 models ---
 
 type ManagedVM struct {
-	ID           int64      `json:"id"`
-	DeploymentID *int64     `json:"deployment_id"`
-	TargetID     int64      `json:"target_id"`
-	VMName       string     `json:"vm_name"`
-	VMRef        string     `json:"vm_ref"`
-	PowerState   string     `json:"power_state"`
-	IPAddress    string     `json:"ip_address"`
-	CPU          int        `json:"cpu"`
-	MemoryMB     int        `json:"memory_mb"`
-	DiskGB       int        `json:"disk_gb"`
-	OSType       string     `json:"os_type"`
-	Platform     string     `json:"platform"`
-	HostKeyFP    string     `json:"host_key_fp,omitempty"` // SSH host key fingerprint (TOFU)
-	LastSyncedAt *time.Time `json:"last_synced_at"`
-	CreatedAt    time.Time  `json:"created_at"`
-	TargetName   string     `json:"target_name,omitempty"`
-	TemplateName string     `json:"template_name,omitempty"`
+	ID           int64  `json:"id"`
+	DeploymentID *int64 `json:"deployment_id"`
+	TargetID     int64  `json:"target_id"`
+	VMName       string `json:"vm_name"`
+	VMRef        string `json:"vm_ref"`
+	PowerState   string `json:"power_state"`
+	IPAddress    string `json:"ip_address"`
+	// AddressOverride is an address an operator set by hand because the
+	// hypervisor can't report one (no guest agent). Sync never writes it.
+	// Use Address() to get the address Forgemill should connect to.
+	AddressOverride string     `json:"address_override"`
+	CPU             int        `json:"cpu"`
+	MemoryMB        int        `json:"memory_mb"`
+	DiskGB          int        `json:"disk_gb"`
+	OSType          string     `json:"os_type"`
+	Platform        string     `json:"platform"`
+	HostKeyFP       string     `json:"host_key_fp,omitempty"` // SSH host key fingerprint (TOFU)
+	LastSyncedAt    *time.Time `json:"last_synced_at"`
+	CreatedAt       time.Time  `json:"created_at"`
+	TargetName      string     `json:"target_name,omitempty"`
+	TemplateName    string     `json:"template_name,omitempty"`
 	// Origin: "deployed" (Forgemill created it), "adopted" (discovered on the
 	// target and taken under management) or "registered" (added by ref via
 	// the API).
@@ -219,6 +223,15 @@ type ManagedVM struct {
 	LastPoweredOnAt     *time.Time `json:"last_powered_on_at"`
 	LastPoweredOffAt    *time.Time `json:"last_powered_off_at"`
 	TotalRuntimeSeconds int64      `json:"total_runtime_seconds"`
+}
+
+// Address is where Forgemill connects to the VM: the operator's override
+// when set, otherwise the address the hypervisor reported.
+func (vm *ManagedVM) Address() string {
+	if vm.AddressOverride != "" {
+		return vm.AddressOverride
+	}
+	return vm.IPAddress
 }
 
 type VMSnapshot struct {

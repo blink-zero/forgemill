@@ -135,6 +135,12 @@ func main() {
 	aiSvc.SetNotificationService(notificationSvc)
 	auditSvc.StartRetentionCleanup()
 	factorySvc := service.NewFactoryService(database, buildEngine, enc)
+	var credentialExportSvc *service.CredentialExportService
+	if cfg.CredentialExportEnabled {
+		credentialExportSvc = service.NewCredentialExportService(database, enc, version.Version)
+	} else {
+		slog.Info("credential export disabled by FORGEMILL_CREDENTIAL_EXPORT")
+	}
 	factorySvc.SetWebhookService(webhookSvc)
 	factorySvc.SetNotificationService(notificationSvc)
 	factorySvc.SetTemplateSyncCallback(func(ctx context.Context, targetID int64) {
@@ -144,30 +150,31 @@ func main() {
 	})
 
 	router := api.NewRouter(api.RouterConfig{
-		DB:                database,
-		Auth:              auth,
-		TargetService:     targetSvc,
-		TemplateService:   templateSvc,
-		DeployService:     deploySvc,
-		VMService:         vmSvc,
-		BlueprintService:  blueprintSvc,
-		BulkDeployService: bulkDeploySvc,
-		LDAPService:       ldapSvc,
-		FactoryService:    factorySvc,
-		AuditService:        auditSvc,
-		AIAssistService:     aiSvc,
-		NotificationService: notificationSvc,
-		ExecutorService:   executorSvc,
-		Hub:               hub,
-		BuildHub:          buildHub,
-		ExecutionHub:      executionHub,
-		FrontendPath:      cfg.FrontendPath,
-		CORSOrigins:       cfg.CORSOrigins,
-		WebhookService:       webhookSvc,
-		AllowPrivateWebhooks: cfg.AllowPrivateWebhooks,
-		TrustedProxies:    cfg.TrustedProxies, // V3-H1
-		Encryptor:         enc,                 // V3-M14
-		TLSCert:           cfg.TLSCert,         // MED-03: detect production mode for CORS
+		DB:                      database,
+		Auth:                    auth,
+		TargetService:           targetSvc,
+		TemplateService:         templateSvc,
+		DeployService:           deploySvc,
+		VMService:               vmSvc,
+		BlueprintService:        blueprintSvc,
+		BulkDeployService:       bulkDeploySvc,
+		LDAPService:             ldapSvc,
+		FactoryService:          factorySvc,
+		AuditService:            auditSvc,
+		AIAssistService:         aiSvc,
+		NotificationService:     notificationSvc,
+		ExecutorService:         executorSvc,
+		Hub:                     hub,
+		BuildHub:                buildHub,
+		ExecutionHub:            executionHub,
+		FrontendPath:            cfg.FrontendPath,
+		CORSOrigins:             cfg.CORSOrigins,
+		WebhookService:          webhookSvc,
+		AllowPrivateWebhooks:    cfg.AllowPrivateWebhooks,
+		TrustedProxies:          cfg.TrustedProxies, // V3-H1
+		Encryptor:               enc,                // V3-M14
+		TLSCert:                 cfg.TLSCert,        // MED-03: detect production mode for CORS
+		CredentialExportService: credentialExportSvc,
 	})
 
 	// Start the template build scheduler

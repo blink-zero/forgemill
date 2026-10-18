@@ -111,7 +111,7 @@ export function CredentialsCard({ vmId, vmIp }: { vmId: number; vmIp?: string })
     try {
       const res = await vmApi.setCredentials(vmId, b);
       const c = res.data.check;
-      toast(c?.skipped ? "SSH credentials saved (not checked — the VM is off or has no address)" : "SSH credentials saved and verified — actions on this VM will use them");
+      toast(c?.skipped ? (c.no_address ? "SSH credentials saved but not checked — Forgemill has no address for this VM yet" : "SSH credentials saved (not checked — the VM is off)") : "SSH credentials saved and verified — actions on this VM will use them");
       setEditing(false);
       setShowPwd(false);
       setCheck(null);

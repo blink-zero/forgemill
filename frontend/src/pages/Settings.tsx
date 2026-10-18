@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Plus, X, Globe, KeyRound, Trash2, AlertTriangle, Webhook as WebhookIcon, Copy, Send, Pencil, Check, UserCheck, UserX, LogOut as LogOutIcon, MoreHorizontal, Search, Wifi, RefreshCw, Activity, Import } from "lucide-react";
 import ProviderIcon, { providerLabel } from "@/components/ProviderIcon";
 import { AISettings } from "@/pages/settings/AISettings";
+import { CredentialsExport } from "@/pages/settings/CredentialsExport";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { ForgemillLogo } from "@/components/ForgemillLogo";
 import { Select } from "@/components/ui/select";
@@ -31,11 +32,12 @@ const WEBHOOK_EVENTS = [
   "template.update_available",
   "template.version_superseded",
   "execution.completed",
+  "credentials.exported",
 ] as const;
 
-type SettingsTab = "users" | "webhooks" | "apikeys" | "preferences" | "ai" | "auditlog" | "diagnostics" | "about";
-const SETTINGS_TABS: readonly SettingsTab[] = ["users", "webhooks", "apikeys", "preferences", "ai", "auditlog", "diagnostics", "about"];
-const ADMIN_ONLY_TABS: ReadonlySet<string> = new Set(["webhooks", "ai", "auditlog", "diagnostics"]);
+type SettingsTab = "users" | "webhooks" | "apikeys" | "credentials" | "preferences" | "ai" | "auditlog" | "diagnostics" | "about";
+const SETTINGS_TABS: readonly SettingsTab[] = ["users", "webhooks", "apikeys", "credentials", "preferences", "ai", "auditlog", "diagnostics", "about"];
+const ADMIN_ONLY_TABS: ReadonlySet<string> = new Set(["webhooks", "credentials", "ai", "auditlog", "diagnostics"]);
 const isSettingsTab = (v: string | null): v is SettingsTab => v !== null && (SETTINGS_TABS as readonly string[]).includes(v);
 
 export default function SettingsPage() {
@@ -414,6 +416,7 @@ export default function SettingsPage() {
     { key: "users", label: "Users" },
     { key: "webhooks", label: "Webhooks", adminOnly: true },
     { key: "apikeys", label: "API Keys" },
+    { key: "credentials", label: "Credentials", adminOnly: true },
     { key: "preferences", label: "Preferences" },
     { key: "ai", label: "AI", adminOnly: true },
     { key: "auditlog", label: "Audit Log", adminOnly: true },
@@ -1274,6 +1277,7 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {tab === "credentials" && isAdmin && <CredentialsExport />}
       {tab === "ai" && isAdmin && <AISettings />}
 
       {tab === "diagnostics" && isAdmin && (

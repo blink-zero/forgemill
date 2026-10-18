@@ -102,9 +102,9 @@ func (db *DB) GetUserByUsername(username string) (*models.User, error) {
 func (db *DB) GetUserByID(id int64) (*models.User, error) {
 	u := &models.User{}
 	err := db.conn.QueryRow(
-		`SELECT id, username, password_hash, display_name, role, is_active, last_login_at, created_at, COALESCE(token_version, 0) FROM users WHERE id = ?`,
+		`SELECT id, username, password_hash, display_name, role, is_active, last_login_at, created_at, COALESCE(token_version, 0), auth_source_id, COALESCE(external_id, '') FROM users WHERE id = ?`,
 		id,
-	).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.DisplayName, &u.Role, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.TokenVersion)
+	).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.DisplayName, &u.Role, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.TokenVersion, &u.AuthSourceID, &u.ExternalID)
 	if err != nil {
 		return nil, err
 	}
@@ -567,7 +567,7 @@ func scanDeployment(r rowScanner) (models.Deployment, error) {
 // counterparts of the deployment helpers above.
 const managedVMColumns = `v.id, v.deployment_id, v.target_id, v.vm_name, v.vm_ref, v.power_state, v.ip_address, v.cpu, v.memory_mb, v.disk_gb, v.os_type, COALESCE(v.platform, 'linux'), v.last_synced_at, v.created_at, COALESCE(t.name, ''),
 		        COALESCE(d.template_name, tmpl.name, ''), v.state_changed_at, v.last_powered_on_at, v.last_powered_off_at, v.total_runtime_seconds,
-		        COALESCE(v.origin, 'deployed'), v.adopted_at, v.adopted_by`
+		        COALESCE(v.origin, 'deployed'), v.adopted_at, v.adopted_by, COALESCE(v.address_override, '')`
 
 const managedVMFrom = `FROM managed_vms v
 		 LEFT JOIN targets t ON v.target_id = t.id
@@ -578,7 +578,7 @@ func scanManagedVM(r rowScanner) (models.ManagedVM, error) {
 	var vm models.ManagedVM
 	err := r.Scan(&vm.ID, &vm.DeploymentID, &vm.TargetID, &vm.VMName, &vm.VMRef, &vm.PowerState, &vm.IPAddress, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSType, &vm.Platform, &vm.LastSyncedAt, &vm.CreatedAt, &vm.TargetName, &vm.TemplateName,
 		&vm.StateChangedAt, &vm.LastPoweredOnAt, &vm.LastPoweredOffAt, &vm.TotalRuntimeSeconds,
-		&vm.Origin, &vm.AdoptedAt, &vm.AdoptedBy)
+		&vm.Origin, &vm.AdoptedAt, &vm.AdoptedBy, &vm.AddressOverride)
 	return vm, err
 }
 
@@ -1195,6 +1195,20 @@ func (db *DB) UpdateManagedVMResources(id int64, cpu, memoryMB, diskGB int) erro
 func (db *DB) UpdateManagedVMOSType(id int64, osType string) error {
 	_, err := db.conn.Exec(`UPDATE managed_vms SET os_type=?, last_synced_at=? WHERE id=?`, osType, time.Now(), id)
 	return err
+}
+
+// SetManagedVMAddressOverride stores (or, with "", clears) the address an
+// operator typed in for a VM. It is deliberately not part of the sync
+// update so a sync can never undo it.
+func (db *DB) SetManagedVMAddressOverride(id int64, address string) error {
+	res, err := db.conn.Exec(`UPDATE managed_vms SET address_override=? WHERE id=?`, address, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (db *DB) UpdateManagedVMName(id int64, name string) error {

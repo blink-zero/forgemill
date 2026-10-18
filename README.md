@@ -192,6 +192,7 @@ All configuration is via environment variables. For sensitive values, Forgemill 
 | `FORGEMILL_TLS_KEY` | – | Path to TLS private key |
 | `FORGEMILL_TRUSTED_PROXIES` | – | Comma-separated reverse-proxy IPs or CIDRs. `X-Forwarded-For` / `X-Real-IP` are honoured **only** for requests arriving from these addresses |
 | `FORGEMILL_ALLOW_PRIVATE_WEBHOOKS` | `false` | Allow webhook delivery to private/RFC1918 IPs |
+| `FORGEMILL_CREDENTIAL_EXPORT` | `enabled` | Set to `disabled` to remove the admin-only bulk export of VM SSH logins (Settings → Credentials) entirely |
 | `FORGEMILL_FRONTEND_PATH` | `./frontend/dist` | Path to built frontend assets |
 
 ### Docker secrets (optional)
@@ -244,6 +245,7 @@ This prevents secrets from appearing in `docker inspect` output or process listi
 - Managed VM inventory with live status tracking and orphan detection on sync; the guest OS is read from the hypervisor and a sync never downgrades it
 - **Delete preview** — see exactly what a delete would do (hypervisor destroy vs. untrack, dependent snapshots / executions) before confirming
 - **Discover & adopt** — see every VM on a target that Forgemill doesn't manage (live from the hypervisor, templates excluded) and take the ones you want under management without touching the hypervisor; ignore the rest so they stop counting. Adopted VMs are marked with their origin and get power, snapshots, disks, NICs, sync and destroy immediately
+- **Manual VM address** — hypervisors only report a guest's address through the guest agent (QEMU guest agent, VMware Tools); an adopted VM without one shows as having no address and actions and credential checks can't reach it. The VM page says so, with the fix: install the agent and sync, or type the address in and Forgemill uses that instead (kept across syncs until cleared, adoption role, audited)
 - **Per-VM SSH credentials** — set a login (password or private key) on any VM so actions can run on adopted VMs, or to rotate a deployed VM's password; stored AES-256 encrypted, a private key is never shown again. Actions run under sudo: Forgemill hands sudo the stored password when it asks (so a normal password user works without a sudoers edit), a key login can carry a separate sudo password, and credentials are tried on the VM before they're saved — the result says whether SSH or sudo is the problem. Adoption and credential changes are admin-only by default; Settings → Preferences can open them to operators
 - Reveal deploy credentials (AES-256 at rest, decrypted only on reveal, syntax-highlighted for readability)
 
@@ -266,7 +268,7 @@ This prevents secrets from appearing in `docker inspect` output or process listi
 
 ### In-app notifications
 - Bell icon in the top bar with a per-user unread count
-- Automatic events: deploy completed/failed, action execution completed/failed, template rebuild completed, template update available (admins)
+- Automatic events: deploy completed/failed, action execution completed/failed, template rebuild completed, template update available (admins), credentials exported (admins)
 - Mark-one-read, mark-all-read, dismiss, deep-link to the relevant page
 - Automatic 30-day retention for read notifications
 
@@ -489,6 +491,7 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 | `POST` | `/api/vms/:id/nics` | Attach an additional network adapter (admin; optional `vlan_tag` on Proxmox) |
 | `GET` | `/api/vms/:id/console` | Console URL (admin) |
 | `GET` | `/api/vms/:id/credentials` | The SSH login Forgemill uses for the VM: username, kind, source (admin; a private key is never returned) |
+| `PUT` | `/api/vms/:id/address` | Set `{"address": "10.0.0.5"}` (IP or hostname; `""` clears) as the address Forgemill connects to when the hypervisor can't report one — no guest agent (adoption role) |
 | `PUT` / `DELETE` | `/api/vms/:id/credentials` | Set `{"username", "password" \| "private_key", "sudo_password"?, "force"?}` or clear the VM's explicit login (adoption role). The login is tried on the VM first (SSH, then sudo) and refused with 422 + the check if actions couldn't run with it |
 | `POST` | `/api/vms/:id/credentials/test` | Try credentials without storing them; tells SSH failures apart from sudo ones (adoption role) |
 | `POST` | `/api/vms/:id/reset-host-key` | Reset SSH host-key fingerprint (admin) |
@@ -667,6 +670,7 @@ Forgemill has been through multiple rounds of security review; all CRITICAL, HIG
 - **SSH host keys** — trust-on-first-use fingerprints for every VM Forgemill connects to (including Proxmox hosts), with an explicit reset when a VM is legitimately rebuilt
 - **LDAP hardening** — unauthenticated-bind protection, generic error messages
 - **Credential redaction** — sensitive values stripped from Packer build logs before storage; password-typed action parameters redacted in execution history
+- **Credential export, gated** — an admin can export the fleet's SSH logins for 1Password (`.1pux`) or as CSV, but only from an interactive session (never an API key), after re-entering their own password (five failures lock the account out for 15 minutes), and only once the audit entry is on disk; every admin is notified and a `credentials.exported` webhook fires. Revealing a single VM's password on its page is audited the same way. `FORGEMILL_CREDENTIAL_EXPORT=disabled` removes the export routes
 - **AI assistance guardrails** — off by default; the model only reads and drafts and never runs anything; passwords, tokens, private keys and URL credentials are redacted before a script leaves the server; every call is audit-logged without content; private endpoints refused unless allowed; drafts are not executable until a person publishes them
 - **Input validation** — URL-path escaping for all provider API calls, 1 MB request-body size limit
 - **Hardened container** — runs as unprivileged user (UID 1001), read-only filesystem, `no-new-privileges`, all capabilities dropped

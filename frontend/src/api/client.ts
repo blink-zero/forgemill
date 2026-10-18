@@ -49,7 +49,8 @@ import type {
   ActionReviewInput,
   ActionDraft,
   ActionDraftInput,
-  AIJob, ActionFixInput, ActionFixResult} from "@/types";
+  AIJob, ActionFixInput, ActionFixResult,
+  CredentialExportPreview, CredentialExportRequest} from "@/types";
 
 const api = axios.create({
   baseURL: "/api",
@@ -229,6 +230,8 @@ export const vms = {
   syncAll: (dryRun?: boolean) =>
     api.post<SyncAllResult>(`/vms/sync-all${dryRun ? "?dry_run=true" : ""}`),
   sync: (id: number) => api.post<ManagedVM>(`/vms/${id}/sync`),
+  /** Set ("" clears) the address Forgemill connects to when the hypervisor can't report one. */
+  setAddress: (id: number, address: string) => api.put<ManagedVM>(`/vms/${id}/address`, { address }),
   listSnapshots: (id: number) => api.get<VMSnapshot[]>(`/vms/${id}/snapshots`),
   createSnapshot: (id: number, data: { name: string; description: string; memory: boolean }) =>
     api.post(`/vms/${id}/snapshots`, data),
@@ -468,6 +471,17 @@ export interface ActionVersion {
 // Admin operational snapshot — Settings → Diagnostics.
 export const diagnostics = {
   get: () => api.get<Diagnostics>("/diagnostics"),
+};
+
+// Settings → Credentials. The preview is counts only; the export answers
+// with the file itself (a blob) and names it in Content-Disposition. A wrong
+// password is a 403 with code "password", never a 401, so the session
+// interceptor leaves the form alone.
+export const credentialExport = {
+  preview: (params?: { target_id?: number; vm_ids?: string; include_deployment_logins?: boolean }, signal?: AbortSignal) =>
+    api.get<CredentialExportPreview>("/settings/credentials/export/preview", { params, signal }),
+  export: (body: CredentialExportRequest) =>
+    api.post<Blob>("/settings/credentials/export", body, { responseType: "blob" }),
 };
 
 export const auditLogs = {
