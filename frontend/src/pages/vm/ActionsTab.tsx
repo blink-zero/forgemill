@@ -20,7 +20,7 @@ import { getErrorMessage, copyText } from "@/lib/utils";
 import { executionStatusVariant } from "@/lib/status";
 
 /** Actions tab: run catalogue/ad-hoc scripts on the VM over the execution WebSocket and browse history. */
-export function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState: string }) {
+export function ActionsTab({ vmId, vmPowerState, vmAddress, onSetAddress }: { vmId: number; vmPowerState: string; vmAddress: string; onSetAddress: () => void }) {
   const { formatDateTime } = useTimezone();
   const { confirm: showConfirm } = useConfirm();
   const { toast } = useToast();
@@ -49,6 +49,10 @@ export function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState:
   const [paramValues, setParamValues] = useState<Record<string, string>>({});
 
   const isPoweredOn = vmPowerState === "poweredOn" || vmPowerState === "running";
+  // The server refuses a run for a VM it has no address for. The VM page
+  // shows the no-address callout above the tabs, so here the run buttons
+  // are just disabled; a refusal from the server opens the address editor.
+  const canRun = isPoweredOn && !!vmAddress;
 
   const loadData = useCallback(() => {
     actionsApi.list().then((res) => setAvailableActions(res.data || []));
@@ -170,8 +174,9 @@ export function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState:
       connectWS(res.data.id);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Execution failed";
-      const axiosErr = e as { response?: { data?: { error?: string } } };
+      const axiosErr = e as { response?: { data?: { error?: string; code?: string } } };
       setError(axiosErr?.response?.data?.error || msg);
+      if (axiosErr?.response?.data?.code === "no_address") onSetAddress();
     } finally {
       setExecuting(false);
     }
@@ -200,8 +205,9 @@ export function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState:
       connectWS(res.data.id);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Execution failed";
-      const axiosErr = e as { response?: { data?: { error?: string } } };
+      const axiosErr = e as { response?: { data?: { error?: string; code?: string } } };
       setError(axiosErr?.response?.data?.error || msg);
+      if (axiosErr?.response?.data?.code === "no_address") onSetAddress();
     } finally {
       setExecuting(false);
     }
@@ -222,8 +228,9 @@ export function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState:
       connectWS(res.data.id);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Execution failed";
-      const axiosErr = e as { response?: { data?: { error?: string } } };
+      const axiosErr = e as { response?: { data?: { error?: string; code?: string } } };
       setError(axiosErr?.response?.data?.error || msg);
+      if (axiosErr?.response?.data?.code === "no_address") onSetAddress();
     } finally {
       setExecuting(false);
     }
@@ -410,6 +417,7 @@ export function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState:
         </div>
       )}
 
+
       {/* Quick Actions */}
       <Card>
         <CardHeader>
@@ -461,7 +469,7 @@ export function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState:
                   <button
                     key={action.id}
                     className="flex flex-col items-start gap-1 border rounded-lg p-3 hover:bg-muted/50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={!isPoweredOn || executing}
+                    disabled={!canRun || executing}
                     onClick={() => doExecuteAction(action.id)}
                   >
                     <div className="flex items-center gap-2 w-full">
@@ -520,7 +528,7 @@ export function ActionsTab({ vmId, vmPowerState }: { vmId: number; vmPowerState:
           <Button
             size="sm"
             onClick={doExecuteAdHoc}
-            disabled={!isPoweredOn || executing || !adHocScript.trim()}
+            disabled={!canRun || executing || !adHocScript.trim()}
           >
             <Play className="h-3 w-3 mr-1" /> Run Script
           </Button>

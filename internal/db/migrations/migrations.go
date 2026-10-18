@@ -72,6 +72,7 @@ var migrations = []struct {
 	{46, migrationV46},
 	{47, migrationV47},
 	{48, migrationV48},
+	{49, migrationV49},
 }
 
 const migrationV1 = `
@@ -1434,6 +1435,16 @@ INSERT INTO schema_version (version) VALUES (38);
 // V48: action drafts. A draft is an action that has not been published:
 // listed separately, never runnable. AI drafts are saved as drafts with
 // their review and the model's notes attached.
+// v49: a VM address an operator typed in. Forgemill learns a VM's address
+// from the guest agent (QEMU guest agent / VMware Tools); without one the
+// synced ip_address stays empty and actions can't reach the VM. The override
+// is never touched by sync and wins over ip_address wherever Forgemill
+// connects to the VM.
+const migrationV49 = `
+ALTER TABLE managed_vms ADD COLUMN address_override TEXT NOT NULL DEFAULT '';
+INSERT INTO schema_version (version) VALUES (49);
+`
+
 const migrationV48 = `
 ALTER TABLE actions ADD COLUMN status TEXT NOT NULL DEFAULT 'active';
 ALTER TABLE actions ADD COLUMN source TEXT NOT NULL DEFAULT 'user';

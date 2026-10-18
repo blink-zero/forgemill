@@ -230,6 +230,8 @@ export const vms = {
   syncAll: (dryRun?: boolean) =>
     api.post<SyncAllResult>(`/vms/sync-all${dryRun ? "?dry_run=true" : ""}`),
   sync: (id: number) => api.post<ManagedVM>(`/vms/${id}/sync`),
+  /** Set ("" clears) the address Forgemill connects to when the hypervisor can't report one. */
+  setAddress: (id: number, address: string) => api.put<ManagedVM>(`/vms/${id}/address`, { address }),
   listSnapshots: (id: number) => api.get<VMSnapshot[]>(`/vms/${id}/snapshots`),
   createSnapshot: (id: number, data: { name: string; description: string; memory: boolean }) =>
     api.post(`/vms/${id}/snapshots`, data),

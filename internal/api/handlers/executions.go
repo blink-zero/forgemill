@@ -46,7 +46,18 @@ func (h *ExecutionHandler) Execute(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err.Error(), http.StatusConflict)
 			return
 		}
-		writeErrorLog(w, "failed to start execution", http.StatusBadRequest, err)
+		var refused *service.RefusedError
+		if errors.As(err, &refused) {
+			// A precondition the caller can fix: say which one, so they
+			// don't have to dig it out of the diagnostics page.
+			body := map[string]interface{}{"error": refused.Reason}
+			if errors.Is(err, service.ErrNoAddress) {
+				body["code"] = "no_address"
+			}
+			writeJSON(w, http.StatusBadRequest, body)
+			return
+		}
+		writeErrorLog(w, "failed to start execution", http.StatusInternalServerError, err)
 		return
 	}
 

@@ -141,6 +141,7 @@ type SetCredentialsRequest struct {
 // CredentialCheck is the live result of trying the credentials on the VM.
 type CredentialCheck struct {
 	Skipped    bool      `json:"skipped"`               // VM off / no address: nothing was tried
+	NoAddress  bool      `json:"no_address,omitempty"`  // skipped because Forgemill has no address for the VM
 	SSHOK      bool      `json:"ssh_ok"`                // login succeeded
 	Sudo       SudoState `json:"sudo,omitempty"`        // see SudoState
 	OK         bool      `json:"ok"`                    // SSH and sudo both usable for actions
@@ -222,12 +223,16 @@ func (s *VMService) TestCredentials(ctx context.Context, vmID int64, req SetCred
 	if err != nil {
 		return nil, err
 	}
-	if vm.IPAddress == "" || (vm.PowerState != "poweredOn" && vm.PowerState != "running") {
-		return &CredentialCheck{Skipped: true, Message: "The VM is powered off or has no address, so the credentials could not be tried. They will be checked the first time an action runs."}, nil
+	address := vm.Address()
+	if vm.PowerState != "poweredOn" && vm.PowerState != "running" {
+		return &CredentialCheck{Skipped: true, Message: "The VM is powered off, so the credentials could not be tried. They will be checked the first time an action runs."}, nil
 	}
-	check := &CredentialCheck{CheckedVia: vm.IPAddress}
+	if address == "" {
+		return &CredentialCheck{Skipped: true, NoAddress: true, Message: "The credentials could not be tried: " + NoAddressReason}, nil
+	}
+	check := &CredentialCheck{CheckedVia: address}
 	auth := sshAuthFor(req, kind, secret)
-	client, err := credentialCheckDialer(vm.IPAddress, 22, req.Username, auth, &dbHostKeyStore{s.db}, vm.ID)
+	client, err := credentialCheckDialer(address, 22, req.Username, auth, &dbHostKeyStore{s.db}, vm.ID)
 	if err != nil {
 		check.Detail = err.Error()
 		check.Message = "SSH login failed: " + sshFailureHint(err)

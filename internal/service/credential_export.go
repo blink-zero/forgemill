@@ -412,8 +412,8 @@ func (s *CredentialExportService) puxItemFor(it exportItem, actor string, stamp 
 	if it.hypervisor != "" {
 		item.Overview.Tags = append(item.Overview.Tags, it.hypervisor)
 	}
-	if it.vm.IPAddress != "" {
-		u := "ssh://" + it.vm.IPAddress
+	if addr := it.vm.Address(); addr != "" {
+		u := "ssh://" + addr
 		item.Overview.URL = u
 		item.Overview.URLs = []puxURL{{Label: "", URL: u}}
 	} else {
@@ -504,8 +504,8 @@ func (s *CredentialExportService) writeCSV(w io.Writer, items []exportItem, acto
 	}
 	for _, it := range items {
 		website := ""
-		if it.vm.IPAddress != "" {
-			website = "ssh://" + it.vm.IPAddress
+		if addr := it.vm.Address(); addr != "" {
+			website = "ssh://" + addr
 		}
 		notes := exportNotes(it, s.version, actor, stamp)
 		if it.sudo != "" {

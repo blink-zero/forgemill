@@ -234,6 +234,9 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 				r.Put("/vms/{id}/credentials", vmH.SetCredentials)
 				r.Post("/vms/{id}/credentials/test", vmH.TestCredentials)
 				r.Delete("/vms/{id}/credentials", vmH.ClearCredentials)
+				// So is telling Forgemill where the VM is when the
+				// hypervisor can't (no guest agent).
+				r.Put("/vms/{id}/address", vmH.SetAddress)
 			})
 			r.Get("/vms/{id}/executions", execH.ListVMExecutions)
 			r.Get("/executions/{id}", execH.GetExecution)

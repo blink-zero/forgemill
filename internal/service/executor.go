@@ -78,10 +78,10 @@ type ExecuteRequest struct {
 func (s *ExecutorService) Execute(ctx context.Context, vmID int64, req ExecuteRequest, userID int64) (*models.ActionExecution, error) {
 	// Validate request: exactly one of action_id or script
 	if req.ActionID != nil && req.Script != "" {
-		return nil, fmt.Errorf("provide either action_id or script, not both")
+		return nil, refuse("provide either action_id or script, not both")
 	}
 	if req.ActionID == nil && req.Script == "" {
-		return nil, fmt.Errorf("action_id or script is required")
+		return nil, refuse("action_id or script is required")
 	}
 
 	// Resolve timeout
@@ -102,14 +102,14 @@ func (s *ExecutorService) Execute(ctx context.Context, vmID int64, req ExecuteRe
 		return nil, fmt.Errorf("check vm concurrency: %w", err)
 	}
 	if vmCount >= maxConcurrentPerVM {
-		return nil, fmt.Errorf("maximum %d concurrent executions per VM reached", maxConcurrentPerVM)
+		return nil, refuse("maximum %d concurrent executions per VM reached — wait for them to finish or cancel one", maxConcurrentPerVM)
 	}
 	totalCount, err := s.db.CountRunningExecutionsTotal()
 	if err != nil {
 		return nil, fmt.Errorf("check total concurrency: %w", err)
 	}
 	if totalCount >= maxConcurrentTotal {
-		return nil, fmt.Errorf("maximum %d concurrent executions system-wide reached", maxConcurrentTotal)
+		return nil, refuse("maximum %d concurrent executions system-wide reached — wait for some to finish", maxConcurrentTotal)
 	}
 
 	// Resolve VM and check preconditions
@@ -118,10 +118,11 @@ func (s *ExecutorService) Execute(ctx context.Context, vmID int64, req ExecuteRe
 		return nil, fmt.Errorf("VM not found: %w", err)
 	}
 	if vm.PowerState != "poweredOn" && vm.PowerState != "running" {
-		return nil, fmt.Errorf("VM must be powered on to execute actions")
+		return nil, refuse("VM must be powered on to run actions")
 	}
-	if vm.IPAddress == "" {
-		return nil, fmt.Errorf("VM has no IP address — is it powered on?")
+	address := vm.Address()
+	if address == "" {
+		return nil, &RefusedError{Reason: NoAddressReason, Err: ErrNoAddress}
 	}
 
 	// Resolve the catalogue action first: a draft is refused before any
@@ -130,7 +131,7 @@ func (s *ExecutorService) Execute(ctx context.Context, vmID int64, req ExecuteRe
 	if req.ActionID != nil {
 		action, err = s.db.GetAction(*req.ActionID)
 		if err != nil {
-			return nil, fmt.Errorf("action not found: %w", err)
+			return nil, &RefusedError{Reason: "action not found", Err: err}
 		}
 		if action.Status == models.ActionStatusDraft {
 			return nil, fmt.Errorf("%w: %q is a draft — review and publish it before running it", ErrActionDraft, action.Name)
@@ -142,7 +143,7 @@ func (s *ExecutorService) Execute(ctx context.Context, vmID int64, req ExecuteRe
 	creds, err := resolveVMCredentials(s.db, s.encryptor, vm)
 	if err != nil {
 		if errors.Is(err, ErrNoCredentials) {
-			return nil, fmt.Errorf("%w — set SSH credentials on the VM page (adopted and registered VMs have none until you do)", err)
+			return nil, &RefusedError{Reason: "no SSH credentials for this VM — set them on the VM page (adopted and registered VMs have none until you do)", Err: ErrNoCredentials}
 		}
 		return nil, err
 	}
@@ -157,7 +158,7 @@ func (s *ExecutorService) Execute(ctx context.Context, vmID int64, req ExecuteRe
 
 	if action != nil {
 		if err := validateScript(action.Script); err != nil {
-			return nil, fmt.Errorf("invalid action script: %w", err)
+			return nil, &RefusedError{Reason: "invalid action script: " + err.Error(), Err: err}
 		}
 		script = action.Script
 		actionName = action.Name
@@ -167,13 +168,13 @@ func (s *ExecutorService) Execute(ctx context.Context, vmID int64, req ExecuteRe
 		if len(action.Parameters) > 0 {
 			envBlock, err := validateAndBuildParams(action.Parameters, req.ParameterValues)
 			if err != nil {
-				return nil, err
+				return nil, &RefusedError{Reason: err.Error(), Err: err}
 			}
 			paramEnvBlock = envBlock
 		}
 	} else {
 		if err := validateScript(req.Script); err != nil {
-			return nil, fmt.Errorf("invalid script: %w", err)
+			return nil, &RefusedError{Reason: "invalid script: " + err.Error(), Err: err}
 		}
 		script = req.Script
 		actionName = "Ad-hoc script"
@@ -221,7 +222,7 @@ func (s *ExecutorService) Execute(ctx context.Context, vmID int64, req ExecuteRe
 	s.cancels[exec.ID] = cancel
 	s.mu.Unlock()
 
-	go s.runExecution(execCtx, cancel, exec.ID, vmID, vm.IPAddress, username, auth, script, paramEnvBlock)
+	go s.runExecution(execCtx, cancel, exec.ID, vmID, address, username, auth, script, paramEnvBlock)
 
 	return exec, nil
 }
@@ -431,3 +432,29 @@ var _ = strconv.Itoa
 
 // ErrActionDraft: a draft action was asked to run. Drafts are never runnable.
 var ErrActionDraft = errors.New("draft actions cannot run")
+
+// RefusedError is an execution that was turned down before anything was
+// attempted on the VM (powered off, no address, no login, limits, bad
+// parameters). Its text is written for the person who clicked Run and is
+// safe to show them verbatim; everything else Execute returns is logged
+// and reported generically.
+type RefusedError struct {
+	Reason string
+	Err    error // optional sentinel for errors.Is
+}
+
+func (e *RefusedError) Error() string { return e.Reason }
+func (e *RefusedError) Unwrap() error { return e.Err }
+
+func refuse(format string, args ...any) error {
+	return &RefusedError{Reason: fmt.Sprintf(format, args...)}
+}
+
+// ErrNoAddress is the sentinel inside the RefusedError for a VM Forgemill
+// has no address for.
+var ErrNoAddress = errors.New("VM has no address")
+
+// NoAddressReason explains the no-address case the way the UI should: it is
+// nearly always a missing guest agent, and the fix is either the agent or a
+// manually-set address.
+const NoAddressReason = "Forgemill doesn't know this VM's address. Hypervisors only report one through the guest agent (QEMU guest agent on Proxmox, VMware Tools on ESXi/vCenter); install and enable it then sync the VM, or set the address manually on the VM page."

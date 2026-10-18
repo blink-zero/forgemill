@@ -245,6 +245,7 @@ This prevents secrets from appearing in `docker inspect` output or process listi
 - Managed VM inventory with live status tracking and orphan detection on sync; the guest OS is read from the hypervisor and a sync never downgrades it
 - **Delete preview** — see exactly what a delete would do (hypervisor destroy vs. untrack, dependent snapshots / executions) before confirming
 - **Discover & adopt** — see every VM on a target that Forgemill doesn't manage (live from the hypervisor, templates excluded) and take the ones you want under management without touching the hypervisor; ignore the rest so they stop counting. Adopted VMs are marked with their origin and get power, snapshots, disks, NICs, sync and destroy immediately
+- **Manual VM address** — hypervisors only report a guest's address through the guest agent (QEMU guest agent, VMware Tools); an adopted VM without one shows as having no address and actions and credential checks can't reach it. The VM page says so, with the fix: install the agent and sync, or type the address in and Forgemill uses that instead (kept across syncs until cleared, adoption role, audited)
 - **Per-VM SSH credentials** — set a login (password or private key) on any VM so actions can run on adopted VMs, or to rotate a deployed VM's password; stored AES-256 encrypted, a private key is never shown again. Actions run under sudo: Forgemill hands sudo the stored password when it asks (so a normal password user works without a sudoers edit), a key login can carry a separate sudo password, and credentials are tried on the VM before they're saved — the result says whether SSH or sudo is the problem. Adoption and credential changes are admin-only by default; Settings → Preferences can open them to operators
 - Reveal deploy credentials (AES-256 at rest, decrypted only on reveal, syntax-highlighted for readability)
 
@@ -490,6 +491,7 @@ Forgemill exposes a RESTful API at `/api`. All endpoints require authentication 
 | `POST` | `/api/vms/:id/nics` | Attach an additional network adapter (admin; optional `vlan_tag` on Proxmox) |
 | `GET` | `/api/vms/:id/console` | Console URL (admin) |
 | `GET` | `/api/vms/:id/credentials` | The SSH login Forgemill uses for the VM: username, kind, source (admin; a private key is never returned) |
+| `PUT` | `/api/vms/:id/address` | Set `{"address": "10.0.0.5"}` (IP or hostname; `""` clears) as the address Forgemill connects to when the hypervisor can't report one — no guest agent (adoption role) |
 | `PUT` / `DELETE` | `/api/vms/:id/credentials` | Set `{"username", "password" \| "private_key", "sudo_password"?, "force"?}` or clear the VM's explicit login (adoption role). The login is tried on the VM first (SSH, then sudo) and refused with 422 + the check if actions couldn't run with it |
 | `POST` | `/api/vms/:id/credentials/test` | Try credentials without storing them; tells SSH failures apart from sudo ones (adoption role) |
 | `POST` | `/api/vms/:id/reset-host-key` | Reset SSH host-key fingerprint (admin) |

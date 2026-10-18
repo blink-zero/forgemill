@@ -19,7 +19,7 @@ import { TimeWithTooltip } from "@/components/ui/time-with-tooltip";
 import { useNowTick } from "@/hooks/useNowTick";
 import { vmLifecycleLabel, totalLifetimeRuntimeMs, formatDuration } from "@/lib/vmLifecycle";
 import { timeAgo } from "@/lib/utils";
-import { Play, Square, RotateCcw, Pause, Trash2, Camera, Undo2, ExternalLink, Cpu, MemoryStick, HardDrive, RefreshCw, KeyRound, Copy, X, Loader2, AlertTriangle, Clock, History, Network, BookOpen } from "lucide-react";
+import { Play, Square, RotateCcw, Pause, Trash2, Camera, Undo2, ExternalLink, Cpu, MemoryStick, HardDrive, RefreshCw, KeyRound, Copy, X, Loader2, AlertTriangle, Clock, History, Network, BookOpen, Pencil } from "lucide-react";
 import ProviderIcon from "@/components/ProviderIcon";
 import { getErrorMessage, copyText } from "@/lib/utils";
 import { InventoryOnlyBadge, isInventoryOnly } from "@/components/InventoryOnlyBadge";
@@ -29,6 +29,8 @@ import { NetworkAdaptersCard } from "./NetworkAdaptersCard";
 import { DisksCard } from "./DisksCard";
 import { CredentialsCard } from "./CredentialsCard";
 import { ActionsTab } from "./ActionsTab";
+import { AddressCallout, AddressEditor } from "./AddressPanel";
+import { vmAddress, vmIsOn } from "@/lib/vmAddress";
 
 type Tab = "overview" | "snapshots" | "actions";
 
@@ -98,6 +100,9 @@ export default function VMDetail() {
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get("tab");
   const [tab, setTab] = useState<Tab>(initialTab === "snapshots" || initialTab === "actions" ? initialTab : "overview");
+  // Manual address editor (see AddressPanel). Opened from the callout, the
+  // Address stat, or the Actions tab when a run is refused for no address.
+  const [addressEditor, setAddressEditor] = useState(false);
 
   const vmId = Number(id);
   // 8.14: Track timeouts for cleanup on unmount
@@ -490,6 +495,13 @@ export default function VMDetail() {
         </div>
       )}
 
+      {/* No address: the VM is on but the hypervisor reports nothing (no guest agent). */}
+      {addressEditor ? (
+        <AddressEditor vm={vm} onSaved={setVM} onClose={() => setAddressEditor(false)} />
+      ) : vmIsOn(vm.power_state) && !vmAddress(vm) ? (
+        <AddressCallout targetType={targetType} onEdit={() => setAddressEditor(true)} />
+      ) : null}
+
       {/* Tabs */}
       <div className="flex border-b">
         {(["overview", "snapshots", "actions"] as Tab[]).map((t) => (
@@ -516,7 +528,7 @@ export default function VMDetail() {
                 { label: "vCPU", value: vm.cpu || "—", icon: Cpu, tone: "text-info" },
                 { label: "Memory", value: vm.memory_mb ? (vm.memory_mb >= 1024 ? `${(vm.memory_mb / 1024).toFixed(vm.memory_mb % 1024 ? 1 : 0)} GB` : `${vm.memory_mb} MB`) : "—", icon: MemoryStick, tone: "text-primary" },
                 { label: "Disk", value: vm.disk_gb ? `${vm.disk_gb} GB` : "—", icon: HardDrive, tone: "text-success" },
-                { label: "Address", value: vm.ip_address || "—", icon: Network, tone: "text-muted-foreground", mono: true, copy: !!vm.ip_address },
+                { label: "Address", value: vmAddress(vm) || "—", icon: Network, tone: "text-muted-foreground", mono: true, copy: !!vmAddress(vm) },
                 { label: "Current session", value: vmLifecycleLabel(vm, now).label || "—", icon: Clock, tone: "text-warning", iso: vm.state_changed_at },
                 { label: "Lifetime runtime", value: formatDuration(totalLifetimeRuntimeMs(vm, now)), icon: History, tone: "text-success" },
               ].map((st) => (
@@ -527,7 +539,7 @@ export default function VMDetail() {
                     <div className={`text-[15px] font-semibold tabular-nums leading-5 truncate ${st.mono ? "font-mono text-sm" : ""}`}>
                       {st.iso ? <TimeWithTooltip iso={st.iso}>{String(st.value)}</TimeWithTooltip> : String(st.value)}
                       {st.copy && (
-                        <button onClick={() => copyAndNotify(vm.ip_address)} className="ml-1.5 align-middle text-muted-foreground hover:text-foreground" aria-label="Copy IP address">
+                        <button onClick={() => copyAndNotify(vmAddress(vm))} className="ml-1.5 align-middle text-muted-foreground hover:text-foreground" aria-label="Copy address">
                           <Copy className="h-3 w-3" />
                         </button>
                       )}
@@ -553,7 +565,12 @@ export default function VMDetail() {
                     : vm.origin === "registered"
                       ? { label: "Origin", value: "Registered by reference — not deployed by Forgemill" }
                       : { label: "Template", value: vm.template_name || "N/A" },
-                  { label: "IP Address", value: vm.ip_address || "N/A", mono: true, copyable: !!vm.ip_address },
+                  ...(vm.address_override
+                    ? [
+                        { label: "Address (manual)", value: vm.address_override, mono: true, copyable: true, edit: true },
+                        { label: "Hypervisor-reported IP", value: vm.ip_address || "none reported", mono: !!vm.ip_address, copyable: !!vm.ip_address },
+                      ]
+                    : [{ label: "IP Address", value: vm.ip_address || (vmIsOn(vm.power_state) ? "none reported" : "N/A"), mono: !!vm.ip_address, copyable: !!vm.ip_address, edit: true }]),
                   { label: "OS Type", value: vm.os_type || "N/A" },
                 ].map((row) => (
                   <div key={row.label} className="kv-row">
@@ -567,6 +584,16 @@ export default function VMDetail() {
                           title="Copy to clipboard"
                         >
                           <Copy className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {"edit" in row && row.edit && (
+                        <button
+                          onClick={() => setAddressEditor(true)}
+                          className="text-muted-foreground hover:text-foreground transition-colors"
+                          title="Set the address Forgemill connects to"
+                          aria-label="Edit address"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
                         </button>
                       )}
                     </div>
@@ -804,7 +831,7 @@ export default function VMDetail() {
                 <div className="kv-row"><span className="kv-label">Lifetime runtime</span><span className="kv-value tabular-nums">{formatDuration(totalLifetimeRuntimeMs(vm, now))}</span></div>
               </CardContent>
             </Card>
-              <CredentialsCard vmId={vmId} vmIp={vm.ip_address} />
+              <CredentialsCard vmId={vmId} vmIp={vmAddress(vm)} />
             </div>
           </div>
 
@@ -926,7 +953,9 @@ export default function VMDetail() {
         </Card>
       )}
 
-      {tab === "actions" && <ActionsTab vmId={vmId} vmPowerState={vm.power_state} />}
+      {tab === "actions" && (
+        <ActionsTab vmId={vmId} vmPowerState={vm.power_state} vmAddress={vmAddress(vm)} onSetAddress={() => setAddressEditor(true)} />
+      )}
     </div>
   );
 }

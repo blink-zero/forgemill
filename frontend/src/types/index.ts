@@ -252,6 +252,8 @@ export interface ManagedVM {
   vm_ref: string;
   power_state: string;
   ip_address: string;
+  /** Address an operator typed in because the hypervisor reports none (no guest agent). Wins over ip_address. */
+  address_override: string;
   cpu: number;
   memory_mb: number;
   disk_gb: number;
@@ -660,6 +662,8 @@ export interface SetVMCredentialsRequest {
 // Live result of trying credentials on the VM: SSH login, then sudo.
 export interface CredentialCheck {
   skipped: boolean;
+  /** Skipped because Forgemill has no address for the VM (guest agent missing, no manual address). */
+  no_address?: boolean;
   ssh_ok: boolean;
   sudo?: "nopasswd" | "password" | "needs_password" | "wrong_password" | "not_permitted" | "requiretty" | "probe_failed" | "unknown_failure" | string;
   ok: boolean;
