@@ -121,6 +121,12 @@ c.execute("""INSERT INTO managed_vms (id,deployment_id,target_id,vm_name,vm_ref,
              VALUES (9,NULL,3,'legacy-fileserver','12','poweredOn','10.20.30.5',2,4096,200,'Ubuntu 22.04 LTS',?,?,'linux',?,?,NULL,?,'adopted',?,1)""",
           (ts(minutes=2), ts(days=20), ts(days=20), ts(days=20), 480 * 3600, ts(days=20)))
 
+# An adopted Proxmox VM without the guest agent: powered on but the hypervisor
+# reports no address, so the VM page shows the set-address callout.
+c.execute("""INSERT INTO managed_vms (id,deployment_id,target_id,vm_name,vm_ref,power_state,ip_address,cpu,memory_mb,disk_gb,os_type,last_synced_at,created_at,platform,state_changed_at,last_powered_on_at,last_powered_off_at,total_runtime_seconds,origin,adopted_at,adopted_by)
+             VALUES (10,NULL,2,'legacy-monitor','118','poweredOn','',2,2048,32,'Debian 12',?,?,'linux',?,?,NULL,?,'adopted',?,1)""",
+          (ts(minutes=2), ts(days=4), ts(days=4), ts(days=4), 96 * 3600, ts(days=4)))
+
 c.execute("INSERT INTO vm_snapshots (vm_id,snapshot_ref,name,description,created_at) VALUES (1,'snapshot-501','pre-upgrade','Before nginx 1.26 upgrade',?)", (ts(days=5),))
 c.execute("INSERT INTO vm_snapshots (vm_id,snapshot_ref,name,description,created_at) VALUES (1,'snapshot-517','post-hardening','After Security Hardening action',?)", (ts(days=2, hours=3),))
 c.execute("INSERT INTO vm_snapshots (vm_id,snapshot_ref,name,description,created_at) VALUES (4,'snapshot-520','nightly','Nightly automated snapshot',?)", (ts(hours=9),))

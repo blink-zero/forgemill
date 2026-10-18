@@ -110,6 +110,15 @@ async function run(theme) {
   await shot("07b-vm-snapshots");
   // A VM on an inventory-only host: banner + disabled hypervisor controls.
   if (await goSoft("/vms/9", "text=Inventory-only host")) await shot("07c-vm-inventory-only");
+  // An adopted VM with no guest agent: the no-address callout, then the manual address form.
+  if (await goSoft("/vms/10", "text=Forgemill doesn't know this VM's address")) {
+    await shot("07d-vm-no-address");
+    await page.getByRole("button", { name: "Set address manually" }).click(); await sleep(500);
+    await page.getByLabel("IP address or hostname").fill("10.20.40.18"); await sleep(300);
+    await shot("07e-vm-set-address");
+    await page.getByRole("button", { name: "Save address" }).click(); await sleep(1200);
+    await shot("07f-vm-address-manual", true);
+  }
   const revert = page.getByRole("button", { name: /Revert/ }).first();
   if (await revert.count()) { await revert.click(); await sleep(900); await shot("08-confirm-destructive"); await page.keyboard.press("Escape"); await sleep(300); }
   await sleep(6000);
