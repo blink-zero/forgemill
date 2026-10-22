@@ -21,7 +21,7 @@ import { useTableSort } from "@/hooks/useTableSort";
 import { usePageSize } from "@/hooks/usePageSize";
 import { useVisiblePolling } from "@/hooks/useVisiblePolling";
 import { useNowTick } from "@/hooks/useNowTick";
-import { VMChips } from "@/components/VMChips";
+import { OSTile, VMMetaLine } from "@/components/VMIdentity";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/toast";
 import { TimeWithTooltip } from "@/components/ui/time-with-tooltip";
@@ -460,8 +460,13 @@ export default function VMs() {
                     >
                       <td className="px-4 py-2.5 text-muted-foreground font-mono text-xs">#{vm.id}</td>
                       <td className="px-4 py-2.5">
-                        <div className="font-medium">{vm.vm_name}</div>
-                        <VMChips vm={vm} inventoryOnlyNote={hvNoteByName[vm.target_name]} className="mt-1" />
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <OSTile osType={vm.os_type} platform={vm.platform} size="sm" />
+                          <div className="min-w-0">
+                            <div className="font-medium truncate">{vm.vm_name}</div>
+                            <VMMetaLine vm={vm} inventoryOnlyNote={hvNoteByName[vm.target_name]} />
+                          </div>
+                        </div>
                       </td>
                       <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground hidden sm:table-cell" title={vm.address_override ? "Set manually — the hypervisor reports no address" : undefined}>
                         {vm.address || "—"}
@@ -469,7 +474,7 @@ export default function VMs() {
                       <td className="px-4 py-2.5 text-muted-foreground hidden md:table-cell whitespace-nowrap">
                         {vm.cpu || "?"}C · {vm.memory_mb ? `${Math.round(vm.memory_mb / 1024)}G` : "?"} · {vm.disk_gb || "?"}G
                       </td>
-                      <td className="px-4 py-2.5 text-muted-foreground hidden lg:table-cell">
+                      <td className="px-4 py-2.5 text-muted-foreground hidden lg:table-cell whitespace-nowrap">
                         <span className="inline-flex items-center gap-1.5">
                           {targetTypeByName[vm.target_name] && <ProviderIcon type={targetTypeByName[vm.target_name]} size={14} className="shrink-0" />}
                           {vm.target_name}
@@ -526,14 +531,16 @@ export default function VMs() {
                   <CardContent className="p-4 space-y-3">
                     {/* Header row */}
                     <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="font-semibold text-foreground truncate">{vm.vm_name}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 min-w-0">
-                          {targetTypeByName[vm.target_name] && <ProviderIcon type={targetTypeByName[vm.target_name]} size={12} className="shrink-0" />}
-                          <span className="truncate">{vm.target_name}</span>
-                          <span className="font-mono opacity-60 shrink-0">· #{vm.id}</span>
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
+                        <OSTile osType={vm.os_type} platform={vm.platform} />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-foreground truncate leading-5">{vm.vm_name}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 min-w-0">
+                            {targetTypeByName[vm.target_name] && <ProviderIcon type={targetTypeByName[vm.target_name]} size={12} className="shrink-0" />}
+                            <span className="truncate">{vm.target_name}</span>
+                            <span className="font-mono opacity-60 shrink-0">#{vm.id}</span>
+                          </div>
                         </div>
-                        <VMChips vm={vm} inventoryOnlyNote={hvNoteByName[vm.target_name]} className="mt-2" />
                       </div>
                       <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                         {isPoweredOn(vm.power_state) ? (
@@ -548,6 +555,7 @@ export default function VMs() {
                         <RowActions vm={vm} />
                       </div>
                     </div>
+                    <VMMetaLine vm={vm} inventoryOnlyNote={hvNoteByName[vm.target_name]} className="pl-12 -mt-1.5" />
 
                     {/* Status + IP row */}
                     <div className="flex items-center justify-between gap-2">
