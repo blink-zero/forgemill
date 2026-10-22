@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
+import { vmAddress } from "@/lib/vmAddress";
 import { TimeWithTooltip } from "@/components/ui/time-with-tooltip";
 import { getErrorMessage, timeAgo } from "@/lib/utils";
 import { KeyRound, Download, Loader2, ShieldAlert, Search, Check } from "lucide-react";
@@ -119,7 +120,7 @@ export function CredentialsExport() {
 
   const filteredVMs = useMemo(() => {
     const q = vmSearch.trim().toLowerCase();
-    return vmList.filter((vm) => !q || vm.vm_name.toLowerCase().includes(q) || (vm.target_name ?? "").toLowerCase().includes(q) || (vm.ip_address ?? "").includes(q));
+    return vmList.filter((vm) => !q || vm.vm_name.toLowerCase().includes(q) || (vm.target_name ?? "").toLowerCase().includes(q) || vmAddress(vm).includes(q));
   }, [vmList, vmSearch]);
 
   const toggleVM = (id: number) => setSelectedVMs((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
@@ -241,7 +242,7 @@ export function CredentialsExport() {
                     <input type="checkbox" className="h-4 w-4" checked={selectedVMs.has(vm.id)} onChange={() => toggleVM(vm.id)} />
                     <span className="font-medium truncate">{vm.vm_name}</span>
                     <span className="text-muted-foreground truncate">{vm.target_name}</span>
-                    {vm.ip_address && <span className="ml-auto font-mono text-xs text-muted-foreground">{vm.ip_address}</span>}
+                    {vmAddress(vm) && <span className="ml-auto font-mono text-xs text-muted-foreground">{vmAddress(vm)}</span>}
                   </label>
                 ))}
               </div>

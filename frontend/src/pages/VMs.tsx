@@ -27,6 +27,10 @@ import { useToast } from "@/components/ui/toast";
 import { TimeWithTooltip } from "@/components/ui/time-with-tooltip";
 import { vmLifecycleLabel, parseVMQuery, matchesUptimeQuery, matchesAgeQuery } from "@/lib/vmLifecycle";
 import { powerVariant, powerLabel, isPoweredOn, isPoweredOff } from "@/lib/status";
+import { vmAddress } from "@/lib/vmAddress";
+
+/** A VM row with its effective address (manual override wins) resolved once, so the table can sort on it. */
+type VMRow = ManagedVM & { address: string };
 
 
 export default function VMs() {
@@ -98,14 +102,15 @@ export default function VMs() {
   const parsedQuery = useMemo(() => parseVMQuery(search), [search]);
 
   // Filters + sort share a single sorted array used by both views.
+  const rows = useMemo<VMRow[]>(() => vmList.map((v) => ({ ...v, address: vmAddress(v) })), [vmList]);
   const filtered = useMemo(() => {
     const q = parsedQuery.text;
-    return vmList.filter((v) => {
+    return rows.filter((v) => {
       const matchesSearch =
         !q ||
         (v.vm_name || "").toLowerCase().includes(q) ||
         (v.target_name || "").toLowerCase().includes(q) ||
-        (v.ip_address || "").toLowerCase().includes(q) ||
+        v.address.toLowerCase().includes(q) ||
         (v.os_type || "").toLowerCase().includes(q) ||
         (v.template_name || "").toLowerCase().includes(q);
       const matchesStatus = statusFilter === "all" || v.power_state === statusFilter;
@@ -116,7 +121,7 @@ export default function VMs() {
       const matchesAge = !parsedQuery.age || matchesAgeQuery(v, parsedQuery.age, now);
       return matchesSearch && matchesStatus && matchesTarget && matchesQueryState && matchesUptime && matchesAge && matchesOrigin;
     });
-  }, [vmList, parsedQuery, statusFilter, targetFilter, originFilter, now]);
+  }, [rows, parsedQuery, statusFilter, targetFilter, originFilter, now]);
 
   const viewMode = usePreference("view_mode", "cards");
   const { sorted, sortField, sortDir, toggleSort } = useTableSort(filtered, "vm_name");
@@ -192,17 +197,18 @@ export default function VMs() {
   };
 
   const doCopySSH = async (vm: ManagedVM) => {
-    if (!vm.ip_address) {
-      toast("This VM has no IP address yet", "error");
+    const address = vmAddress(vm);
+    if (!address) {
+      toast("This VM has no address yet", "error");
       return;
     }
     // Try to fetch credentials for a full "ssh user@ip" command. Falls back
     // to "ssh <ip>" if this VM wasn't deployed through Forgemill or creds
     // aren't retrievable.
-    let cmd = `ssh ${vm.ip_address}`;
+    let cmd = `ssh ${address}`;
     try {
       const res = await vmApi.credentials(vm.id);
-      if (res.data?.username) cmd = `ssh ${res.data.username}@${vm.ip_address}`;
+      if (res.data?.username) cmd = `ssh ${res.data.username}@${address}`;
     } catch {
       // ignore — use fallback
     }
@@ -215,13 +221,14 @@ export default function VMs() {
   };
 
   const doCopyIP = async (vm: ManagedVM) => {
-    if (!vm.ip_address) {
-      toast("This VM has no IP address yet", "error");
+    const address = vmAddress(vm);
+    if (!address) {
+      toast("This VM has no address yet", "error");
       return;
     }
     try {
-      await copyText(vm.ip_address);
-      toast(`Copied ${vm.ip_address}`);
+      await copyText(address);
+      toast(`Copied ${address}`);
     } catch {
       toast("Could not copy to clipboard", "error");
     }
@@ -277,15 +284,15 @@ export default function VMs() {
       <DropdownMenuItem icon={<ExternalLink />} onClick={() => navigate(`/vms/${vm.id}`)}>
         Open detail
       </DropdownMenuItem>
-      <DropdownMenuItem icon={<Monitor />} disabled={!vm.ip_address} onClick={() => doOpenConsole(vm)}>
+      <DropdownMenuItem icon={<Monitor />} disabled={!vmAddress(vm)} onClick={() => doOpenConsole(vm)}>
         Open console
       </DropdownMenuItem>
       <DropdownMenuSeparator />
-      <DropdownMenuItem icon={<Terminal />} disabled={!vm.ip_address} onClick={() => doCopySSH(vm)}>
+      <DropdownMenuItem icon={<Terminal />} disabled={!vmAddress(vm)} onClick={() => doCopySSH(vm)}>
         Copy SSH command
       </DropdownMenuItem>
-      <DropdownMenuItem icon={<Box />} disabled={!vm.ip_address} onClick={() => doCopyIP(vm)}>
-        Copy IP address
+      <DropdownMenuItem icon={<Box />} disabled={!vmAddress(vm)} onClick={() => doCopyIP(vm)}>
+        Copy address
       </DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem icon={<Camera />} onClick={() => navigate(`/vms/${vm.id}?tab=snapshots`)}>
@@ -435,7 +442,7 @@ export default function VMs() {
                   <tr className="border-b bg-muted/50">
                     <SortableTh label="ID" field="id" currentField={sortField} currentDir={sortDir} onSort={toggleSort} className="w-16" />
                     <SortableTh label="Name" field="vm_name" currentField={sortField} currentDir={sortDir} onSort={toggleSort} />
-                    <SortableTh label="IP Address" field="ip_address" currentField={sortField} currentDir={sortDir} onSort={toggleSort} className="hidden sm:table-cell" />
+                    <SortableTh label="IP Address" field="address" currentField={sortField} currentDir={sortDir} onSort={toggleSort} className="hidden sm:table-cell" />
                     <th className="text-left px-4 py-2 font-medium hidden md:table-cell">Specs</th>
                     <SortableTh label="Target" field="target_name" currentField={sortField} currentDir={sortDir} onSort={toggleSort} className="hidden lg:table-cell" />
                     <SortableTh label="Status" field="power_state" currentField={sortField} currentDir={sortDir} onSort={toggleSort} />
@@ -466,8 +473,8 @@ export default function VMs() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground hidden sm:table-cell">
-                        {vm.ip_address || "—"}
+                      <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground hidden sm:table-cell" title={vm.address_override ? "Set manually — the hypervisor reports no address" : undefined}>
+                        {vm.address || "—"}
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground hidden md:table-cell whitespace-nowrap">
                         {vm.cpu || "?"}C · {vm.memory_mb ? `${Math.round(vm.memory_mb / 1024)}G` : "?"} · {vm.disk_gb || "?"}G
@@ -567,9 +574,9 @@ export default function VMs() {
                         <Power className="h-3 w-3 mr-1" />
                         {powerLabel(vm.power_state)}
                       </Badge>
-                      {vm.ip_address && (
-                        <span className="font-mono text-xs text-muted-foreground truncate" title={vm.ip_address}>
-                          {vm.ip_address}
+                      {vm.address && (
+                        <span className="font-mono text-xs text-muted-foreground truncate" title={vm.address_override ? `${vm.address} (set manually)` : vm.address}>
+                          {vm.address}
                         </span>
                       )}
                     </div>

@@ -118,6 +118,11 @@ async function run(theme) {
     await shot("07e-vm-set-address");
     await page.getByRole("button", { name: "Save address" }).click(); await sleep(1200);
     await shot("07f-vm-address-manual", true);
+    // The manual address is what the list shows too.
+    await go("/vms", "text=legacy-monitor"); await page.locator("button[title='Table view']").click(); await sleep(400);
+    await page.getByPlaceholder(/Search/).first().fill("legacy-monitor"); await sleep(600);
+    await shot("07g-vms-table-manual-address");
+    await page.locator("button[title='Card view']").click(); await sleep(300);
   }
   const revert = page.getByRole("button", { name: /Revert/ }).first();
   if (await revert.count()) { await revert.click(); await sleep(900); await shot("08-confirm-destructive"); await page.keyboard.press("Escape"); await sleep(300); }
