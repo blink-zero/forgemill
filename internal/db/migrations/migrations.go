@@ -73,6 +73,7 @@ var migrations = []struct {
 	{47, migrationV47},
 	{48, migrationV48},
 	{49, migrationV49},
+	{50, migrationV50},
 }
 
 const migrationV1 = `
@@ -781,6 +782,21 @@ func runMigrations(db *sql.DB, dbPath string) error {
 			}
 		}
 
+		// V50 post-migration: Docker container update / status built-ins.
+		// Guarded like V38 so a restart can never seed a second copy.
+		if m.version == 50 {
+			for _, a := range v50BuiltinActions {
+				if _, err := db.Exec(
+					`INSERT INTO actions (name, description, category, script, script_type, platform, builtin, parameters, tags, created_at, updated_at)
+					 SELECT ?, ?, ?, ?, 'bash', 'linux', 1, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+					 WHERE NOT EXISTS (SELECT 1 FROM actions WHERE builtin = 1 AND name = ?)`,
+					a.name, a.description, a.category, a.script, a.parameters, a.tags, a.name,
+				); err != nil {
+					slog.Warn("failed to insert V50 builtin action", "name", a.name, "error", err)
+				}
+			}
+		}
+
 		// V22 post-migration: insert "Collect VM Info" built-in action
 		if m.version == 22 {
 			if _, err := db.Exec(
@@ -1443,6 +1459,12 @@ INSERT INTO schema_version (version) VALUES (38);
 const migrationV49 = `
 ALTER TABLE managed_vms ADD COLUMN address_override TEXT NOT NULL DEFAULT '';
 INSERT INTO schema_version (version) VALUES (49);
+`
+
+// V50 only bumps the version; the two Docker built-in actions are inserted
+// by the post-migration step in Run (see v50_scripts.go).
+const migrationV50 = `
+INSERT INTO schema_version (version) VALUES (50);
 `
 
 const migrationV48 = `

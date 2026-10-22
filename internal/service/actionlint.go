@@ -160,8 +160,11 @@ func LintAction(script string, params []models.ActionParameter) ([]Finding, Dist
 			continue
 		}
 		for _, m := range reVarRef.FindAllStringSubmatch(l, -1) {
-			if _, seen := used[m[1]]; !seen {
-				used[m[1]] = n
+			// Parameters reach the script as PARAM_<NAME>, so $PARAM_FOO is a
+			// use of the parameter FOO.
+			name := strings.TrimPrefix(m[1], "PARAM_")
+			if _, seen := used[name]; !seen {
+				used[name] = n
 			}
 		}
 		if reRmRfRoot.MatchString(l) && !reRmRfGuarded.MatchString(l) {
