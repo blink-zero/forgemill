@@ -442,7 +442,7 @@ export default function VMs() {
                   <tr className="border-b bg-muted/50">
                     <SortableTh label="ID" field="id" currentField={sortField} currentDir={sortDir} onSort={toggleSort} className="w-16" />
                     <SortableTh label="Name" field="vm_name" currentField={sortField} currentDir={sortDir} onSort={toggleSort} />
-                    <SortableTh label="Address" field="address" currentField={sortField} currentDir={sortDir} onSort={toggleSort} className="hidden sm:table-cell" />
+                    <SortableTh label="IP Address" field="address" currentField={sortField} currentDir={sortDir} onSort={toggleSort} className="hidden sm:table-cell" />
                     <th className="text-left px-4 py-2 font-medium hidden md:table-cell">Specs</th>
                     <SortableTh label="Target" field="target_name" currentField={sortField} currentDir={sortDir} onSort={toggleSort} className="hidden lg:table-cell" />
                     <SortableTh label="Status" field="power_state" currentField={sortField} currentDir={sortDir} onSort={toggleSort} />
