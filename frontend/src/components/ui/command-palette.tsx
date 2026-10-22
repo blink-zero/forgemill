@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { vms as vmApi, templates, targets, actions } from "@/api/client";
 import type { ManagedVM, Template, Target, Action } from "@/types";
 import { powerVariant, powerLabel, isPoweredOn } from "@/lib/status";
+import { vmAddress } from "@/lib/vmAddress";
 
 const MAX_RESULTS_PER_CATEGORY = 5;
 
@@ -135,7 +136,7 @@ export function CommandPalette() {
     // Filter VMs
     const filteredVms = data.vms.filter((vm) =>
       vm.vm_name.toLowerCase().includes(q) ||
-      (vm.ip_address && vm.ip_address.toLowerCase().includes(q)) ||
+      vmAddress(vm).toLowerCase().includes(q) ||
       vm.target_name.toLowerCase().includes(q)
     );
     filteredVms.slice(0, MAX_RESULTS_PER_CATEGORY).forEach((vm) => {
@@ -143,7 +144,7 @@ export function CommandPalette() {
         id: vm.id,
         type: "vms",
         name: vm.vm_name,
-        subtitle: vm.ip_address || vm.target_name,
+        subtitle: vmAddress(vm) || vm.target_name,
         badge: powerLabel(vm.power_state),
         badgeVariant: powerVariant(vm.power_state),
         powerState: vm.power_state,
