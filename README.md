@@ -64,7 +64,7 @@ If you already run full-blown cloud platforms or need multi-tenancy, Forgemill i
 - **One-click deploy** — cloud-init customisation, extra disks and NICs at deploy time, pre-flight validation before anything is created, bulk deploys, reusable blueprints, a receipt and timeline for every deployment
 - **Discover & adopt** — see every VM on a target that Forgemill doesn't manage and take the ones you want under management without touching the hypervisor
 - **Lifecycle in one place** — power, snapshots, resize, expand / add disk, add network adapter, console, per-VM SSH credentials, uptime / runtime tracking, a per-VM event log of what the hypervisor did or refused
-- **Post-deploy actions** — 23 built-in actions plus your own bash scripts, run over SSH with streaming output, parameters, versioning with rollback, import / export, and a deterministic script check with one-click fixes
+- **Post-deploy actions** — 25 built-in actions plus your own bash scripts, run over SSH with streaming output, parameters, versioning with rollback, import / export, and a deterministic script check with one-click fixes
 - **AI assistance, off by default** — review or draft an action with Anthropic, any OpenAI-compatible endpoint or Ollama; secrets redacted before anything is sent, drafts never runnable until published
 - **In-app notifications** — bell + drawer for deploy / execution / build / template-update / AI-draft events
 - **Auth that scales** — local accounts, LDAP / AD with group→role mapping, per-user API keys with scoped roles, JWT with revocation
@@ -318,13 +318,14 @@ Ground rules, enforced in code: every call is a button you click; the model only
 
 ## Built-in actions
 
-Twenty-three actions ship with Forgemill. All are parameterised where useful and run over SSH with streaming output. Built-in actions cannot be modified directly — create a copy to customise.
+Twenty-five actions ship with Forgemill. All are parameterised where useful and run over SSH with streaming output. Built-in actions cannot be modified directly — create a copy to customise.
 
 | Action | Category | What it does |
 |--------|----------|--------------|
 | **Update System Packages** | packages | Detects the OS and runs apt / dnf / yum / zypper to apply the latest updates and security patches |
 | **Install Docker** | packages | Installs Docker Engine via the official convenience script (Ubuntu, Debian, Rocky, CentOS, Fedora, SUSE) |
 | **Install Docker Compose** | packages | Installs the Docker Compose plugin (Docker must already be installed) |
+| **Update Docker Containers** | packages | Pulls newer images for every running container; Compose-managed ones are recreated via `docker compose pull` / `up -d` in their project directory, hand-started ones are pulled and reported (or recreated by a one-shot Watchtower run with `STANDALONE=recreate`); optional dry run and dangling-image prune |
 | **Install Nginx** | packages | Installs and enables the Nginx web server |
 | **Install PostgreSQL** | packages | Installs and enables PostgreSQL from the distro's repositories |
 | **Install MariaDB** | packages | Installs and enables MariaDB (MySQL-compatible) from the distro's repositories |
@@ -344,6 +345,7 @@ Twenty-three actions ship with Forgemill. All are parameterised where useful and
 | **Add SSH Authorized Key** | security | Appends an SSH public key to a user's `authorized_keys`, idempotent (dedup check) |
 | **Network Connectivity Validation** | monitoring | Validates gateway, DNS, NTP, outbound HTTPS; shows network config with PASS/FAIL summary |
 | **System Health Check** | monitoring | Checks disk usage, memory and load average against thresholds and reports PASS / WARN / FAIL |
+| **Docker Container Status** | monitoring | Read-only report of what Docker is running: engine summary, every container with image / state / ports, unhealthy or restart-looping containers, Compose projects, a live CPU / memory snapshot and disk usage |
 | **Deploy Monitoring Agent** | monitoring | Installs Prometheus `node_exporter` as a hardened systemd service (parameter: port) |
 
 ---
