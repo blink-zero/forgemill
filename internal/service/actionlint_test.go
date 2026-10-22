@@ -106,3 +106,23 @@ func keys(m map[string]Finding) []string {
 	}
 	return out
 }
+
+// Parameters reach the script as PARAM_<NAME> (what the editor tells users),
+// so reading $PARAM_FOO is a use of FOO: neither "undeclared" nor "unused".
+func TestLintActionKnowsTheParamPrefix(t *testing.T) {
+	script := `#!/bin/bash
+set -euo pipefail
+echo "size: ${PARAM_SIZE_MB:-2048}"
+echo "mode: $PARAM_MODE"
+echo "stray: $PARAM_NOT_DECLARED"
+`
+	findings, _ := LintAction(script, []models.ActionParameter{{Name: "SIZE_MB", Type: "number"}, {Name: "MODE", Type: "select", Options: []string{"a", "b"}}})
+	got := rules(findings)
+	if _, ok := got["parameter-unused"]; ok {
+		t.Errorf("SIZE_MB/MODE are read via $PARAM_: %s", got["parameter-unused"].Title)
+	}
+	u, ok := got["parameter-undeclared"]
+	if !ok || !strings.Contains(u.Detail, "NOT_DECLARED") || strings.Contains(u.Detail, "SIZE_MB") || strings.Contains(u.Detail, "MODE") {
+		t.Errorf("undeclared should name only NOT_DECLARED: %+v", u)
+	}
+}
