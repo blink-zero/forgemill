@@ -49,6 +49,11 @@ frontend/e2e/run.sh compare /tmp/fm-base/forgemill /tmp/fm-base/frontend/dist /t
 0.5 % of pixels per image. Text re-flow from a changed label is well above that; a
 one-pixel border change is well below it.
 
+When a PR *means* to change how a page looks (a redesigned card, a new column), add
+the `ui-change-expected` label to it: the gate still runs and still uploads the
+screenshots and diff images, but a difference above the threshold becomes a warning
+instead of a failure. Adding or removing the label re-runs the gate.
+
 ## Backend parity
 
 ```bash

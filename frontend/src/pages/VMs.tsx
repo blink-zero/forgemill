@@ -21,7 +21,7 @@ import { useTableSort } from "@/hooks/useTableSort";
 import { usePageSize } from "@/hooks/usePageSize";
 import { useVisiblePolling } from "@/hooks/useVisiblePolling";
 import { useNowTick } from "@/hooks/useNowTick";
-import { OSBadge } from "@/components/OSBadge";
+import { VMChips } from "@/components/VMChips";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/toast";
 import { TimeWithTooltip } from "@/components/ui/time-with-tooltip";
@@ -460,18 +460,8 @@ export default function VMs() {
                     >
                       <td className="px-4 py-2.5 text-muted-foreground font-mono text-xs">#{vm.id}</td>
                       <td className="px-4 py-2.5">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium">{vm.vm_name}</span>
-                          <OSBadge osType={vm.os_type} platform={vm.platform} size="xs" />
-                          {vm.template_name && (
-                            <span className="text-[10px] text-muted-foreground/70 font-mono" title={`From template ${vm.template_name}`}>
-                              {vm.template_name}
-                            </span>
-                          )}
-                          {vm.origin === "adopted" && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded border border-border bg-muted text-muted-foreground" title="Discovered on the target and adopted into Forgemill"><Import className="h-2.5 w-2.5" />adopted</span>
-                          )}
-                        </div>
+                        <div className="font-medium">{vm.vm_name}</div>
+                        <VMChips vm={vm} inventoryOnlyNote={hvNoteByName[vm.target_name]} className="mt-1" />
                       </td>
                       <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground hidden sm:table-cell" title={vm.address_override ? "Set manually — the hypervisor reports no address" : undefined}>
                         {vm.address || "—"}
@@ -483,7 +473,6 @@ export default function VMs() {
                         <span className="inline-flex items-center gap-1.5">
                           {targetTypeByName[vm.target_name] && <ProviderIcon type={targetTypeByName[vm.target_name]} size={14} className="shrink-0" />}
                           {vm.target_name}
-                          {hvNoteByName[vm.target_name] && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning/15 text-warning" title={hvNoteByName[vm.target_name]}>inventory-only</span>}
                         </span>
                       </td>
                       <td className="px-4 py-2.5">
@@ -538,21 +527,13 @@ export default function VMs() {
                     {/* Header row */}
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold text-foreground truncate">{vm.vm_name}</span>
-                          <OSBadge osType={vm.os_type} platform={vm.platform} size="xs" />
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <div className="font-semibold text-foreground truncate">{vm.vm_name}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 min-w-0">
                           {targetTypeByName[vm.target_name] && <ProviderIcon type={targetTypeByName[vm.target_name]} size={12} className="shrink-0" />}
-                          <span>{vm.target_name}</span>
-                          {hvNoteByName[vm.target_name] && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning/15 text-warning" title={hvNoteByName[vm.target_name]}>inventory-only</span>}
-                          <span className="font-mono opacity-60">· #{vm.id}</span>
+                          <span className="truncate">{vm.target_name}</span>
+                          <span className="font-mono opacity-60 shrink-0">· #{vm.id}</span>
                         </div>
-                        {vm.template_name && (
-                          <div className="text-[11px] text-muted-foreground/80 mt-1 truncate">
-                            from <span className="font-mono">{vm.template_name}</span>
-                          </div>
-                        )}
+                        <VMChips vm={vm} inventoryOnlyNote={hvNoteByName[vm.target_name]} className="mt-2" />
                       </div>
                       <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                         {isPoweredOn(vm.power_state) ? (

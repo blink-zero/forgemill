@@ -5,6 +5,8 @@ name: UI regression
 on:
   pull_request:
     branches: [dev, main]
+    # labeled/unlabeled too, so adding `ui-change-expected` re-runs the gate.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
     paths:
       - "frontend/**"
       - "internal/**"
@@ -60,13 +62,27 @@ jobs:
         working-directory: head/frontend
         run: npx playwright install --with-deps chromium
 
+      # A PR that means to change how a page looks carries the
+      # `ui-change-expected` label: the diff still runs and its images are
+      # still uploaded for review, but a difference above the threshold is a
+      # warning instead of a failure. Everything else is gated as before.
       - name: Seed, tour both builds, diff
         working-directory: head
+        env:
+          UI_CHANGE_EXPECTED: ${{ contains(github.event.pull_request.labels.*.name, 'ui-change-expected') }}
         run: |
+          set +e
           frontend/e2e/run.sh compare \
             "$GITHUB_WORKSPACE/base/forgemill" "$GITHUB_WORKSPACE/base/frontend/dist" \
             "$GITHUB_WORKSPACE/head/forgemill" "$GITHUB_WORKSPACE/head/frontend/dist" \
             "$RUNNER_TEMP/e2e"
+          rc=$?
+          set -e
+          if [ "$rc" -eq 2 ] && [ "$UI_CHANGE_EXPECTED" = "true" ]; then
+            echo "::warning title=UI change accepted::Screenshots differ from the base branch; accepted because this PR is labelled ui-change-expected. Review the diffs in the ui-screenshots artifact."
+            exit 0
+          fi
+          exit "$rc"
 
       - name: Upload screenshots and diffs
         if: always()
